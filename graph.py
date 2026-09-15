@@ -124,6 +124,41 @@ def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: rando
         )
 
 
+def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
+    rows = conn.execute(
+        """
+        SELECT sr.resident_id, r.id AS staff_id, sr.customer_score, sr.purchase_count, sr.is_primary
+        FROM shop_relationships sr
+        JOIN residents r ON r.workplace_building_id = sr.shop_building_id
+        WHERE sr.resident_id != r.id
+        """
+    ).fetchall()
+    if not rows:
+        return
+
+    max_customer_score = max(row[2] for row in rows) or 1.0
+    max_purchase_count = max(row[3] for row in rows) or 1.0
+
+    for customer_id, staff_id, customer_score, purchase_count, is_primary in rows:
+        time = _clamp01(customer_score / max_customer_score)
+        services = _clamp01(purchase_count / max_purchase_count)
+        intimacy = _clamp01(rng.gauss(0.10, 0.08))
+        valence_mean = 0.15 if is_primary else 0.0
+        valence = _clamp_signed(rng.gauss(valence_mean, 0.30))
+        graph.add_edge(
+            Edge(
+                resident_a=customer_id,
+                resident_b=staff_id,
+                source_type="shopkeeper_customer",
+                fiske_type=FISKE_TAGS["shopkeeper_customer"],
+                time=time,
+                intimacy=intimacy,
+                services=services,
+                valence=valence,
+            )
+        )
+
+
 def import_snapshot(db_path: str, seed: int) -> SocialGraph:
     rng = random.Random(seed)
     graph = SocialGraph()
@@ -131,6 +166,7 @@ def import_snapshot(db_path: str, seed: int) -> SocialGraph:
     try:
         _load_residents(conn, graph)
         _load_relationships(conn, graph, rng)
+        _load_shopkeeper_customer(conn, graph, rng)
     finally:
         conn.close()
     return graph
