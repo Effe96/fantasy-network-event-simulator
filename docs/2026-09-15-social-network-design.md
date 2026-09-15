@@ -11,8 +11,8 @@ It reads a one-time, read-only snapshot of residents and relationships out
 of a real TownShape town database, enriches that graph with attributes
 TownShape doesn't store today, and runs day-by-day simulations over it.
 Nothing here writes back to TownShape, and TownShape's own database schema
-is untouched — this project only *reads* `residents` and `relationships`
-from one `.db` file.
+is untouched — this project only *reads* `residents`, `relationships`,
+and `shop_relationships` from one `.db` file.
 
 The output (a plain event log: "on day 40, a violent event happened between
 resident 12 and resident 88") is deliberately shaped to be a good input for
@@ -23,14 +23,31 @@ narrative generation later, though wiring that up is out of scope here.
 TownShape already derives relationships between residents — family,
 coworker, neighbor, military unit-mate, and classmate ties — into a
 `relationships` table (see `town_relationships/` in the TownShape repo).
-It also has a separate `shop_relationships` table, but that links a
-resident to a *shop building*, not to another resident, so it can't become
-an edge in a person-to-person graph and isn't used here. This project
-imports one snapshot of `residents` + `relationships` from a chosen `.db`
-file (`demo_svg_overlay_town.db` — 832 residents, ~17,000 relationship
-rows spanning coworker/neighbor/parent/sibling/spouse/unit_mate — is the
-sample used during development). The import is one-time and read-only:
-this project never opens that file for writing.
+`derive_coworker_relationships` groups residents by
+`workplace_building_id` regardless of building type, so two people who
+both work at the same shop are already tagged `coworker` — no extra work
+needed there.
+
+TownShape also has a separate `shop_relationships` table, linking a
+resident to a *shop building* (purchase history, distance, a
+`customer_score`) rather than to another resident, so it isn't a
+person-to-person edge as stored. This project derives one anyway: joining
+`shop_relationships` against `residents.workplace_building_id` pairs each
+customer with that shop's staff, producing a `shopkeeper_customer` edge.
+On the sample town this yields 11,252 such pairs across 11 shops (3 staff
+each) — too large a signal to leave out. Unlike the other types (§5),
+part of this edge's weight comes from real data instead of synthetic
+noise: `time` and `services` are derived from the resident's actual
+`customer_score` / `purchase_count` / `is_primary` for that shop, while
+only `intimacy` and `valence` are synthesized.
+
+This project imports one snapshot of `residents`, `relationships`, and
+`shop_relationships` from a chosen `.db` file (`demo_svg_overlay_town.db`
+— 832 residents, ~17,000 relationship rows spanning
+coworker/neighbor/parent/sibling/spouse/unit_mate, plus 3,760 shop
+purchase-history rows — is the sample used during development). The
+import is one-time and read-only: this project never opens that file for
+writing.
 
 ## 3. Core concept: an edge needs to be more than a label
 
@@ -121,13 +138,14 @@ and a customer settle in coin (Market Pricing).
 **In this prototype:** derived mechanically from TownShape's existing
 `relationship_type` as an informational tag only —
 
-| TownShape `relationship_type` | Fiske tag |
+| `relationship_type` | Fiske tag |
 |---|---|
 | `parent`, `sibling`, `spouse` | Communal Sharing |
 | `unit_mate` | Equality Matching |
 | `coworker` | Authority Ranking |
 | `neighbor` | Equality Matching |
 | `classmate` | Communal Sharing |
+| `shopkeeper_customer` (derived, see §2) | Market Pricing |
 
 Nothing in this prototype's probability math reads this tag yet — it's
 recorded on every edge so it's available the moment a phenomenon needs it
@@ -196,6 +214,20 @@ distribution.
 "Wide spread" is what makes some siblings loving and others estranged, and
 some coworkers friends and others rivals, without hand-authoring every
 edge. The same `(db_path, seed)` pair always produces the same graph.
+
+**`shopkeeper_customer` is the one exception** — it isn't purely
+synthesized, because real per-pair data already exists in
+`shop_relationships`:
+
+- `time` = the customer's `customer_score` for that shop, rescaled to
+  0–1 across all shopkeeper-customer pairs (a regular at their primary
+  shop scores high; someone who bought one thing once scores near 0).
+- `services` = `purchase_count` for that pair, rescaled to 0–1 the same
+  way (more transactions = more reciprocal exchange).
+- `intimacy` and `valence` are still synthesized (low `intimacy`,
+  `valence` centered near 0 with a mild positive skew for `is_primary`
+  pairs — you're more likely to be on decent terms with the shop you
+  actually chose as your regular one).
 
 ## 6. The phenomenon engine
 
