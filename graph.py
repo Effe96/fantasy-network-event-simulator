@@ -1,4 +1,5 @@
 import random
+import sqlite3
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -96,3 +97,40 @@ def synthesize_relationship_attributes(relationship_type: str, rng: random.Rando
         "services": _clamp01(rng.gauss(*baseline["services"])),
         "valence": _clamp_signed(rng.gauss(*baseline["valence"])),
     }
+
+
+def _load_residents(conn: sqlite3.Connection, graph: SocialGraph) -> None:
+    rows = conn.execute("SELECT id, ses FROM residents").fetchall()
+    for resident_id, ses in rows:
+        graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True))
+
+
+def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
+    rows = conn.execute(
+        "SELECT resident_a_id, resident_b_id, relationship_type FROM relationships"
+    ).fetchall()
+    for resident_a_id, resident_b_id, relationship_type in rows:
+        if relationship_type not in RELATIONSHIP_TYPE_BASELINES:
+            continue
+        attrs = synthesize_relationship_attributes(relationship_type, rng)
+        graph.add_edge(
+            Edge(
+                resident_a=resident_a_id,
+                resident_b=resident_b_id,
+                source_type=relationship_type,
+                fiske_type=FISKE_TAGS[relationship_type],
+                **attrs,
+            )
+        )
+
+
+def import_snapshot(db_path: str, seed: int) -> SocialGraph:
+    rng = random.Random(seed)
+    graph = SocialGraph()
+    conn = sqlite3.connect(db_path)
+    try:
+        _load_residents(conn, graph)
+        _load_relationships(conn, graph, rng)
+    finally:
+        conn.close()
+    return graph
