@@ -19,7 +19,7 @@ class Phenomenon(Protocol):
     def init_state(self, graph) -> Dict[int, Any]: ...
     def edge_probability(self, edge, state_a, state_b, day: int) -> float: ...
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]: ...
-    def end_of_day(self, graph, state, day: int) -> List[Event]: ...
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]: ...
     def summarize(self, state) -> Dict[str, int]: ...
 
 
@@ -39,10 +39,17 @@ CONTAGION_TYPE_WEIGHTS = {
 class ContagionPhenomenon:
     name = "contagion"
 
-    def __init__(self, base_rate: float = 0.5, infectious_days: int = 7, patient_zero: Optional[int] = None):
+    def __init__(
+        self,
+        base_rate: float = 0.5,
+        infectious_days: int = 7,
+        patient_zero: Optional[int] = None,
+        case_fatality_rate: float = 0.03,
+    ):
         self.base_rate = base_rate
         self.infectious_days = infectious_days
         self.patient_zero = patient_zero
+        self.case_fatality_rate = case_fatality_rate
         # Transmissions rolled during a day are staged here and only become
         # "infected" in end_of_day, so every edge roll for a given day is made
         # against day-start state (design doc §6.2/§7). Mutating state inline
@@ -69,7 +76,7 @@ class ContagionPhenomenon:
         self._pending_infections.append(newly_infected)
         return [Event(day, self.name, "infected", source, newly_infected, "transmission")]
 
-    def end_of_day(self, graph, state, day: int) -> List[Event]:
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         just_infected = set(self._pending_infections)
         for resident_id in self._pending_infections:
             state[resident_id] = {"status": "infected", "days_left": self.infectious_days}
@@ -84,18 +91,24 @@ class ContagionPhenomenon:
                 continue
             resident_state["days_left"] -= 1
             if resident_state["days_left"] <= 0:
-                resident_state["status"] = "recovered"
-                events.append(Event(day, self.name, "recovered", resident_id, resident_id, "recovered"))
+                fatality_p = min(1.0, self.case_fatality_rate * SES_VULNERABILITY.get(graph.nodes[resident_id].ses, 1.0))
+                if rng.random() < fatality_p:
+                    resident_state["status"] = "deceased"
+                    graph.nodes[resident_id].alive = False
+                    events.append(Event(day, self.name, "died", resident_id, resident_id, "died from infection"))
+                else:
+                    resident_state["status"] = "recovered"
+                    events.append(Event(day, self.name, "recovered", resident_id, resident_id, "recovered"))
         return events
 
     def summarize(self, state) -> Dict[str, int]:
-        counts = {"susceptible": 0, "infected": 0, "recovered": 0}
+        counts = {"susceptible": 0, "infected": 0, "recovered": 0, "deceased": 0}
         for resident_state in state.values():
             counts[resident_state["status"]] += 1
         return counts
 
 
-# ponytail: placeholder victim-selection rule (skews toward lower socioeconomic status);
+# ponytail: placeholder vulnerability rule (skews toward lower socioeconomic status);
 # swap for a real vulnerability model if "good enough" stops being good enough
 SES_VULNERABILITY = {"poor": 2.0, "middling": 1.0, "rich": 0.5}
 
@@ -113,18 +126,33 @@ class ViolencePhenomenon:
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         if not (state_a["alive"] and state_b["alive"]):
             return 0.0
-        if edge.valence >= 0:
+        # animosity is directed and need not be mutual; the more hostile side
+        # is the one who might snap, so that's what drives the day's odds
+        hostility = max(-edge.valence_a_to_b, -edge.valence_b_to_a, 0.0)
+        if hostility <= 0:
             return 0.0
-        return self.base_rate * (-edge.valence) * edge.tie_strength
+        return self.base_rate * hostility * edge.tie_strength
 
-    def _pick_victim(self, graph, a: int, b: int, rng: random.Random) -> int:
-        weight_a = SES_VULNERABILITY.get(graph.nodes[a].ses, 1.0)
-        weight_b = SES_VULNERABILITY.get(graph.nodes[b].ses, 1.0)
-        return a if rng.random() < weight_a / (weight_a + weight_b) else b
+    def _pick_aggressor(self, graph, edge, a: int, b: int, rng: random.Random) -> int:
+        # whoever wants to hurt the other more is more likely to be the one who
+        # snaps; whoever is more vulnerable is more likely to end up the victim
+        # if they do -- so aggression is weighted by hostility toward the *other*
+        # side's vulnerability, not by SES alone
+        hostility_a_to_b = max(0.0, -edge.valence_from(a))
+        hostility_b_to_a = max(0.0, -edge.valence_from(b))
+        vulnerability_a = SES_VULNERABILITY.get(graph.nodes[a].ses, 1.0)
+        vulnerability_b = SES_VULNERABILITY.get(graph.nodes[b].ses, 1.0)
+        weight_a_attacks = hostility_a_to_b * vulnerability_b
+        weight_b_attacks = hostility_b_to_a * vulnerability_a
+        total = weight_a_attacks + weight_b_attacks
+        if total <= 0:
+            return a  # edge_probability already requires hostility > 0 somewhere; a fallback only
+        return a if rng.random() < weight_a_attacks / total else b
 
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
-        victim = self._pick_victim(graph, a, b, rng)
-        culprit = b if victim == a else a
+        edge = graph.get_edge(a, b)
+        culprit = self._pick_aggressor(graph, edge, a, b, rng)
+        victim = b if culprit == a else a
 
         state[victim]["alive"] = False
         graph.nodes[victim].alive = False
@@ -139,12 +167,13 @@ class ViolencePhenomenon:
                 continue
             edge_to_victim = graph.get_edge(neighbor_id, victim)
             shock = self.grief_shock * edge_to_victim.tie_strength
-            edge_to_culprit.valence = max(-1.0, edge_to_culprit.valence - shock)
+            new_valence = max(-1.0, edge_to_culprit.valence_from(neighbor_id) - shock)
+            edge_to_culprit.set_valence_from(neighbor_id, new_valence)
             events.append(Event(day, self.name, "grief_shock", neighbor_id, culprit, f"valence -{shock:.3f}"))
 
         return events
 
-    def end_of_day(self, graph, state, day: int) -> List[Event]:
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         return []
 
     def summarize(self, state) -> Dict[str, int]:

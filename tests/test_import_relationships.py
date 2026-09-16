@@ -40,7 +40,8 @@ def test_import_is_deterministic_given_same_seed():
         _build_fixture(db_path)
         graph_a = import_snapshot(db_path, seed=7)
         graph_b = import_snapshot(db_path, seed=7)
-        assert graph_a.get_edge(1, 2).valence == graph_b.get_edge(1, 2).valence
+        assert graph_a.get_edge(1, 2).valence_a_to_b == graph_b.get_edge(1, 2).valence_a_to_b
+        assert graph_a.get_edge(1, 2).valence_b_to_a == graph_b.get_edge(1, 2).valence_b_to_a
 
 
 def test_dead_residents_are_not_imported_and_leave_no_dangling_edges():

@@ -13,8 +13,8 @@ def _sample_graph() -> SocialGraph:
     graph = SocialGraph()
     for resident_id, ses in [(1, "poor"), (2, "rich"), (3, "middling"), (4, "poor")]:
         graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True))
-    graph.add_edge(Edge(1, 2, "spouse", "Communal Sharing", 0.9, 0.9, 0.9, 0.8))
-    graph.add_edge(Edge(2, 3, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, -0.9))
+    graph.add_edge(Edge(1, 2, "spouse", "Communal Sharing", 0.9, 0.9, 0.9, 0.8, 0.8))
+    graph.add_edge(Edge(2, 3, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, -0.9, -0.9))
     # resident 4 has no edges at all -- isolated
     return graph
 

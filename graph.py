@@ -21,11 +21,29 @@ class Edge:
     time: float
     intimacy: float
     services: float
-    valence: float
+    valence_a_to_b: float
+    valence_b_to_a: float
 
     @property
     def tie_strength(self) -> float:
-        return (self.time + abs(self.valence) + self.intimacy + self.services) / 4
+        avg_abs_valence = (abs(self.valence_a_to_b) + abs(self.valence_b_to_a)) / 2
+        return (self.time + avg_abs_valence + self.intimacy + self.services) / 4
+
+    def valence_from(self, resident_id: int) -> float:
+        """How `resident_id` feels about the other endpoint."""
+        if resident_id == self.resident_a:
+            return self.valence_a_to_b
+        if resident_id == self.resident_b:
+            return self.valence_b_to_a
+        raise ValueError(f"{resident_id} is not part of this edge")
+
+    def set_valence_from(self, resident_id: int, value: float) -> None:
+        if resident_id == self.resident_a:
+            self.valence_a_to_b = value
+        elif resident_id == self.resident_b:
+            self.valence_b_to_a = value
+        else:
+            raise ValueError(f"{resident_id} is not part of this edge")
 
 
 class SocialGraph:
@@ -96,7 +114,9 @@ def synthesize_relationship_attributes(relationship_type: str, rng: random.Rando
         "time": _clamp01(rng.gauss(*baseline["time"])),
         "intimacy": _clamp01(rng.gauss(*baseline["intimacy"])),
         "services": _clamp01(rng.gauss(*baseline["services"])),
-        "valence": _clamp_signed(rng.gauss(*baseline["valence"])),
+        # drawn independently: how much A resents/loves B need not match the reverse
+        "valence_a_to_b": _clamp_signed(rng.gauss(*baseline["valence"])),
+        "valence_b_to_a": _clamp_signed(rng.gauss(*baseline["valence"])),
     }
 
 
@@ -154,7 +174,9 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
         services = _clamp01(purchase_count / max_purchase_count)
         intimacy = _clamp01(rng.gauss(0.10, 0.08))
         valence_mean = 0.15 if is_primary else 0.0
-        valence = _clamp_signed(rng.gauss(valence_mean, 0.30))
+        # drawn independently: the customer's opinion of the staff member need not match the reverse
+        valence_a_to_b = _clamp_signed(rng.gauss(valence_mean, 0.30))
+        valence_b_to_a = _clamp_signed(rng.gauss(valence_mean, 0.30))
         graph.add_edge(
             Edge(
                 resident_a=customer_id,
@@ -164,7 +186,8 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
                 time=time,
                 intimacy=intimacy,
                 services=services,
-                valence=valence,
+                valence_a_to_b=valence_a_to_b,
+                valence_b_to_a=valence_b_to_a,
             )
         )
 

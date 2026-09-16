@@ -16,6 +16,12 @@ def main(argv=None) -> None:
     parser.add_argument("--days", type=int, default=365)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", default="output")
+    parser.add_argument("--transmission-rate", type=float, default=0.5,
+                         help="per-edge daily transmission hazard before tie strength/type scaling")
+    parser.add_argument("--infectious-days", type=int, default=7,
+                         help="days an infected resident stays infectious before recovering or dying")
+    parser.add_argument("--fatality-rate", type=float, default=0.03,
+                         help="chance an infected resident dies instead of recovering (SES-weighted)")
     args = parser.parse_args(argv)
 
     graph = import_snapshot(args.db, args.seed)
@@ -29,7 +35,12 @@ def main(argv=None) -> None:
     # is the calibration knob: raise it for a quieter town, lower it for a bloodier one.
     average_degree = max(1.0, 2 * len(graph.edges) / max(1, len(graph.nodes)))
     violence = ViolencePhenomenon(base_rate=0.01 / average_degree)
-    phenomena = [ContagionPhenomenon(), violence]
+    contagion = ContagionPhenomenon(
+        base_rate=args.transmission_rate,
+        infectious_days=args.infectious_days,
+        case_fatality_rate=args.fatality_rate,
+    )
+    phenomena = [contagion, violence]
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)
@@ -61,14 +72,18 @@ def _print_summary(result) -> None:
 
     last = result.daily_summaries[-1]
     peak = max(result.daily_summaries, key=lambda row: row.get("infected", 0))
+    disease_deaths = last.get("deceased", 0)
+    violence_deaths = last.get("dead", 0) - disease_deaths
 
     print("contagion:")
     print(f"  peak simultaneous infected: {peak.get('infected', 0)} (day {peak['day']})")
-    print(f"  final susceptible/infected/recovered: "
-          f"{last.get('susceptible', 0)}/{last.get('infected', 0)}/{last.get('recovered', 0)}")
+    print(f"  final susceptible/infected/recovered/deceased: "
+          f"{last.get('susceptible', 0)}/{last.get('infected', 0)}/{last.get('recovered', 0)}/{disease_deaths}")
     print("violence:")
-    print(f"  total deaths: {last.get('dead', 0)}")
-    print(f"  final alive: {last.get('alive', 0)}")
+    print(f"  deaths: {violence_deaths}")
+    print("population:")
+    print(f"  alive: {last.get('alive', 0)}  dead: {last.get('dead', 0)} "
+          f"(violence {violence_deaths} + disease {disease_deaths})")
     print(f"Total events logged: {len(result.events)}")
 
 

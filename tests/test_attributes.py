@@ -15,13 +15,27 @@ def test_synthesized_values_are_in_range():
             assert 0.0 <= attrs["time"] <= 1.0
             assert 0.0 <= attrs["intimacy"] <= 1.0
             assert 0.0 <= attrs["services"] <= 1.0
-            assert -1.0 <= attrs["valence"] <= 1.0
+            assert -1.0 <= attrs["valence_a_to_b"] <= 1.0
+            assert -1.0 <= attrs["valence_b_to_a"] <= 1.0
 
 
 def test_synthesis_is_deterministic_given_same_seed():
     attrs_a = synthesize_relationship_attributes("spouse", random.Random(42))
     attrs_b = synthesize_relationship_attributes("spouse", random.Random(42))
     assert attrs_a == attrs_b
+
+
+def test_valence_directions_are_drawn_independently():
+    rng = random.Random(2)
+    attrs = synthesize_relationship_attributes("neighbor", rng)
+    # not a given they'd differ every draw, but across many draws they must diverge at least once
+    diverged = False
+    for _ in range(50):
+        attrs = synthesize_relationship_attributes("neighbor", rng)
+        if attrs["valence_a_to_b"] != attrs["valence_b_to_a"]:
+            diverged = True
+            break
+    assert diverged
 
 
 def test_every_baseline_type_has_a_fiske_tag():
@@ -33,6 +47,7 @@ def test_every_baseline_type_has_a_fiske_tag():
 def _run_all():
     test_synthesized_values_are_in_range()
     test_synthesis_is_deterministic_given_same_seed()
+    test_valence_directions_are_drawn_independently()
     test_every_baseline_type_has_a_fiske_tag()
     print("OK")
 

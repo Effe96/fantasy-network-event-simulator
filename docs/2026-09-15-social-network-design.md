@@ -98,6 +98,13 @@ what the next concept fixes.
 
 ### 3.3 Valence — "how do they feel about it?"
 
+> **Amendment (2026-09-16):** valence is directional. Each edge stores
+> `valence_a_to_b` and `valence_b_to_a` independently — A's feelings about
+> B need not equal B's feelings about A, and only the feeling belonging to
+> the person receiving a `grief_shock` moves. The rest of this section
+> still describes the underlying score correctly; read `valence` below as
+> "one direction of it."
+
 **Technical:** a signed score, `valence ∈ [-1, +1]`, where -1 is pure
 animosity and +1 is pure affection. This is the one attribute this
 prototype's violence mechanic actually depends on.
