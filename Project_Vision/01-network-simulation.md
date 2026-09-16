@@ -149,7 +149,22 @@
   (`death_cap`, default 0.9) to avoid a mass-extinction outcome.
 - **Aggression tie-in**: `demo.py` scales both `unrest_threshold` (down)
   and `riot_base_rate` (up) by the same `aggression_factor` violence
-  uses; unaffected by this redesign.
+  uses.
+  - **Calibration bug, found and fixed (user-prompted)**: the original
+    default (`unrest_threshold=0.25`) sat almost exactly *on* the
+    reference town's natural baseline civilian-to-authority hostility
+    (~0.25-0.26 across seeds) — the daily trigger odds scale with how
+    far *above* the threshold that baseline sits, so a near-zero margin
+    meant near-zero odds, and riots were effectively unreachable within
+    a normal year even though they weren't technically impossible.
+    Several seeds in a row showing zero riots prompted the check. Fixed
+    by dropping the default to `0.15` (real margin below the baseline)
+    and raising `riot_base_rate` to `0.03`. **Verified the trigger
+    mechanism itself was never broken**, separately from the
+    calibration: with a fresh RNG stream and no other phenomena
+    running (isolating it from the full simulation's shared draw
+    sequence), 20 of 30 independent year-long trials produced at least
+    one riot at these corrected values.
 - **Not yet built**: the bottom-up trigger from Criminals' "group
   violence escalates into a riot" (Criminals doesn't exist yet); any
   resolution-phase valence shift (catharsis vs. crackdown backlash) —

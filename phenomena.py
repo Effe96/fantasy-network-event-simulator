@@ -299,8 +299,8 @@ class RiotPhenomenon:
 
     def __init__(
         self,
-        unrest_threshold: float = 0.25,
-        riot_base_rate: float = 0.02,
+        unrest_threshold: float = 0.15,
+        riot_base_rate: float = 0.03,
         join_rate: float = 0.5,
         min_participants: int = 3,
         guard_lethality: float = 0.3,
