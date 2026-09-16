@@ -515,7 +515,7 @@ class GuardPhenomenon:
 
     name = "guards"
 
-    def __init__(self, bribe_base_rate: float = 0.01, bribe_affinity_gain: float = 0.15):
+    def __init__(self, bribe_base_rate: float = 0.001, bribe_affinity_gain: float = 0.15):
         self.bribe_base_rate = bribe_base_rate
         self.bribe_affinity_gain = bribe_affinity_gain
         self._bribes = 0
@@ -525,7 +525,7 @@ class GuardPhenomenon:
         # so the static fields it needs are copied in here -- same reason
         # RomancePhenomenon copies gender/age instead of looking them up live
         return {
-            resident_id: {"role": node.role, "cunning": node.cunning, "ses": node.ses}
+            resident_id: {"role": node.role, "cunning": node.cunning, "ses": node.ses, "loyalty": node.loyalty}
             for resident_id, node in graph.nodes.items()
         }
 
@@ -534,8 +534,14 @@ class GuardPhenomenon:
         if roles != {"civilian", "guard"}:
             return 0.0
         civilian_state = state_a if state_a["role"] == "civilian" else state_b
+        guard_state = state_a if state_a["role"] == "guard" else state_b
         wealth_factor = BRIBE_WEALTH_FACTOR.get(civilian_state["ses"], 1.0)
-        return self.bribe_base_rate * civilian_state["cunning"] * wealth_factor * edge.tie_strength
+        # a loyal guard refuses far more often than a corruptible one -- at the
+        # trait's own default mean (0.5) this halves the plain base rate, so
+        # a genuinely high-bribery town has to actually be low-loyalty/
+        # high-corruption to reach the old, too-high rate, not just any town
+        guard_restraint = 1.0 - guard_state["loyalty"]
+        return self.bribe_base_rate * civilian_state["cunning"] * wealth_factor * guard_restraint * edge.tie_strength
 
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
         edge = graph.get_edge(a, b)

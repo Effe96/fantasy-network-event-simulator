@@ -313,13 +313,40 @@ implemented yet — unless marked otherwise.
 - **Riots**: **Implemented** — see "Riots" under Current State, above.
 - **Bribery: Implemented** (`GuardPhenomenon`). A civilian bribes a
   guard they're actually connected to (an edge, not an abstract class
-  tie); the chance scales with the civilian's own `cunning` trait and
-  their `ses` as a wealth-affordability proxy (no town-wide wealth
-  aggregate exists yet — see the "Wealth inequality" candidate
-  parameter). Effect: raises only the guard's own outgoing valence
-  toward the briber, clamped at 1.0 — the first concrete instance of
-  the new **favor** event type (below): it only ever raises affinity,
-  directionally, same discipline as `grief_shock`.
+  tie); the chance scales with the civilian's own `cunning` trait, their
+  `ses` as a wealth-affordability proxy (no town-wide wealth aggregate
+  exists yet — see the "Wealth inequality" candidate parameter), and the
+  **guard's own `loyalty`** as a restraint factor (`1 - loyalty`) — a
+  loyal guard refuses far more often than a corruptible one. Effect:
+  raises only the guard's own outgoing valence toward the briber,
+  clamped at 1.0 — the first concrete instance of the new **favor**
+  event type (below): it only ever raises affinity, directionally, same
+  discipline as `grief_shock`.
+  - **Calibration correction (user feedback)**: the first version had no
+    loyalty dependence and an unscaled base rate, producing ~471
+    bribes/year on the reference town — far too high for a normal town,
+    since that number should only show up in a genuinely low-loyalty,
+    high-corruption one. Adding the loyalty restraint (halves the rate
+    at the trait's own default mean of 0.5) and cutting the base rate
+    10× together bring the reference town to ~25/year. Loyalty alone
+    only gives about a 2× swing town-to-town, though — a real
+    high/low-corruption *contrast* likely needs the town-wide
+    **corruption** parameter already flagged as a candidate dial
+    (Town-wide dynamic parameters, above) multiplying this rate too,
+    not just individual guards' own loyalty. Not built yet; flagged so
+    the next pass doesn't have to rediscover the gap.
+  - **Integration note for whenever this feeds back into TownShape**:
+    bribes are a real economic transaction and should be recorded
+    there, not just as a valence nudge here. TownShape already has a
+    `tax_payments` table (`resident_id`, `tax_type`, `amount`, `period`,
+    `payment_date`) for exactly this shape of record — a bribe should
+    likely be written the same way (a new `bribe_payments` table, or an
+    extended `tax_type`/transaction table covering both), carrying an
+    `amount` so the "going rate scales with town wealth" idea has
+    somewhere real to live. This project never writes back to
+    TownShape today (see the design doc's read-only contract) — this is
+    a forward note for whenever that integration is actually built, not
+    a change to make now.
 - A guard bribed by a noble or priest reacts more strongly to anyone who
   later targets that patron — an attack on someone who's paid you off
   reads as more personal than an attack on an ordinary resident. Not
