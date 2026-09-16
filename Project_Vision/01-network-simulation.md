@@ -188,6 +188,19 @@ implemented yet — unless marked otherwise.
   `TownShape/Project_Vision/02-simulation-layer.md`, "No multi-
   generational relationships" (Open, 2026-08-28) — worth resolving in
   one place rather than two.
+  - **Checked, not viable yet**: TownShape's `parent` edges are
+    strictly household-scoped (only recorded between an adult and a
+    *currently cohabiting* minor child) — a resident who's grown up and
+    moved out never appears as a "child" in any `parent` edge anymore.
+    Confirmed empirically on a real snapshot: 1842 `parent` edges, 1463
+    `sibling` edges, **zero** cases of a parent who is themselves
+    someone's recorded child (i.e. zero derivable grandparent or
+    aunt/uncle chains). Deriving this now would be untestable dead
+    code. Real path forward: once Romance's births create actual
+    `Node`s (see People, above) and a simulation runs long enough for
+    those children to grow up and have their own kids, genuine
+    multi-generation chains will exist in *our* graph to derive from —
+    revisit then, not before.
 - **Personal traits** — religiousness, cunning, skepticism, loyalty —
   **Implemented** as static fields on `Node` (see above); only `loyalty`
   has a consumer so far (violence). Still proposed: shaping how likely a
