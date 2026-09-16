@@ -43,6 +43,11 @@ class ContagionPhenomenon:
         self.base_rate = base_rate
         self.infectious_days = infectious_days
         self.patient_zero = patient_zero
+        # Transmissions rolled during a day are staged here and only become
+        # "infected" in end_of_day, so every edge roll for a given day is made
+        # against day-start state (design doc §6.2/§7). Mutating state inline
+        # would let someone infected this morning infect others this afternoon.
+        self._pending_infections: List[int] = []
 
     def init_state(self, graph) -> Dict[int, Any]:
         state = {resident_id: {"status": "susceptible", "days_left": 0} for resident_id in graph.nodes}
@@ -59,13 +64,23 @@ class ContagionPhenomenon:
 
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
         newly_infected, source = (a, b) if state[a]["status"] == "susceptible" else (b, a)
-        state[newly_infected] = {"status": "infected", "days_left": self.infectious_days}
+        if newly_infected in self._pending_infections:
+            return []  # already caught it earlier today via another edge
+        self._pending_infections.append(newly_infected)
         return [Event(day, self.name, "infected", source, newly_infected, "transmission")]
 
     def end_of_day(self, graph, state, day: int) -> List[Event]:
+        just_infected = set(self._pending_infections)
+        for resident_id in self._pending_infections:
+            state[resident_id] = {"status": "infected", "days_left": self.infectious_days}
+        self._pending_infections.clear()
+
         events: List[Event] = []
         for resident_id, resident_state in state.items():
-            if resident_state["status"] != "infected":
+            if resident_state["status"] != "infected" or resident_id in just_infected:
+                continue
+            # the dead don't recover (violence may have removed them)
+            if not graph.nodes[resident_id].alive:
                 continue
             resident_state["days_left"] -= 1
             if resident_state["days_left"] <= 0:

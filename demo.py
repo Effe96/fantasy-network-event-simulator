@@ -19,7 +19,17 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
 
     graph = import_snapshot(args.db, args.seed)
-    phenomena = [ContagionPhenomenon(), ViolencePhenomenon()]
+    # ponytail: base_rate is a per-edge daily probability (see design doc §8's worked
+    # example, which implicitly assumes a person has a handful of ties). It was never
+    # scaled by graph density, so on a real town where the average resident has ~63
+    # ties the unscaled 0.01 default produces implausible mass-casualty outcomes
+    # (609 of 832 dead in one year). Dividing by average degree keeps each *person's*
+    # aggregate daily risk at the spec's per-tie scale, so the demo shows a believable,
+    # occasional pattern of violence rather than a mass extinction event. The divisor
+    # is the calibration knob: raise it for a quieter town, lower it for a bloodier one.
+    average_degree = max(1.0, 2 * len(graph.edges) / max(1, len(graph.nodes)))
+    violence = ViolencePhenomenon(base_rate=0.01 / average_degree)
+    phenomena = [ContagionPhenomenon(), violence]
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)
@@ -44,9 +54,21 @@ def _write_events_json(path: Path, events) -> None:
 
 
 def _print_summary(result) -> None:
-    last = result.daily_summaries[-1] if result.daily_summaries else {}
     print(f"Simulated {len(result.daily_summaries)} days.")
-    print(f"Final state: {last}")
+    if not result.daily_summaries:
+        print("No days simulated.")
+        return
+
+    last = result.daily_summaries[-1]
+    peak = max(result.daily_summaries, key=lambda row: row.get("infected", 0))
+
+    print("contagion:")
+    print(f"  peak simultaneous infected: {peak.get('infected', 0)} (day {peak['day']})")
+    print(f"  final susceptible/infected/recovered: "
+          f"{last.get('susceptible', 0)}/{last.get('infected', 0)}/{last.get('recovered', 0)}")
+    print("violence:")
+    print(f"  total deaths: {last.get('dead', 0)}")
+    print(f"  final alive: {last.get('alive', 0)}")
     print(f"Total events logged: {len(result.events)}")
 
 
