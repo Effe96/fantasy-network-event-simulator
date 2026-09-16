@@ -93,6 +93,51 @@
   bystander's own* outgoing valence toward the culprit, never the
   culprit's stored feelings toward them.
 
+### Riots (town-wide, not per-edge)
+
+- **Implemented** (`RiotPhenomenon`). Unlike every other phenomenon,
+  a riot isn't a pairwise edge event, so all the real logic runs once a
+  day in `end_of_day`; `edge_probability`/`apply_effect` are always
+  inert (return 0.0 / `[]`). Town-wide bookkeeping (the precomputed
+  civilian↔authority adjacency list, riot/death counters) lives on
+  `self`, not the per-resident `state` dict — the engine indexes
+  `state[resident_id]` for every phenomenon on every edge regardless of
+  what `edge_probability` does with it, so `init_state` still has to
+  return a per-resident dict, just one whose values are never read.
+- **Trigger**: average hostility from `civilian`-role residents toward
+  any `guard`/`noble`-role neighbor (precomputed adjacency, since roles
+  are static) crossing `unrest_threshold`; then a daily probabilistic
+  roll (`riot_base_rate * excess`) decides if it actually breaks out.
+- **Who joins**: civilians with a hostile edge to a guard/noble join
+  with a chance driven by their own worst grievance and `1 - loyalty`
+  (reuses the loyalty trait, same restraint idea as violence). Needs
+  `min_participants` (default 3) joiners or it fizzles without effect.
+- **What it costs**: guards are the front line and die first — each
+  living guard (town-wide, not just ones adjacent to a participant;
+  guards are public figures) faces an independent death roll scaled by
+  mob-size-vs-guard-count. Once enough guards have died
+  (`retreat_threshold`, default 30% of the initial guard count), the
+  guards **retreat**: no further guard deaths this riot, and nobles —
+  shielded until then — become exposed. A noble's own death chance is
+  then proportional to **how much that specific noble is personally
+  hated** (`_hatred_toward`: summed hostile valence from everyone who
+  knows them, not just this riot's participants) relative to the
+  average hatred among living nobles — the most-despised noble is the
+  one the mob goes for, not a flat class-wide rate. All death
+  probabilities are capped (`death_cap`, default 0.9) to avoid a
+  mass-extinction outcome.
+- **Aggression tie-in**: `demo.py` scales both `unrest_threshold` (down)
+  and `riot_base_rate` (up) by the same `aggression_factor` violence
+  uses. Calibrated against the reference town: aggression 0/0.5/1.0 →
+  ~1/5/4 riots/year (not perfectly monotonic at a single seed — an early
+  riot can thin the ~40-person guard/noble pool for the rest of the
+  year; not worth a bigger model for a first pass).
+- **Not yet built**: the bottom-up trigger from Criminals' "group
+  violence escalates into a riot" (Criminals doesn't exist yet); any
+  resolution-phase valence shift (catharsis vs. crackdown backlash) —
+  deliberately left out since the source material doesn't commit to a
+  direction and either would be a guess.
+
 ### CLI & output (`demo.py`)
 
 - `demo.py --db <snapshot> [--days] [--seed] [--transmission-rate]
@@ -227,11 +272,7 @@ implemented yet — unless marked otherwise.
 - A guard's response to a given resident: arrest calmly (low animosity
   toward that person), arrest roughly (high animosity), look the other
   way (high affinity), or accept a bribe (moderate affinity).
-- **Riots**: once town-wide animosity toward guards crosses some
-  threshold, riots become possible. **No riot model exists yet** — this
-  needs a concrete mechanic (who joins, what it costs, what it changes)
-  before it can be implemented; flagged as a dependency for Guards,
-  Criminals, and Nobles alike.
+- **Riots**: **Implemented** — see "Riots" under Current State, above.
 - Bribery raises the guard's affinity toward the briber; the going rate
   scales with town wealth.
 - A guard bribed by a noble or priest reacts more strongly to anyone who
@@ -279,7 +320,12 @@ implemented yet — unless marked otherwise.
 - Noble/poor animosity starts already skewed toward resentment on the
   poor side, and rises further with riots and general unrest (e.g. from
   high taxes) — disproportionately from the poor side. High enough
-  animosity has the same riot risk as with guards.
+  animosity has the same riot risk as with guards. **Riot risk itself
+  implemented** (see "Riots" above, including the guards-shield-nobles-
+  until-they-break mechanic); the *skewed starting animosity* and *rises
+  with taxes* parts are still proposed, not implemented — noble/civilian
+  edges get the same neutral-mean valence synthesis as everyone else
+  today.
 - Nobles may call a quarantine if the outbreak starts near wealthy areas
   or once wealthy residents start dying; a governor, if one exists,
   absorbs most of the resulting public anger for that call.

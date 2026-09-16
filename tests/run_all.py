@@ -11,6 +11,7 @@ from tests import (
     test_graph,
     test_import_relationships,
     test_import_shopkeeper_customer,
+    test_riot,
     test_romance,
     test_violence,
 )
@@ -23,6 +24,7 @@ MODULES = [
     test_contagion,
     test_violence,
     test_romance,
+    test_riot,
     test_engine,
 ]
 

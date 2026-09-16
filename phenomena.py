@@ -1,6 +1,6 @@
 import random
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from graph import FISKE_TAGS
 
@@ -275,4 +275,162 @@ class RomancePhenomenon:
         return {
             "married_residents": sum(1 for resident_state in state.values() if resident_state["married"]),
             "births": self._births,
+        }
+
+
+AUTHORITY_ROLES = ("guard", "noble")
+
+
+class RiotPhenomenon:
+    """A town-wide event, not a per-edge one: all the real logic runs once a day
+    in end_of_day. edge_probability/apply_effect are never meaningfully used --
+    that's cheaper than adding a town-wide hook to the Phenomenon protocol for
+    the one phenomenon that needs it."""
+
+    name = "riot"
+
+    def __init__(
+        self,
+        unrest_threshold: float = 0.25,
+        riot_base_rate: float = 0.02,
+        join_rate: float = 0.5,
+        min_participants: int = 3,
+        guard_lethality: float = 0.3,
+        noble_lethality: float = 0.1,
+        retreat_threshold: float = 0.3,
+        death_cap: float = 0.9,
+    ):
+        self.unrest_threshold = unrest_threshold
+        self.riot_base_rate = riot_base_rate
+        self.join_rate = join_rate
+        self.min_participants = min_participants
+        self.guard_lethality = guard_lethality
+        self.noble_lethality = noble_lethality
+        self.retreat_threshold = retreat_threshold
+        self.death_cap = death_cap
+        # town-wide bookkeeping lives on self, not the per-resident state dict --
+        # same reason ContagionPhenomenon keeps _pending_infections on self
+        self._adjacency: List[Tuple[int, int]] = []
+        self._riots = 0
+        self._guard_deaths = 0
+        self._noble_deaths = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        # civilian <-> authority (guard or noble) edges, precomputed once: roles
+        # don't change during the run, so re-deriving this from all edges daily
+        # would be wasted work on a real town's ~75k edges
+        for edge in graph.edges.values():
+            role_a, role_b = graph.nodes[edge.resident_a].role, graph.nodes[edge.resident_b].role
+            if role_a == "civilian" and role_b in AUTHORITY_ROLES:
+                self._adjacency.append((edge.resident_a, edge.resident_b))
+            elif role_b == "civilian" and role_a in AUTHORITY_ROLES:
+                self._adjacency.append((edge.resident_b, edge.resident_a))
+        # the engine indexes state[resident_id] for every phenomenon on every
+        # edge regardless of what edge_probability does with it -- this dict's
+        # values are never read, only its keys need to exist
+        return {resident_id: None for resident_id in graph.nodes}
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        return 0.0  # riots never fire through the per-edge path -- see end_of_day
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    @staticmethod
+    def _hatred_toward(graph, resident_id: int) -> float:
+        # total hostile valence directed at this resident from everyone they
+        # know, not just riot participants -- "how much they are hated overall"
+        total = 0.0
+        for neighbor_id in graph.neighbors(resident_id):
+            if not graph.nodes[neighbor_id].alive:
+                continue
+            edge = graph.get_edge(resident_id, neighbor_id)
+            total += max(0.0, -edge.valence_from(neighbor_id))
+        return total
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        hostile_links = [
+            (civ, member) for civ, member in self._adjacency
+            if graph.nodes[civ].alive and graph.nodes[member].alive
+            and graph.get_edge(civ, member).valence_from(civ) < 0
+        ]
+        if not hostile_links:
+            return []
+        avg_hostility = sum(-graph.get_edge(civ, member).valence_from(civ) for civ, member in hostile_links) / len(
+            hostile_links
+        )
+        if avg_hostility <= self.unrest_threshold:
+            return []
+        if rng.random() >= self.riot_base_rate * (avg_hostility - self.unrest_threshold):
+            return []
+
+        # a civilian's worst grievance against any single authority figure is
+        # what might drag them into the streets
+        worst_grievance: Dict[int, float] = {}
+        for civ, member in hostile_links:
+            hostility = -graph.get_edge(civ, member).valence_from(civ)
+            worst_grievance[civ] = max(worst_grievance.get(civ, 0.0), hostility)
+
+        participants = [
+            civ for civ, hostility in worst_grievance.items()
+            if rng.random() < min(1.0, self.join_rate * hostility * (1.0 - graph.nodes[civ].loyalty))
+        ]
+        if len(participants) < self.min_participants:
+            return []  # not enough people banded together for it to count as a riot
+
+        self._riots += 1
+        events = [
+            Event(day, self.name, "riot", participants[0], participants[0], f"{len(participants)} rioters joined")
+        ]
+
+        # guards are the front line -- they take the mob's violence first, and
+        # break (stop dying, stop shielding nobles) once enough of them fall
+        guards = [rid for rid, node in graph.nodes.items() if node.alive and node.role == "guard"]
+        initial_guard_count = len(guards)
+        guard_deaths = 0
+        retreated = initial_guard_count == 0
+        if initial_guard_count > 0:
+            p_death_guard = min(self.death_cap, self.guard_lethality * len(participants) / initial_guard_count)
+            for guard_id in guards:
+                if retreated:
+                    break
+                if rng.random() < p_death_guard:
+                    graph.nodes[guard_id].alive = False
+                    guard_deaths += 1
+                    self._guard_deaths += 1
+                    events.append(Event(day, self.name, "guard_killed", guard_id, guard_id, "killed in the riot"))
+                    if guard_deaths / initial_guard_count >= self.retreat_threshold:
+                        retreated = True
+                        events.append(
+                            Event(day, self.name, "guards_retreat", guard_id, guard_id, "guards break and flee")
+                        )
+
+        # nobles are shielded until the guards break -- then personal hatred,
+        # not proximity to this riot, decides who among them gets targeted
+        if retreated:
+            nobles = [rid for rid, node in graph.nodes.items() if node.alive and node.role == "noble"]
+            if nobles:
+                hatred = {noble_id: self._hatred_toward(graph, noble_id) for noble_id in nobles}
+                avg_hatred = sum(hatred.values()) / len(nobles)
+                if avg_hatred > 0:
+                    for noble_id in nobles:
+                        relative_hatred = hatred[noble_id] / avg_hatred
+                        p_death_noble = min(
+                            self.death_cap,
+                            self.noble_lethality * len(participants) / len(nobles) * relative_hatred,
+                        )
+                        if rng.random() < p_death_noble:
+                            graph.nodes[noble_id].alive = False
+                            self._noble_deaths += 1
+                            events.append(
+                                Event(day, self.name, "noble_killed", noble_id, noble_id, "killed in the riot")
+                            )
+
+        return events
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {
+            "riots": self._riots,
+            "riot_guard_deaths": self._guard_deaths,
+            "riot_noble_deaths": self._noble_deaths,
         }

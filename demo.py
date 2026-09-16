@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from graph import import_snapshot
-from phenomena import ContagionPhenomenon, RomancePhenomenon, ViolencePhenomenon
+from phenomena import ContagionPhenomenon, RiotPhenomenon, RomancePhenomenon, ViolencePhenomenon
 from engine import run_simulation
 
 
@@ -47,7 +47,14 @@ def main(argv=None) -> None:
     # residents are already married at import (see romance's design note), so
     # the eligible unmarried-and-connected pool is small on its own
     romance = RomancePhenomenon()
-    phenomena = [contagion, violence, romance]
+    # same aggression_factor as violence: an aggressive town riots more readily
+    # and reaches unrest sooner (vision doc: "more frequent riots"). Calibrated
+    # against the reference town: aggression 0/0.5/1.0 -> ~1/5/4 riots per year
+    # (not perfectly monotonic at this one seed -- each riot can kill a chunk of
+    # the ~40 guards/nobles, so an early riot can thin the pool for the rest of
+    # the year; not worth chasing with a bigger model for a first pass)
+    riot = RiotPhenomenon(unrest_threshold=0.25 / aggression_factor, riot_base_rate=0.02 * aggression_factor)
+    phenomena = [contagion, violence, romance, riot]
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)
@@ -80,7 +87,8 @@ def _print_summary(result) -> None:
     last = result.daily_summaries[-1]
     peak = max(result.daily_summaries, key=lambda row: row.get("infected", 0))
     disease_deaths = last.get("deceased", 0)
-    violence_deaths = last.get("dead", 0) - disease_deaths
+    riot_deaths = last.get("riot_guard_deaths", 0) + last.get("riot_noble_deaths", 0)
+    violence_deaths = last.get("dead", 0) - disease_deaths - riot_deaths
 
     print("contagion:")
     print(f"  peak simultaneous infected: {peak.get('infected', 0)} (day {peak['day']})")
@@ -90,9 +98,12 @@ def _print_summary(result) -> None:
     print(f"  deaths: {violence_deaths}")
     print("romance:")
     print(f"  married residents: {last.get('married_residents', 0)}  births: {last.get('births', 0)}")
+    print("riots:")
+    print(f"  riots: {last.get('riots', 0)}  guards killed: {last.get('riot_guard_deaths', 0)}"
+          f"  nobles killed: {last.get('riot_noble_deaths', 0)}")
     print("population:")
     print(f"  alive: {last.get('alive', 0)}  dead: {last.get('dead', 0)} "
-          f"(violence {violence_deaths} + disease {disease_deaths})")
+          f"(violence {violence_deaths} + disease {disease_deaths} + riots {riot_deaths})")
     print(f"Total events logged: {len(result.events)}")
 
 
