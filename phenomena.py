@@ -137,13 +137,15 @@ class ViolencePhenomenon:
         # whoever wants to hurt the other more is more likely to be the one who
         # snaps; whoever is more vulnerable is more likely to end up the victim
         # if they do -- so aggression is weighted by hostility toward the *other*
-        # side's vulnerability, not by SES alone
+        # side's vulnerability, not by SES alone. A more loyal person restrains
+        # themselves even when equally hostile, so their own loyalty dampens
+        # their own weight to strike.
         hostility_a_to_b = max(0.0, -edge.valence_from(a))
         hostility_b_to_a = max(0.0, -edge.valence_from(b))
         vulnerability_a = SES_VULNERABILITY.get(graph.nodes[a].ses, 1.0)
         vulnerability_b = SES_VULNERABILITY.get(graph.nodes[b].ses, 1.0)
-        weight_a_attacks = hostility_a_to_b * vulnerability_b
-        weight_b_attacks = hostility_b_to_a * vulnerability_a
+        weight_a_attacks = hostility_a_to_b * vulnerability_b * (1.0 - graph.nodes[a].loyalty)
+        weight_b_attacks = hostility_b_to_a * vulnerability_a * (1.0 - graph.nodes[b].loyalty)
         total = weight_a_attacks + weight_b_attacks
         if total <= 0:
             return a  # edge_probability already requires hostility > 0 somewhere; a fallback only

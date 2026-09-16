@@ -78,6 +78,20 @@ def test_aggressor_is_the_more_hostile_side_when_vulnerability_is_equal():
         assert phenomenon._pick_aggressor(graph, edge, 1, 2, random.Random(seed)) == 1
 
 
+def test_loyalty_dampens_own_odds_of_being_the_aggressor():
+    # equal hostility and equal SES vulnerability, but 1 is far more loyal
+    # than 2 -- 2 should be picked as the aggressor every time
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True, loyalty=0.95))
+    graph.add_node(Node(resident_id=2, ses="poor", alive=True, loyalty=0.05))
+    edge = Edge(1, 2, "neighbor", "Equality Matching", time=0.5, intimacy=0.5, services=0.5,
+                valence_a_to_b=-0.9, valence_b_to_a=-0.9)
+    graph.add_edge(edge)
+    phenomenon = ViolencePhenomenon()
+    for seed in range(20):
+        assert phenomenon._pick_aggressor(graph, edge, 1, 2, random.Random(seed)) == 2
+
+
 def test_grief_shock_increases_neighbors_animosity_toward_culprit():
     graph = SocialGraph()
     for resident_id, ses in [(1, "poor"), (2, "rich"), (3, "middling")]:
@@ -116,6 +130,7 @@ def _run_all():
     test_probability_driven_by_the_more_hostile_direction()
     test_probability_is_monotonic_in_animosity_magnitude()
     test_aggressor_is_the_more_hostile_side_when_vulnerability_is_equal()
+    test_loyalty_dampens_own_odds_of_being_the_aggressor()
     test_grief_shock_increases_neighbors_animosity_toward_culprit()
     test_summarize_counts_alive_and_dead()
     print("OK")

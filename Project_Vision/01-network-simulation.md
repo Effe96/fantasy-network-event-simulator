@@ -7,7 +7,14 @@
 ### Social graph (`graph.py`)
 
 - **Node** — one resident: `resident_id`, `ses` (poor/rich, from the
-  TownShape snapshot), `alive`.
+  TownShape snapshot), `alive`, and four personal traits —
+  `religiousness`, `cunning`, `skepticism`, `loyalty` (each 0..1,
+  independently synthesized at import via `synthesize_traits`, flat and
+  uncorrelated with `ses` for now). Not yet mutated by events. Violence
+  is the first consumer: a resident's own `loyalty` dampens their own
+  odds of being picked as the aggressor in `_pick_aggressor`, restraining
+  them even when equally hostile. `religiousness`/`cunning`/`skepticism`
+  have no consumer yet — they're in place for Priests/Criminals work.
 - **Edge** — one relationship: `source_type` (TownShape's original
   label), `fiske_type`, `time`/`intimacy`/`services` (shared — how much
   contact happens is mutual), and **two independent, directed valences**
@@ -143,11 +150,13 @@ implemented yet — unless marked otherwise.
   generational relationships" (Open, 2026-08-28) — worth resolving in
   one place rather than two.
 - **Personal traits** — religiousness, cunning, skepticism, loyalty —
-  should live on individual residents, each shaping how likely that
+  **Implemented** as static fields on `Node` (see above); only `loyalty`
+  has a consumer so far (violence). Still proposed: shaping how likely a
   person is to be bribed, to succeed at a crime, to become a thief, to
-  join a riot, and so on. Traits should themselves shift in response to
-  events (e.g., being beaten by guards erodes loyalty in the victim and
-  their close connections). Town-wide parameters (above) should likely
+  join a riot, and so on, once those phenomena exist. Traits should also
+  themselves shift in response to events (e.g., being beaten by guards
+  erodes loyalty in the victim and their close connections) — not yet
+  built; nothing mutates a trait today. Town-wide parameters (above) should likely
   be an *aggregate* of these individual traits rather than a separately
   hand-set dial — worth deciding as one design question, not two, since
   the source doc raises both independently but they're the same idea at

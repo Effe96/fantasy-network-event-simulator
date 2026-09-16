@@ -10,6 +10,13 @@ class Node:
     resident_id: int
     ses: Optional[str]
     alive: bool = True
+    # personal traits, each 0..1, independent of ses; shape event odds
+    # (bribability, crime success, riot participation, ...) as those
+    # phenomena get built. Not yet mutated by events themselves.
+    religiousness: float = 0.5
+    cunning: float = 0.5
+    skepticism: float = 0.5
+    loyalty: float = 0.5
 
 
 @dataclass
@@ -108,6 +115,15 @@ def _clamp_signed(value: float) -> float:
     return max(-1.0, min(1.0, value))
 
 
+TRAIT_NAMES = ["religiousness", "cunning", "skepticism", "loyalty"]
+
+
+def synthesize_traits(rng: random.Random) -> Dict[str, float]:
+    # ponytail: flat, uncorrelated draw per resident; once occupations/roles
+    # exist (e.g. Priests), skew religiousness etc. by role instead
+    return {name: _clamp01(rng.gauss(0.5, 0.2)) for name in TRAIT_NAMES}
+
+
 def synthesize_relationship_attributes(relationship_type: str, rng: random.Random) -> Dict[str, float]:
     baseline = RELATIONSHIP_TYPE_BASELINES[relationship_type]
     return {
@@ -120,12 +136,12 @@ def synthesize_relationship_attributes(relationship_type: str, rng: random.Rando
     }
 
 
-def _load_residents(conn: sqlite3.Connection, graph: SocialGraph) -> None:
+def _load_residents(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
     rows = conn.execute(
         "SELECT id, ses FROM residents WHERE death_date IS NULL ORDER BY id"
     ).fetchall()
     for resident_id, ses in rows:
-        graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True))
+        graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True, **synthesize_traits(rng)))
 
 
 def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
@@ -199,7 +215,7 @@ def import_snapshot(db_path: str, seed: int) -> SocialGraph:
     # loudly instead of silently creating an empty .db
     conn = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
     try:
-        _load_residents(conn, graph)
+        _load_residents(conn, graph, rng)
         _load_relationships(conn, graph, rng)
         _load_shopkeeper_customer(conn, graph, rng)
     finally:

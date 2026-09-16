@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from graph import synthesize_relationship_attributes, FISKE_TAGS, RELATIONSHIP_TYPE_BASELINES
+from graph import synthesize_relationship_attributes, synthesize_traits, FISKE_TAGS, RELATIONSHIP_TYPE_BASELINES, TRAIT_NAMES
 
 
 def test_synthesized_values_are_in_range():
@@ -44,11 +44,26 @@ def test_every_baseline_type_has_a_fiske_tag():
     assert FISKE_TAGS["shopkeeper_customer"] == "Market Pricing"
 
 
+def test_traits_are_in_range_and_cover_every_name():
+    rng = random.Random(1)
+    for _ in range(50):
+        traits = synthesize_traits(rng)
+        assert set(traits) == set(TRAIT_NAMES)
+        for value in traits.values():
+            assert 0.0 <= value <= 1.0
+
+
+def test_traits_are_deterministic_given_same_seed():
+    assert synthesize_traits(random.Random(7)) == synthesize_traits(random.Random(7))
+
+
 def _run_all():
     test_synthesized_values_are_in_range()
     test_synthesis_is_deterministic_given_same_seed()
     test_valence_directions_are_drawn_independently()
     test_every_baseline_type_has_a_fiske_tag()
+    test_traits_are_in_range_and_cover_every_name()
+    test_traits_are_deterministic_given_same_seed()
     print("OK")
 
 
