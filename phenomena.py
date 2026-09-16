@@ -285,7 +285,15 @@ class RiotPhenomenon:
     """A town-wide event, not a per-edge one: all the real logic runs once a day
     in end_of_day. edge_probability/apply_effect are never meaningfully used --
     that's cheaper than adding a town-wide hook to the Phenomenon protocol for
-    the one phenomenon that needs it."""
+    the one phenomenon that needs it.
+
+    A riot now persists across days as explicit state (self._active_riot)
+    instead of resolving atomically in a single end_of_day call: guards take
+    casualties day by day until enough of them break and flee, then nobles are
+    targeted day by day -- most-hated first -- until a "riot bar" (the mob's
+    remaining bloodlust, sized off how many people showed up) runs out or no
+    nobles are left. That bar, not an arbitrary one-shot roll, is what actually
+    stops the riot."""
 
     name = "riot"
 
@@ -298,6 +306,7 @@ class RiotPhenomenon:
         guard_lethality: float = 0.3,
         noble_lethality: float = 0.1,
         retreat_threshold: float = 0.3,
+        riot_bar_per_participant: float = 0.1,
         death_cap: float = 0.9,
     ):
         self.unrest_threshold = unrest_threshold
@@ -306,11 +315,19 @@ class RiotPhenomenon:
         self.min_participants = min_participants
         self.guard_lethality = guard_lethality
         self.noble_lethality = noble_lethality
+        # base fraction of the initial guard count that needs to die before they
+        # retreat -- scaled per-riot by the guards' own average loyalty (see
+        # _start_riot): a more loyal force holds far longer than this alone
+        # suggests, a less loyal one breaks far sooner
         self.retreat_threshold = retreat_threshold
+        # ponytail: how many noble kills a riot's fervor is "worth," per rioter;
+        # tune this if riots feel too bloody or fizzle out too fast
+        self.riot_bar_per_participant = riot_bar_per_participant
         self.death_cap = death_cap
         # town-wide bookkeeping lives on self, not the per-resident state dict --
         # same reason ContagionPhenomenon keeps _pending_infections on self
         self._adjacency: List[Tuple[int, int]] = []
+        self._active_riot: Optional[Dict[str, Any]] = None
         self._riots = 0
         self._guard_deaths = 0
         self._noble_deaths = 0
@@ -348,7 +365,7 @@ class RiotPhenomenon:
             total += max(0.0, -edge.valence_from(neighbor_id))
         return total
 
-    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+    def _start_riot(self, graph, day: int, rng: random.Random) -> List[Event]:
         hostile_links = [
             (civ, member) for civ, member in self._adjacency
             if graph.nodes[civ].alive and graph.nodes[member].alive
@@ -378,55 +395,99 @@ class RiotPhenomenon:
         if len(participants) < self.min_participants:
             return []  # not enough people banded together for it to count as a riot
 
-        self._riots += 1
-        events = [
-            Event(day, self.name, "riot", participants[0], participants[0], f"{len(participants)} rioters joined")
-        ]
-
-        # guards are the front line -- they take the mob's violence first, and
-        # break (stop dying, stop shielding nobles) once enough of them fall
         guards = [rid for rid, node in graph.nodes.items() if node.alive and node.role == "guard"]
-        initial_guard_count = len(guards)
-        guard_deaths = 0
-        retreated = initial_guard_count == 0
-        if initial_guard_count > 0:
-            p_death_guard = min(self.death_cap, self.guard_lethality * len(participants) / initial_guard_count)
-            for guard_id in guards:
-                if retreated:
+        # a more loyal garrison holds much longer than an unloyal one -- 0.5 is
+        # the trait's own default mean, so an average-loyalty force reproduces
+        # the plain retreat_threshold unchanged
+        avg_guard_loyalty = sum(graph.nodes[g].loyalty for g in guards) / len(guards) if guards else 0.5
+        effective_retreat_threshold = self.retreat_threshold * (0.5 + avg_guard_loyalty)
+
+        self._riots += 1
+        self._active_riot = {
+            "participants": participants,
+            "guards_remaining": guards,
+            "initial_guard_count": len(guards),
+            "guard_deaths": 0,
+            "retreated": len(guards) == 0,
+            "retreat_threshold": effective_retreat_threshold,
+            "riot_bar": max(1, round(self.riot_bar_per_participant * len(participants))),
+        }
+        return [Event(day, self.name, "riot", participants[0], participants[0], f"{len(participants)} rioters joined")]
+
+    def _advance_riot(self, graph, day: int, rng: random.Random) -> List[Event]:
+        riot = self._active_riot
+        events: List[Event] = []
+        participants = [p for p in riot["participants"] if graph.nodes[p].alive]
+        if not participants:
+            self._active_riot = None
+            return events
+
+        if not riot["retreated"]:
+            # guards are the front line -- they take the mob's violence first,
+            # a fresh independent roll per guard per day, until enough of them
+            # fall and the rest break and flee
+            still_standing = [g for g in riot["guards_remaining"] if graph.nodes[g].alive]
+            riot["guards_remaining"] = still_standing
+            p_death_guard = min(
+                self.death_cap, self.guard_lethality * len(participants) / max(1, riot["initial_guard_count"])
+            )
+            for guard_id in list(still_standing):
+                if riot["retreated"]:
                     break
                 if rng.random() < p_death_guard:
                     graph.nodes[guard_id].alive = False
-                    guard_deaths += 1
+                    riot["guard_deaths"] += 1
                     self._guard_deaths += 1
+                    riot["guards_remaining"].remove(guard_id)
                     events.append(Event(day, self.name, "guard_killed", guard_id, guard_id, "killed in the riot"))
-                    if guard_deaths / initial_guard_count >= self.retreat_threshold:
-                        retreated = True
+                    if riot["guard_deaths"] / riot["initial_guard_count"] >= riot["retreat_threshold"]:
+                        riot["retreated"] = True
                         events.append(
                             Event(day, self.name, "guards_retreat", guard_id, guard_id, "guards break and flee")
                         )
+            if not riot["retreated"] and not riot["guards_remaining"]:
+                riot["retreated"] = True  # every guard fell without technically crossing the threshold
 
-        # nobles are shielded until the guards break -- then personal hatred,
-        # not proximity to this riot, decides who among them gets targeted
-        if retreated:
-            nobles = [rid for rid, node in graph.nodes.items() if node.alive and node.role == "noble"]
-            if nobles:
-                hatred = {noble_id: self._hatred_toward(graph, noble_id) for noble_id in nobles}
-                avg_hatred = sum(hatred.values()) / len(nobles)
-                if avg_hatred > 0:
-                    for noble_id in nobles:
-                        relative_hatred = hatred[noble_id] / avg_hatred
-                        p_death_noble = min(
-                            self.death_cap,
-                            self.noble_lethality * len(participants) / len(nobles) * relative_hatred,
-                        )
-                        if rng.random() < p_death_noble:
-                            graph.nodes[noble_id].alive = False
-                            self._noble_deaths += 1
-                            events.append(
-                                Event(day, self.name, "noble_killed", noble_id, noble_id, "killed in the riot")
-                            )
+        else:
+            # nobles are shielded until the guards break -- then personal hatred,
+            # not proximity to this riot, decides who among them gets targeted,
+            # most-hated first, until the mob's bloodlust (riot_bar) is spent
+            nobles = sorted(
+                (rid for rid, node in graph.nodes.items() if node.alive and node.role == "noble"),
+                key=lambda rid: -self._hatred_toward(graph, rid),
+            )
+            if not nobles:
+                self._active_riot = None
+                return events
+            hatred = {noble_id: self._hatred_toward(graph, noble_id) for noble_id in nobles}
+            avg_hatred = sum(hatred.values()) / len(nobles)
+            if avg_hatred > 0:
+                for noble_id in nobles:
+                    if riot["riot_bar"] <= 0:
+                        break
+                    relative_hatred = hatred[noble_id] / avg_hatred
+                    p_death_noble = min(
+                        self.death_cap,
+                        self.noble_lethality * len(participants) / len(nobles) * relative_hatred,
+                    )
+                    if rng.random() < p_death_noble:
+                        graph.nodes[noble_id].alive = False
+                        self._noble_deaths += 1
+                        riot["riot_bar"] -= 1
+                        events.append(Event(day, self.name, "noble_killed", noble_id, noble_id, "killed in the riot"))
+
+            if riot["riot_bar"] <= 0:
+                events.append(
+                    Event(day, self.name, "riot_ends", participants[0], participants[0], "the mob disperses, sated")
+                )
+                self._active_riot = None
 
         return events
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        if self._active_riot is None:
+            return self._start_riot(graph, day, rng)
+        return self._advance_riot(graph, day, rng)
 
     def summarize(self, state) -> Dict[str, int]:
         return {

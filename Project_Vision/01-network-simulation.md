@@ -104,39 +104,60 @@
   `state[resident_id]` for every phenomenon on every edge regardless of
   what `edge_probability` does with it, so `init_state` still has to
   return a per-resident dict, just one whose values are never read.
-- **Trigger**: average hostility from `civilian`-role residents toward
-  any `guard`/`noble`-role neighbor (precomputed adjacency, since roles
-  are static) crossing `unrest_threshold`; then a daily probabilistic
-  roll (`riot_base_rate * excess`) decides if it actually breaks out.
-- **Who joins**: civilians with a hostile edge to a guard/noble join
-  with a chance driven by their own worst grievance and `1 - loyalty`
-  (reuses the loyalty trait, same restraint idea as violence). Needs
-  `min_participants` (default 3) joiners or it fizzles without effect.
-- **What it costs**: guards are the front line and die first — each
-  living guard (town-wide, not just ones adjacent to a participant;
-  guards are public figures) faces an independent death roll scaled by
-  mob-size-vs-guard-count. Once enough guards have died
-  (`retreat_threshold`, default 30% of the initial guard count), the
-  guards **retreat**: no further guard deaths this riot, and nobles —
-  shielded until then — become exposed. A noble's own death chance is
-  then proportional to **how much that specific noble is personally
-  hated** (`_hatred_toward`: summed hostile valence from everyone who
-  knows them, not just this riot's participants) relative to the
-  average hatred among living nobles — the most-despised noble is the
-  one the mob goes for, not a flat class-wide rate. All death
-  probabilities are capped (`death_cap`, default 0.9) to avoid a
-  mass-extinction outcome.
+- **A riot now persists across days as explicit state**
+  (`self._active_riot`), not a single atomic `end_of_day` call. Earlier
+  it fully resolved (guard deaths, retreat, noble deaths) on the
+  triggering day alone, which had no real stopping condition — it
+  "stopped" only because the function returned. Corrected per direct
+  user feedback: a real riot lasts as long as its own logic says it
+  should, not as long as one Python call happens to run.
+- **Trigger** (`_start_riot`, unchanged in spirit): average hostility
+  from `civilian`-role residents toward any `guard`/`noble`-role
+  neighbor (precomputed adjacency, since roles are static) crossing
+  `unrest_threshold`; a daily probabilistic roll (`riot_base_rate *
+  excess`) decides if it actually breaks out. Civilians with a hostile
+  edge join with a chance driven by their own worst grievance and
+  `1 - loyalty`. Needs `min_participants` (default 3) or it fizzles.
+  Once started, `self._active_riot` holds the fixed participant list,
+  guard roster, and a **riot bar** (below) for the rest of its life —
+  the town-wide trigger check is skipped entirely while a riot is
+  already active.
+- **Guard phase** (`_advance_riot`, day by day while `not retreated`):
+  every living guard gets a fresh independent death roll each day
+  (guards are public figures — town-wide, not just ones a rioter
+  personally knows), scaled by mob-size-vs-guard-count, until enough
+  have died to cross that riot's `retreat_threshold`. **That threshold
+  now scales with the guards' own average `loyalty`** at riot start:
+  `effective_retreat_threshold = retreat_threshold * (0.5 + avg_guard_loyalty)`
+  — 0.5 is the trait's own default mean, so an average-loyalty garrison
+  reproduces the plain `retreat_threshold` unchanged; a disloyal one
+  breaks far sooner, a fiercely loyal one holds far longer. Once
+  retreated (or if there were no guards to begin with), no further
+  guard deaths occur and nobles become exposed.
+- **Noble phase** (day by day once retreated): nobles are ranked by
+  **how personally hated they are** (`_hatred_toward`: summed hostile
+  valence from everyone who knows them, not just this riot's
+  participants) and targeted most-hated-first, each with a death chance
+  proportional to their hatred relative to the average among living
+  nobles — never a flat class-wide rate. Every kill decrements the
+  riot's own **riot bar** (`riot_bar_per_participant * len(participants)`
+  at trigger time, e.g. 8 for a 77-person mob at the default 0.1) by 1.
+  **The riot ends — a `riot_ends` event fires and `self._active_riot`
+  clears — the moment the bar hits zero, or if no nobles are left**,
+  whichever comes first. This is the actual stopping condition;
+  previously there wasn't one. All death probabilities are still capped
+  (`death_cap`, default 0.9) to avoid a mass-extinction outcome.
 - **Aggression tie-in**: `demo.py` scales both `unrest_threshold` (down)
   and `riot_base_rate` (up) by the same `aggression_factor` violence
-  uses. Calibrated against the reference town: aggression 0/0.5/1.0 →
-  ~1/5/4 riots/year (not perfectly monotonic at a single seed — an early
-  riot can thin the ~40-person guard/noble pool for the rest of the
-  year; not worth a bigger model for a first pass).
+  uses; unaffected by this redesign.
 - **Not yet built**: the bottom-up trigger from Criminals' "group
   violence escalates into a riot" (Criminals doesn't exist yet); any
   resolution-phase valence shift (catharsis vs. crackdown backlash) —
   deliberately left out since the source material doesn't commit to a
-  direction and either would be a guess.
+  direction and either would be a guess. A new riot can still trigger
+  again immediately after one ends if the underlying hostility hasn't
+  cooled — not treated as a bug, but worth knowing if two riots show up
+  back-to-back in a log.
 
 ### CLI & output (`demo.py`)
 
@@ -358,9 +379,23 @@ implemented yet — unless marked otherwise.
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 
 - Candidate event types so far: killing, stealing, loving, bribing,
-  hiring, influencing — likely incomplete; several more are implicit
-  above (arresting, quarantining, raising taxes, attempting a coup).
-  **Open: agree the full list before implementing further phenomena.**
+  hiring, influencing, **favor**, **wrongdoing** — likely incomplete;
+  several more are implicit above (arresting, quarantining, raising
+  taxes, attempting a coup). **Open: agree the full list before
+  implementing further phenomena.**
+  - **favor** and **wrongdoing** (added this session, not yet
+    implemented as their own phenomenon): the two generic, symmetric
+    building-block events underneath most of the more specific ones
+    above. A favor raises affinity (valence, in the beneficiary's
+    outgoing direction toward whoever did it) — a bribe, a kindness, a
+    guard looking the other way are all specific *instances* of a
+    favor. A wrongdoing raises animosity the same way, directionally —
+    a beating, a theft, a betrayal are specific instances of a
+    wrongdoing. Once built, several already-implemented or proposed
+    mechanics (bribery, guard beatings, priest corruption) could likely
+    be expressed as parameterized favor/wrongdoing events rather than
+    each inventing its own valence-mutation logic from scratch — worth
+    deciding when Guards/Priests get built, not before.
 - Once agreed, each event needs an explicit mapping to which edges and
   weights it reads and mutates — the same discipline `violence`'s
   `grief_shock` already follows (see
