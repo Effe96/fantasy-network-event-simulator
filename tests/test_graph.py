@@ -64,6 +64,21 @@ def test_neighbors_finds_both_directions():
     assert sorted(graph.neighbors(1)) == [2, 3]
 
 
+def test_role_prioritizes_noble_over_occupation():
+    assert Node(resident_id=1, ses="rich", is_noble=True, occupation="guard").role == "noble"
+
+
+def test_role_from_occupation():
+    assert Node(resident_id=1, ses="poor", occupation="guard").role == "guard"
+    assert Node(resident_id=2, ses="poor", occupation="priest").role == "priest"
+    assert Node(resident_id=3, ses="poor", occupation="acolyte").role == "priest"
+
+
+def test_role_defaults_to_civilian():
+    assert Node(resident_id=1, ses="poor", occupation="farmer").role == "civilian"
+    assert Node(resident_id=2, ses="poor", occupation=None).role == "civilian"
+
+
 def _run_all():
     test_add_node_and_get_edge_roundtrip()
     test_tie_strength_uses_absolute_valence()
@@ -71,6 +86,9 @@ def _run_all():
     test_valence_from_and_set_valence_from_respect_direction()
     test_add_edge_dedup_keeps_higher_tie_strength()
     test_neighbors_finds_both_directions()
+    test_role_prioritizes_noble_over_occupation()
+    test_role_from_occupation()
+    test_role_defaults_to_civilian()
     print("OK")
 
 

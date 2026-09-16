@@ -22,6 +22,20 @@ class Node:
     # whole years, computed once at import against town_state.year_start;
     # None if birth_date or year_start is unavailable (e.g. test fixtures)
     age: Optional[int] = None
+    occupation: Optional[str] = None
+    is_noble: bool = False
+
+    @property
+    def role(self) -> str:
+        """Coarse social role, derived from TownShape's own occupation/is_noble
+        fields -- infra for Guards/Priests/Nobles phenomena, not a new schema."""
+        if self.is_noble:
+            return "noble"  # takes priority: a noble who also guards isn't rank-and-file
+        if self.occupation == "guard":
+            return "guard"
+        if self.occupation in ("priest", "acolyte"):
+            return "priest"
+        return "civilian"
 
 
 @dataclass
@@ -161,12 +175,16 @@ def _load_residents(
     conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random, reference_year: Optional[int]
 ) -> None:
     rows = conn.execute(
-        "SELECT id, ses, gender, birth_date FROM residents WHERE death_date IS NULL ORDER BY id"
+        "SELECT id, ses, gender, birth_date, occupation, is_noble FROM residents WHERE death_date IS NULL"
+        " ORDER BY id"
     ).fetchall()
-    for resident_id, ses, gender, birth_date in rows:
+    for resident_id, ses, gender, birth_date, occupation, is_noble in rows:
         age = _age_from_birth_date(birth_date, reference_year)
         graph.add_node(
-            Node(resident_id=resident_id, ses=ses, alive=True, gender=gender, age=age, **synthesize_traits(rng))
+            Node(
+                resident_id=resident_id, ses=ses, alive=True, gender=gender, age=age,
+                occupation=occupation, is_noble=bool(is_noble), **synthesize_traits(rng),
+            )
         )
 
 

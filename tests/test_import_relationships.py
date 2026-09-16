@@ -123,6 +123,26 @@ def test_age_is_none_when_town_state_is_missing():
         assert graph.nodes[1].age is None
 
 
+def test_occupation_and_is_noble_are_imported():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "town.db")
+        make_test_db(
+            db_path,
+            residents=[
+                (1, "rich", None, None, None, None, "noble", 1),
+                (2, "poor", None, None, None, None, "guard", 0),
+                (3, "poor", None, None, None, None, None, None),
+            ],
+        )
+        graph = import_snapshot(db_path, seed=1)
+        assert graph.nodes[1].is_noble is True
+        assert graph.nodes[1].role == "noble"
+        assert graph.nodes[2].occupation == "guard"
+        assert graph.nodes[2].role == "guard"
+        assert graph.nodes[3].is_noble is False
+        assert graph.nodes[3].role == "civilian"
+
+
 def _run_all():
     test_import_loads_all_residents()
     test_import_loads_relationship_edges_with_correct_types()
@@ -133,6 +153,7 @@ def _run_all():
     test_town_aggression_is_read_from_town_state()
     test_gender_and_age_are_imported_against_town_reference_year()
     test_age_is_none_when_town_state_is_missing()
+    test_occupation_and_is_noble_are_imported()
     print("OK")
 
 

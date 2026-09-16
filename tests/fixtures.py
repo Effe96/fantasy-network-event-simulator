@@ -10,7 +10,7 @@ def make_test_db(
     aggression: "float | None" = None,
     year_start: "str | None" = None,
 ) -> None:
-    """residents: (id, ses, workplace_building_id[, death_date[, gender[, birth_date]]])
+    """residents: (id, ses, workplace_building_id[, death_date[, gender[, birth_date[, occupation[, is_noble]]]]])
     relationships: (resident_a_id, resident_b_id, relationship_type)
     shop_relationships: (resident_id, shop_building_id, customer_score, purchase_count, is_primary)
     aggression/year_start: if either is given, creates a town_state table (omitted -> table
@@ -19,7 +19,7 @@ def make_test_db(
     conn = sqlite3.connect(path)
     conn.execute(
         "CREATE TABLE residents (id INTEGER PRIMARY KEY, ses TEXT, workplace_building_id INTEGER, "
-        "death_date TEXT, gender TEXT, birth_date TEXT)"
+        "death_date TEXT, gender TEXT, birth_date TEXT, occupation TEXT, is_noble INTEGER)"
     )
     conn.execute("CREATE TABLE relationships (resident_a_id INTEGER, resident_b_id INTEGER, relationship_type TEXT)")
     conn.execute(
@@ -27,9 +27,9 @@ def make_test_db(
         "customer_score REAL, purchase_count INTEGER, is_primary INTEGER)"
     )
     conn.executemany(
-        "INSERT INTO residents (id, ses, workplace_building_id, death_date, gender, birth_date) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [tuple(row) + (None,) * (6 - len(row)) for row in residents],
+        "INSERT INTO residents (id, ses, workplace_building_id, death_date, gender, birth_date, occupation, "
+        "is_noble) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [tuple(row) + (None,) * (8 - len(row)) for row in residents],
     )
     conn.executemany("INSERT INTO relationships VALUES (?, ?, ?)", list(relationships))
     conn.executemany("INSERT INTO shop_relationships VALUES (?, ?, ?, ?, ?)", list(shop_relationships))

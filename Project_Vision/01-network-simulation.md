@@ -17,7 +17,11 @@
   have no consumer yet — they're in place for Priests/Criminals work.
   Also carries `gender` and `age` (whole years, computed at import
   against `town_state.year_start`; `None` if either input is missing),
-  used by romance/marriage eligibility below.
+  used by romance/marriage eligibility below. Also carries `occupation`
+  and `is_noble` straight from TownShape, plus a derived `role` property
+  (`noble` > `guard` > `priest` > `civilian`, priority in that order —
+  a noble who happens to also guard isn't rank-and-file) — infra for
+  Guards/Priests/Nobles, not a behavior yet.
 - **Edge** — one relationship: `source_type` (TownShape's original
   label), `fiske_type`, `time`/`intimacy`/`services` (shared — how much
   contact happens is mutual), and **two independent, directed valences**
