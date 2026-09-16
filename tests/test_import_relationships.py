@@ -70,12 +70,35 @@ def test_relationship_to_unknown_resident_is_skipped():
         assert set(graph.edges) == {(1, 2)}
 
 
+def test_town_aggression_defaults_to_zero_when_table_is_missing():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "town.db")
+        _build_fixture(db_path)  # no town_state table
+        graph = import_snapshot(db_path, seed=1)
+        assert graph.town_aggression == 0.0
+
+
+def test_town_aggression_is_read_from_town_state():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "town.db")
+        make_test_db(
+            db_path,
+            residents=[(1, "poor", None), (2, "rich", None)],
+            relationships=[(1, 2, "spouse")],
+            aggression=0.8,
+        )
+        graph = import_snapshot(db_path, seed=1)
+        assert graph.town_aggression == 0.8
+
+
 def _run_all():
     test_import_loads_all_residents()
     test_import_loads_relationship_edges_with_correct_types()
     test_import_is_deterministic_given_same_seed()
     test_dead_residents_are_not_imported_and_leave_no_dangling_edges()
     test_relationship_to_unknown_resident_is_skipped()
+    test_town_aggression_defaults_to_zero_when_table_is_missing()
+    test_town_aggression_is_read_from_town_state()
     print("OK")
 
 

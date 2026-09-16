@@ -34,7 +34,10 @@ def main(argv=None) -> None:
     # occasional pattern of violence rather than a mass extinction event. The divisor
     # is the calibration knob: raise it for a quieter town, lower it for a bloodier one.
     average_degree = max(1.0, 2 * len(graph.edges) / max(1, len(graph.nodes)))
-    violence = ViolencePhenomenon(base_rate=0.01 / average_degree)
+    # ponytail: linear scale-up, 3x at max aggression (1.0); tune this constant if a
+    # max-aggression town should feel more/less volatile than "three times as violent"
+    aggression_factor = 1.0 + 2.0 * graph.town_aggression
+    violence = ViolencePhenomenon(base_rate=0.01 / average_degree * aggression_factor)
     contagion = ContagionPhenomenon(
         base_rate=args.transmission_rate,
         infectious_days=args.infectious_days,

@@ -57,6 +57,11 @@ class SocialGraph:
     def __init__(self) -> None:
         self.nodes: Dict[int, Node] = {}
         self.edges: Dict[Tuple[int, int], Edge] = {}
+        # TownShape's own town-wide generation dial (0..1, defaults to 0.0
+        # meaning "no extra volatility" -- not "no violence at all"). Read
+        # at import; a "guardrail" multiplier for phenomena to apply, not a
+        # phenomenon itself.
+        self.town_aggression: float = 0.0
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.resident_id] = node
@@ -167,6 +172,17 @@ def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: rando
         )
 
 
+def _load_town_state(conn: sqlite3.Connection, graph: SocialGraph) -> None:
+    # not every snapshot (e.g. test fixtures) has a town_state table -- default to
+    # neutral (0.0) rather than fail an otherwise-valid import
+    try:
+        row = conn.execute("SELECT aggression FROM town_state LIMIT 1").fetchone()
+    except sqlite3.OperationalError:
+        return
+    if row is not None and row[0] is not None:
+        graph.town_aggression = row[0]
+
+
 def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
     rows = conn.execute(
         """
@@ -218,6 +234,7 @@ def import_snapshot(db_path: str, seed: int) -> SocialGraph:
         _load_residents(conn, graph, rng)
         _load_relationships(conn, graph, rng)
         _load_shopkeeper_customer(conn, graph, rng)
+        _load_town_state(conn, graph)
     finally:
         conn.close()
     return graph

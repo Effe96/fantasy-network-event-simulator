@@ -7,10 +7,13 @@ def make_test_db(
     residents: Iterable[Tuple[int, str, "int | None"]],
     relationships: Iterable[Tuple[int, int, str]] = (),
     shop_relationships: Iterable[Tuple[int, int, float, int, int]] = (),
+    aggression: "float | None" = None,
 ) -> None:
     """residents: (id, ses, workplace_building_id[, death_date])
     relationships: (resident_a_id, resident_b_id, relationship_type)
     shop_relationships: (resident_id, shop_building_id, customer_score, purchase_count, is_primary)
+    aggression: if given, creates a town_state table with this value (omitted -> table absent,
+    exercising the real snapshots' occasional-missing-table fallback)
     """
     conn = sqlite3.connect(path)
     conn.execute(
@@ -28,5 +31,8 @@ def make_test_db(
     )
     conn.executemany("INSERT INTO relationships VALUES (?, ?, ?)", list(relationships))
     conn.executemany("INSERT INTO shop_relationships VALUES (?, ?, ?, ?, ?)", list(shop_relationships))
+    if aggression is not None:
+        conn.execute("CREATE TABLE town_state (aggression REAL)")
+        conn.execute("INSERT INTO town_state (aggression) VALUES (?)", (aggression,))
     conn.commit()
     conn.close()
