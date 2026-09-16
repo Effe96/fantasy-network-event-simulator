@@ -12,4 +12,25 @@ plain-language explanations and worked examples.
 
 ## Status
 
-Design written, not yet implemented.
+Implemented. `graph.py`, `phenomena.py`, `engine.py` and `demo.py` are all
+in place, with assert-based tests in `tests/`.
+
+## Usage
+
+Run a simulation over a TownShape snapshot (the snapshot is opened
+read-only and never modified):
+
+```
+py -3 demo.py --db <path-to-a-townshape-snapshot.db> --days 365 --seed 42
+```
+
+Writes `output/summary.csv` (per-day counts) and `output/events.json`
+(the event log), and prints a short summary. `--out` picks a different
+output directory. The same `(--db, --seed)` pair always produces the same
+run.
+
+Run the test suite (standard library only, no test framework):
+
+```
+py -3 tests/run_all.py
+```

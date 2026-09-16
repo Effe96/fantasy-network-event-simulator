@@ -24,6 +24,16 @@ def test_isolated_resident_never_gets_infected():
     phenomenon = ContagionPhenomenon(base_rate=1.0)  # patient zero = resident 1 (lowest id)
     result = run_simulation(graph, [phenomenon], days=60, seed=1)
     assert all(event.resident_a != 4 and event.resident_b != 4 for event in result.events)
+    # the negative assertion above is vacuous on its own, so also prove the
+    # outbreak actually reached the connected residents
+    assert result.events, "expected the outbreak to produce events elsewhere in the graph"
+    assert any(event.kind == "infected" for event in result.events)
+    # patient zero (1) and their spouse (2, tie_strength 0.9) both run the
+    # course; resident 4 is unreachable and must still be susceptible at the end
+    final = result.daily_summaries[-1]
+    assert final["recovered"] >= 2, final
+    assert final["susceptible"] >= 1, final
+    assert final["recovered"] + final["susceptible"] + final["infected"] == 4, final
 
 
 def test_violence_can_remove_a_resident():
