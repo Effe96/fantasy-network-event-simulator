@@ -1,6 +1,7 @@
 import random
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
@@ -100,7 +101,9 @@ def synthesize_relationship_attributes(relationship_type: str, rng: random.Rando
 
 
 def _load_residents(conn: sqlite3.Connection, graph: SocialGraph) -> None:
-    rows = conn.execute("SELECT id, ses FROM residents").fetchall()
+    rows = conn.execute(
+        "SELECT id, ses FROM residents WHERE death_date IS NULL ORDER BY id"
+    ).fetchall()
     for resident_id, ses in rows:
         graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True))
 
@@ -108,9 +111,13 @@ def _load_residents(conn: sqlite3.Connection, graph: SocialGraph) -> None:
 def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
     rows = conn.execute(
         "SELECT resident_a_id, resident_b_id, relationship_type FROM relationships"
+        " ORDER BY resident_a_id, resident_b_id"
     ).fetchall()
     for resident_a_id, resident_b_id, relationship_type in rows:
         if relationship_type not in RELATIONSHIP_TYPE_BASELINES:
+            continue
+        # skip dangling edges: either endpoint may be absent (dead, or a data gap)
+        if resident_a_id not in graph.nodes or resident_b_id not in graph.nodes:
             continue
         attrs = synthesize_relationship_attributes(relationship_type, rng)
         graph.add_edge(
@@ -131,8 +138,11 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
         FROM shop_relationships sr
         JOIN residents r ON r.workplace_building_id = sr.shop_building_id
         WHERE sr.resident_id != r.id
+        ORDER BY sr.resident_id, r.id
         """
     ).fetchall()
+    # skip dangling edges: either endpoint may be absent (dead, or a data gap)
+    rows = [row for row in rows if row[0] in graph.nodes and row[1] in graph.nodes]
     if not rows:
         return
 
@@ -162,7 +172,9 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
 def import_snapshot(db_path: str, seed: int) -> SocialGraph:
     rng = random.Random(seed)
     graph = SocialGraph()
-    conn = sqlite3.connect(db_path)
+    # read-only: a snapshot is never written to, and a mistyped path must fail
+    # loudly instead of silently creating an empty .db
+    conn = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
     try:
         _load_residents(conn, graph)
         _load_relationships(conn, graph, rng)
