@@ -159,6 +159,15 @@
   cooled — not treated as a bug, but worth knowing if two riots show up
   back-to-back in a log.
 
+### Guards: bribery (`GuardPhenomenon`)
+
+- **Implemented**, scoped to bribery only — see "Guards" below for what's
+  deferred and why. Fires per-edge, only between a `civilian` and a
+  `guard`; probability scales with the civilian's own `cunning` trait
+  and an SES-based wealth-affordability proxy. Effect: raises only the
+  guard's own outgoing valence toward the briber (clamped at 1.0) — the
+  first concrete instance of the **favor** event type.
+
 ### CLI & output (`demo.py`)
 
 - `demo.py --db <snapshot> [--days] [--seed] [--transmission-rate]
@@ -289,20 +298,40 @@ implemented yet — unless marked otherwise.
 - Guards function as something closer to a shared public relationship
   than individual people — most residents have a baseline connection to
   "the guards" as a class, shifting with events (beatings, tax
-  collection, bribery, corruption).
+  collection, bribery, corruption). **Simplified for v1**: guards are
+  modeled as the individual named residents they already are (role
+  `guard`, ~40 in the reference town), and mechanics operate over real
+  edges to them, consistent with every other implemented phenomenon —
+  not a separate abstract "the guards" institution-wide relationship.
+  Revisit if that framing turns out to matter.
 - A guard's response to a given resident: arrest calmly (low animosity
   toward that person), arrest roughly (high animosity), look the other
-  way (high affinity), or accept a bribe (moderate affinity).
+  way (high affinity), or accept a bribe (moderate affinity). **Only
+  bribery implemented** — arrest behavior needs a crime to react to,
+  and there's no cross-phenomenon event link yet for guards to observe
+  what violence or Criminals (doesn't exist) produced.
 - **Riots**: **Implemented** — see "Riots" under Current State, above.
-- Bribery raises the guard's affinity toward the briber; the going rate
-  scales with town wealth.
+- **Bribery: Implemented** (`GuardPhenomenon`). A civilian bribes a
+  guard they're actually connected to (an edge, not an abstract class
+  tie); the chance scales with the civilian's own `cunning` trait and
+  their `ses` as a wealth-affordability proxy (no town-wide wealth
+  aggregate exists yet — see the "Wealth inequality" candidate
+  parameter). Effect: raises only the guard's own outgoing valence
+  toward the briber, clamped at 1.0 — the first concrete instance of
+  the new **favor** event type (below): it only ever raises affinity,
+  directionally, same discipline as `grief_shock`.
 - A guard bribed by a noble or priest reacts more strongly to anyone who
   later targets that patron — an attack on someone who's paid you off
-  reads as more personal than an attack on an ordinary resident.
+  reads as more personal than an attack on an ordinary resident. Not
+  implemented: needs bribery to track *who* bribed a guard beyond the
+  edge's own valence, and a link to violence's culprit/victim.
 - Guards start with a built-in skew: more affinity toward nobles, more
-  animosity toward poor residents who act against nobles.
+  animosity toward poor residents who act against nobles. Not
+  implemented: noble/guard edges get the same neutral synthesis as
+  everyone else today.
 - Animosity toward a governor (if the town has one) should partly
-  trickle down onto the guards and nobles associated with them.
+  trickle down onto the guards and nobles associated with them. Not
+  implemented — no governor concept exists yet.
 
 ### Criminals
 

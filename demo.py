@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from graph import import_snapshot
-from phenomena import ContagionPhenomenon, RiotPhenomenon, RomancePhenomenon, ViolencePhenomenon
+from phenomena import ContagionPhenomenon, GuardPhenomenon, RiotPhenomenon, RomancePhenomenon, ViolencePhenomenon
 from engine import run_simulation
 
 
@@ -54,7 +54,8 @@ def main(argv=None) -> None:
     # the ~40 guards/nobles, so an early riot can thin the pool for the rest of
     # the year; not worth chasing with a bigger model for a first pass)
     riot = RiotPhenomenon(unrest_threshold=0.25 / aggression_factor, riot_base_rate=0.02 * aggression_factor)
-    phenomena = [contagion, violence, romance, riot]
+    guards = GuardPhenomenon()
+    phenomena = [contagion, violence, romance, riot, guards]
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)
@@ -101,6 +102,8 @@ def _print_summary(result) -> None:
     print("riots:")
     print(f"  riots: {last.get('riots', 0)}  guards killed: {last.get('riot_guard_deaths', 0)}"
           f"  nobles killed: {last.get('riot_noble_deaths', 0)}")
+    print("guards:")
+    print(f"  bribes: {last.get('bribes', 0)}")
     print("population:")
     print(f"  alive: {last.get('alive', 0)}  dead: {last.get('dead', 0)} "
           f"(violence {violence_deaths} + disease {disease_deaths} + riots {riot_deaths})")

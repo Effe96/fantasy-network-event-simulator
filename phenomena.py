@@ -495,3 +495,59 @@ class RiotPhenomenon:
             "riot_guard_deaths": self._guard_deaths,
             "riot_noble_deaths": self._noble_deaths,
         }
+
+
+# ponytail: wealth as a bribe-affordability proxy, since there's no town-wide
+# wealth aggregate yet (see the "Wealth inequality" candidate town parameter);
+# swap for that once it exists
+BRIBE_WEALTH_FACTOR = {"poor": 0.5, "middling": 1.0, "rich": 2.0}
+
+
+class GuardPhenomenon:
+    """First scoped slice of Guards: bribery only -- the vision doc's arrest/
+    skewed-affinity/patron-protection mechanics all depend on either Criminals
+    (doesn't exist) or a cross-phenomenon link to violence's culprits (no event
+    bus between phenomena exists), so they're deliberately deferred rather than
+    half-built. Bribery is self-contained and is also the first concrete
+    instance of the "favor" event type (see the event taxonomy doc): it only
+    ever raises affinity, in the guard's own outgoing valence toward the
+    briber."""
+
+    name = "guards"
+
+    def __init__(self, bribe_base_rate: float = 0.01, bribe_affinity_gain: float = 0.15):
+        self.bribe_base_rate = bribe_base_rate
+        self.bribe_affinity_gain = bribe_affinity_gain
+        self._bribes = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        # edge_probability has no graph access, only edge + per-resident state,
+        # so the static fields it needs are copied in here -- same reason
+        # RomancePhenomenon copies gender/age instead of looking them up live
+        return {
+            resident_id: {"role": node.role, "cunning": node.cunning, "ses": node.ses}
+            for resident_id, node in graph.nodes.items()
+        }
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        roles = {state_a["role"], state_b["role"]}
+        if roles != {"civilian", "guard"}:
+            return 0.0
+        civilian_state = state_a if state_a["role"] == "civilian" else state_b
+        wealth_factor = BRIBE_WEALTH_FACTOR.get(civilian_state["ses"], 1.0)
+        return self.bribe_base_rate * civilian_state["cunning"] * wealth_factor * edge.tie_strength
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        edge = graph.get_edge(a, b)
+        guard_id = a if state[a]["role"] == "guard" else b
+        briber_id = b if guard_id == a else a
+        new_valence = min(1.0, edge.valence_from(guard_id) + self.bribe_affinity_gain)
+        edge.set_valence_from(guard_id, new_valence)
+        self._bribes += 1
+        return [Event(day, self.name, "bribed", briber_id, guard_id, f"guard's affinity +{self.bribe_affinity_gain:.2f}")]
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {"bribes": self._bribes}
