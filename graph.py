@@ -1,6 +1,7 @@
 import random
 import sqlite3
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -17,6 +18,10 @@ class Node:
     cunning: float = 0.5
     skepticism: float = 0.5
     loyalty: float = 0.5
+    gender: Optional[str] = None
+    # whole years, computed once at import against town_state.year_start;
+    # None if birth_date or year_start is unavailable (e.g. test fixtures)
+    age: Optional[int] = None
 
 
 @dataclass
@@ -141,12 +146,28 @@ def synthesize_relationship_attributes(relationship_type: str, rng: random.Rando
     }
 
 
-def _load_residents(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
+def _age_from_birth_date(birth_date: Optional[str], reference_year: Optional[int]) -> Optional[int]:
+    if birth_date is None or reference_year is None:
+        return None
+    try:
+        birth_year = date.fromisoformat(birth_date).year
+    except ValueError:
+        return None
+    # ponytail: year-only precision (no month/day), fine for an adulthood gate
+    return max(0, reference_year - birth_year)
+
+
+def _load_residents(
+    conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random, reference_year: Optional[int]
+) -> None:
     rows = conn.execute(
-        "SELECT id, ses FROM residents WHERE death_date IS NULL ORDER BY id"
+        "SELECT id, ses, gender, birth_date FROM residents WHERE death_date IS NULL ORDER BY id"
     ).fetchall()
-    for resident_id, ses in rows:
-        graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True, **synthesize_traits(rng)))
+    for resident_id, ses, gender, birth_date in rows:
+        age = _age_from_birth_date(birth_date, reference_year)
+        graph.add_node(
+            Node(resident_id=resident_id, ses=ses, alive=True, gender=gender, age=age, **synthesize_traits(rng))
+        )
 
 
 def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
@@ -172,15 +193,24 @@ def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: rando
         )
 
 
-def _load_town_state(conn: sqlite3.Connection, graph: SocialGraph) -> None:
+def _load_town_state(conn: sqlite3.Connection, graph: SocialGraph) -> Optional[int]:
     # not every snapshot (e.g. test fixtures) has a town_state table -- default to
-    # neutral (0.0) rather than fail an otherwise-valid import
+    # neutral aggression (0.0) and no reference year, rather than fail an otherwise-valid import
     try:
-        row = conn.execute("SELECT aggression FROM town_state LIMIT 1").fetchone()
+        row = conn.execute("SELECT aggression, year_start FROM town_state LIMIT 1").fetchone()
     except sqlite3.OperationalError:
-        return
-    if row is not None and row[0] is not None:
-        graph.town_aggression = row[0]
+        return None
+    if row is None:
+        return None
+    aggression, year_start = row
+    if aggression is not None:
+        graph.town_aggression = aggression
+    if year_start is None:
+        return None
+    try:
+        return date.fromisoformat(year_start).year
+    except ValueError:
+        return None
 
 
 def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
@@ -231,10 +261,10 @@ def import_snapshot(db_path: str, seed: int) -> SocialGraph:
     # loudly instead of silently creating an empty .db
     conn = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
     try:
-        _load_residents(conn, graph, rng)
+        reference_year = _load_town_state(conn, graph)
+        _load_residents(conn, graph, rng, reference_year)
         _load_relationships(conn, graph, rng)
         _load_shopkeeper_customer(conn, graph, rng)
-        _load_town_state(conn, graph)
     finally:
         conn.close()
     return graph

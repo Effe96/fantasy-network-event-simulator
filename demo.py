@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from graph import import_snapshot
-from phenomena import ContagionPhenomenon, ViolencePhenomenon
+from phenomena import ContagionPhenomenon, RomancePhenomenon, ViolencePhenomenon
 from engine import run_simulation
 
 
@@ -43,7 +43,11 @@ def main(argv=None) -> None:
         infectious_days=args.infectious_days,
         case_fatality_rate=args.fatality_rate,
     )
-    phenomena = [contagion, violence]
+    # unlike violence, no degree-normalization needed here: on a real town most
+    # residents are already married at import (see romance's design note), so
+    # the eligible unmarried-and-connected pool is small on its own
+    romance = RomancePhenomenon()
+    phenomena = [contagion, violence, romance]
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)
@@ -84,6 +88,8 @@ def _print_summary(result) -> None:
           f"{last.get('susceptible', 0)}/{last.get('infected', 0)}/{last.get('recovered', 0)}/{disease_deaths}")
     print("violence:")
     print(f"  deaths: {violence_deaths}")
+    print("romance:")
+    print(f"  married residents: {last.get('married_residents', 0)}  births: {last.get('births', 0)}")
     print("population:")
     print(f"  alive: {last.get('alive', 0)}  dead: {last.get('dead', 0)} "
           f"(violence {violence_deaths} + disease {disease_deaths})")

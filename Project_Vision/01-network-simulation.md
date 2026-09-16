@@ -15,6 +15,9 @@
   odds of being picked as the aggressor in `_pick_aggressor`, restraining
   them even when equally hostile. `religiousness`/`cunning`/`skepticism`
   have no consumer yet — they're in place for Priests/Criminals work.
+  Also carries `gender` and `age` (whole years, computed at import
+  against `town_state.year_start`; `None` if either input is missing),
+  used by romance/marriage eligibility below.
 - **Edge** — one relationship: `source_type` (TownShape's original
   label), `fiske_type`, `time`/`intimacy`/`services` (shared — how much
   contact happens is mutual), and **two independent, directed valences**
@@ -28,7 +31,19 @@
   loads `relationships` rows as edges with attributes synthesized from
   per-type baseline distributions, and derives `shopkeeper_customer`
   edges from `shop_relationships` (TownShape doesn't store either
-  directly).
+  directly). Also reads `town_state.aggression` and `.year_start` into
+  `SocialGraph.town_aggression` (default 0.0 if the table is absent —
+  e.g. test fixtures) and the age-reference year, respectively.
+
+### Town-wide dynamic parameters
+
+- **Aggression**: **Implemented**, using TownShape's *own* existing
+  0..1 generation dial (it already drives TownShape's own skirmish-event
+  generation) rather than inventing a new one. `demo.py` scales
+  `ViolencePhenomenon.base_rate` by `1.0 + 2.0 * graph.town_aggression`
+  (1x at aggression 0 — TownShape's own default — up to 3x at max).
+  Religiosity and loyalty as *town-wide* dials (distinct from the
+  per-resident traits above) remain proposed, not implemented.
 
 ### Phenomenon engine (`phenomena.py`, `engine.py`)
 
@@ -96,9 +111,8 @@ implemented yet — unless marked otherwise.
 - A set of "guardrail" dials that widen or narrow how fast animosity/
   affinity move in response to events — not new events themselves, but
   multipliers on the events above:
-  - **Aggression**: an aggressive town has bigger animosity swings
-    (harsher guard beatings, more frequent riots); a pacific one has
-    smaller swings.
+  - **Aggression**: **Implemented** — see "Current State" above. Reads
+    TownShape's own generation dial rather than a new one.
   - **Religiosity**: shapes how strongly residents' relationships with
     priests move (see Priests, below).
   - **Loyalty**: a loyal town's guards take fewer bribes and its people
@@ -134,8 +148,33 @@ implemented yet — unless marked otherwise.
 
 ### People
 
-- **Romance**: if mutual affinity between two people crosses a
-  threshold, they fall in love and marry.
+- **Romance**: **Implemented** (`RomancePhenomenon`). Mutual affinity
+  (`min` of both directions, so an unrequited crush never qualifies)
+  crossing `love_threshold` (default 0.5) retypes an eligible edge to
+  `spouse` in place. Eligible = both alive, both adults (age >= 18, the
+  same threshold TownShape's own `family.py` uses), opposite gender
+  (only gender values seen in TownShape data so far — a known gap, not
+  a deliberate exclusion), neither already married (v1 has no
+  divorce/remarriage), and not a `parent`/`sibling` edge (no incest).
+  Married (`spouse`-type) edges then roll for a birth each day,
+  recorded as a **log-only `Event`** — no new `Node` is created yet,
+  since every other phenomenon's state dict is fixed at day 0 and
+  doesn't tolerate residents added mid-run (would need a
+  `Phenomenon.default_state` hook or similar to fix properly). Real
+  child-Nodes, and therefore real multi-generational family ties
+  derived from them, are a follow-up.
+  - **Calibration finding, worth remembering**: on a real TownShape
+    town, most residents are already married at import (337 spouse
+    edges / 1911 residents here) and the unmarried-adult pool is small
+    (143 of 1911). Of those, pairs that are *both* unmarried *and*
+    already connected by some edge *and* clear the mutual-affinity
+    threshold are rarer still (1 such pair in the reference town/seed).
+    ~0-2 new marriages/year for this town is therefore a realistic
+    result of the data, not underfiring — resist the urge to inflate
+    `marriage_base_rate` to compensate. The real limiter is that two
+    unconnected singles can never meet: there's no "stranger" edge-
+    creation mechanic, only marriage over pre-existing ties. Worth
+    revisiting once that matters more.
 - Opposite-gender marriages can produce children — this is additive on
   top of TownShape's existing birth/household derivation, not a
   replacement for it.

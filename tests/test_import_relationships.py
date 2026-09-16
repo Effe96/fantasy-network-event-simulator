@@ -91,6 +91,38 @@ def test_town_aggression_is_read_from_town_state():
         assert graph.town_aggression == 0.8
 
 
+def test_gender_and_age_are_imported_against_town_reference_year():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "town.db")
+        make_test_db(
+            db_path,
+            residents=[
+                (1, "poor", None, None, "male", "1280-01-01"),
+                (2, "rich", None, None, "female", "1290-01-01"),
+                (3, "middling", None, None, None, None),  # no gender/birth_date on record
+            ],
+            year_start="1300-01-01",
+        )
+        graph = import_snapshot(db_path, seed=1)
+        assert graph.nodes[1].gender == "male"
+        assert graph.nodes[1].age == 20
+        assert graph.nodes[2].gender == "female"
+        assert graph.nodes[2].age == 10
+        assert graph.nodes[3].gender is None
+        assert graph.nodes[3].age is None
+
+
+def test_age_is_none_when_town_state_is_missing():
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "town.db")
+        make_test_db(
+            db_path,
+            residents=[(1, "poor", None, None, "male", "1280-01-01")],  # no town_state at all
+        )
+        graph = import_snapshot(db_path, seed=1)
+        assert graph.nodes[1].age is None
+
+
 def _run_all():
     test_import_loads_all_residents()
     test_import_loads_relationship_edges_with_correct_types()
@@ -99,6 +131,8 @@ def _run_all():
     test_relationship_to_unknown_resident_is_skipped()
     test_town_aggression_defaults_to_zero_when_table_is_missing()
     test_town_aggression_is_read_from_town_state()
+    test_gender_and_age_are_imported_against_town_reference_year()
+    test_age_is_none_when_town_state_is_missing()
     print("OK")
 
 

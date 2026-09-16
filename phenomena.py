@@ -2,6 +2,8 @@ import random
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol
 
+from graph import FISKE_TAGS
+
 
 @dataclass
 class Event:
@@ -181,3 +183,96 @@ class ViolencePhenomenon:
     def summarize(self, state) -> Dict[str, int]:
         alive = sum(1 for resident_state in state.values() if resident_state["alive"])
         return {"alive": alive, "dead": len(state) - alive}
+
+
+ADULT_MIN_AGE = 18  # matches TownShape's own town_relationships/family.py adulthood threshold
+FERTILE_MAX_AGE = 45  # ponytail: placeholder cutoff, tune if it reads oddly
+
+
+class RomancePhenomenon:
+    name = "romance"
+
+    def __init__(self, love_threshold: float = 0.5, marriage_base_rate: float = 0.05, birth_base_rate: float = 0.01):
+        self.love_threshold = love_threshold
+        self.marriage_base_rate = marriage_base_rate
+        self.birth_base_rate = birth_base_rate
+        self._marriages = 0
+        # ponytail: births are log-only for now -- no Node is created, since every
+        # other phenomenon's state dict is fixed at day 0 and doesn't yet tolerate
+        # residents added mid-run. Upgrade path: give Phenomenon a default_state
+        # hook so a newborn can join contagion/violence too.
+        self._births = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        # edge_probability has no graph access, only edge + per-resident state, so
+        # the static fields it needs (gender, age) are copied in here rather than
+        # looked up live -- same reason ContagionPhenomenon keeps its own "status".
+        state = {
+            resident_id: {"married": False, "gender": node.gender, "age": node.age}
+            for resident_id, node in graph.nodes.items()
+        }
+        for edge in graph.edges.values():
+            if edge.source_type == "spouse":
+                state[edge.resident_a]["married"] = True
+                state[edge.resident_b]["married"] = True
+        return state
+
+    @staticmethod
+    def _is_adult(person_state) -> bool:
+        return person_state["age"] is not None and person_state["age"] >= ADULT_MIN_AGE
+
+    @staticmethod
+    def _is_opposite_gender_pair(state_a, state_b) -> bool:
+        # v1 only models opposite-gender romance/births, matching every gender
+        # value seen in TownShape data so far; known gap, not a deliberate exclusion
+        return (
+            state_a["gender"] is not None
+            and state_b["gender"] is not None
+            and state_a["gender"] != state_b["gender"]
+        )
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        if edge.source_type == "spouse":
+            if not self._is_opposite_gender_pair(state_a, state_b):
+                return 0.0
+            if not (self._is_adult(state_a) and self._is_adult(state_b)):
+                return 0.0
+            if state_a["age"] > FERTILE_MAX_AGE or state_b["age"] > FERTILE_MAX_AGE:
+                return 0.0
+            return self.birth_base_rate * edge.tie_strength
+
+        if edge.source_type in ("parent", "sibling"):
+            return 0.0  # no romance within family
+        if state_a["married"] or state_b["married"]:
+            return 0.0  # monogamy: v1 has no divorce/remarriage
+        if not self._is_opposite_gender_pair(state_a, state_b):
+            return 0.0
+        if not (self._is_adult(state_a) and self._is_adult(state_b)):
+            return 0.0
+        # both sides must feel it -- an unrequited crush never leads to marriage
+        mutual_affinity = min(edge.valence_a_to_b, edge.valence_b_to_a)
+        if mutual_affinity <= self.love_threshold:
+            return 0.0
+        return self.marriage_base_rate * (mutual_affinity - self.love_threshold) * edge.tie_strength
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        edge = graph.get_edge(a, b)
+        if edge.source_type == "spouse":
+            self._births += 1
+            return [Event(day, self.name, "born", a, b, "had a child (not yet a tracked resident)")]
+
+        edge.source_type = "spouse"
+        edge.fiske_type = FISKE_TAGS["spouse"]
+        state[a]["married"] = True
+        state[b]["married"] = True
+        self._marriages += 1
+        return [Event(day, self.name, "married", a, b, "fell in love and married")]
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {
+            "married_residents": sum(1 for resident_state in state.values() if resident_state["married"]),
+            "births": self._births,
+        }
