@@ -122,18 +122,47 @@
   guard roster, and a **riot bar** (below) for the rest of its life —
   the town-wide trigger check is skipped entirely while a riot is
   already active.
-- **Guard phase** (`_advance_riot`, day by day while `not retreated`):
-  every living guard gets a fresh independent death roll each day
-  (guards are public figures — town-wide, not just ones a rioter
-  personally knows), scaled by mob-size-vs-guard-count, until enough
-  have died to cross that riot's `retreat_threshold`. **That threshold
-  now scales with the guards' own average `loyalty`** at riot start:
-  `effective_retreat_threshold = retreat_threshold * (0.5 + avg_guard_loyalty)`
-  — 0.5 is the trait's own default mean, so an average-loyalty garrison
-  reproduces the plain `retreat_threshold` unchanged; a disloyal one
-  breaks far sooner, a fiercely loyal one holds far longer. Once
-  retreated (or if there were no guards to begin with), no further
-  guard deaths occur and nobles become exposed.
+- **Guard phase** (`_advance_riot`, day by day while `not guards_retreated`):
+  guards and rioters now trade casualties **simultaneously** each day —
+  independent rolls for every living guard and every living rioter,
+  both using that day's starting counts, checked once at the end of the
+  day rather than sequentially with an early exit. (An earlier version
+  processed guards first and stopped the instant they retreated, which
+  meant rioters were only ever rolled against on days guards *didn't*
+  break — in practice guards almost always broke on day one, so
+  rioters essentially never took casualties. Corrected per direct user
+  feedback: "how many rioters died? that should also be taken into
+  account.")
+  - Guards' own death chance scales with mob-size-vs-guard-count,
+    exactly as before, until enough have died to cross that riot's
+    `retreat_threshold`. **Still scales with the guards' own average
+    `loyalty`** at riot start:
+    `effective_guard_retreat_threshold = retreat_threshold * (0.5 + avg_guard_loyalty)`
+    — 0.5 is the trait's own default mean, so an average-loyalty
+    garrison reproduces the plain `retreat_threshold` unchanged; a
+    disloyal one breaks far sooner, a fiercely loyal one holds far
+    longer.
+  - Rioters' own death chance uses the same size-ratio shape, but
+    `rioter_lethality` (default 0.6) is set higher than `guard_lethality`
+    (default 0.3) — direct user feedback: "guards are armed and
+    trained, they have a lower chance to die when fighting rioters than
+    the opposite." At equal force sizes this makes a rioter roughly
+    **twice** as likely to die that day as a guard.
+  - **New: rioters can rout.** If the mob's own casualties cross
+    `rioter_retreat_threshold` before guards retreat, the survivors
+    break and scatter — a `rioters_rout` event fires, the riot ends
+    right there, and **nobles are never exposed** (guards successfully
+    defended). Scaled the same way as guard loyalty, but by the mob's
+    own animosity instead: `effective_rioter_retreat_threshold =
+    rioter_retreat_threshold * (0.5 + avg_participant_hostility)`, using
+    each participant's own worst grievance at the moment they joined —
+    direct user feedback: "if enough rioters die, the others should
+    escape (threshold should be based on the level of animosity)." An
+    enraged mob absorbs more losses before it breaks than a lukewarm one.
+  - If guards retreat (or there were none to begin with), no further
+    guard *or* rioter deaths occur from this combat and nobles become
+    exposed. If neither side breaks that day, both phases repeat the
+    next day with the survivors.
 - **Noble phase** (day by day once retreated): nobles are ranked by
   **how personally hated they are** (`_hatred_toward`: summed hostile
   valence from everyone who knows them, not just this riot's

@@ -288,12 +288,15 @@ class RiotPhenomenon:
     the one phenomenon that needs it.
 
     A riot now persists across days as explicit state (self._active_riot)
-    instead of resolving atomically in a single end_of_day call: guards take
-    casualties day by day until enough of them break and flee, then nobles are
-    targeted day by day -- most-hated first -- until a "riot bar" (the mob's
-    remaining bloodlust, sized off how many people showed up) runs out or no
-    nobles are left. That bar, not an arbitrary one-shot roll, is what actually
-    stops the riot."""
+    instead of resolving atomically in a single end_of_day call: guards and
+    rioters trade casualties day by day (guards are armed and trained, so
+    they die at a lower rate than the rioters they fight) until one side
+    breaks -- either the guards retreat (scaled by their own average loyalty)
+    and nobles become exposed, or the rioters themselves rout (scaled by how
+    angry the mob actually was) and the riot ends there, guards never having
+    broken. Only once guards have retreated are nobles targeted, most-hated
+    first, until a "riot bar" (the mob's remaining bloodlust, sized off how
+    many people showed up) runs out or no nobles are left."""
 
     name = "riot"
 
@@ -304,8 +307,10 @@ class RiotPhenomenon:
         join_rate: float = 0.5,
         min_participants: int = 3,
         guard_lethality: float = 0.3,
+        rioter_lethality: float = 0.6,
         noble_lethality: float = 0.1,
         retreat_threshold: float = 0.3,
+        rioter_retreat_threshold: float = 0.3,
         riot_bar_per_participant: float = 0.1,
         death_cap: float = 0.9,
     ):
@@ -314,12 +319,20 @@ class RiotPhenomenon:
         self.join_rate = join_rate
         self.min_participants = min_participants
         self.guard_lethality = guard_lethality
+        # armed and trained: rioters die faster fighting guards than guards die
+        # fighting rioters (rioter_lethality > guard_lethality, same size-ratio
+        # formula on both sides -- see _advance_riot)
+        self.rioter_lethality = rioter_lethality
         self.noble_lethality = noble_lethality
         # base fraction of the initial guard count that needs to die before they
         # retreat -- scaled per-riot by the guards' own average loyalty (see
         # _start_riot): a more loyal force holds far longer than this alone
         # suggests, a less loyal one breaks far sooner
         self.retreat_threshold = retreat_threshold
+        # same idea for the mob itself, scaled by how angry it was to begin
+        # with: an enraged mob absorbs more losses before it routs than a
+        # lukewarm one
+        self.rioter_retreat_threshold = rioter_retreat_threshold
         # ponytail: how many noble kills a riot's fervor is "worth," per rioter;
         # tune this if riots feel too bloody or fizzle out too fast
         self.riot_bar_per_participant = riot_bar_per_participant
@@ -331,6 +344,7 @@ class RiotPhenomenon:
         self._riots = 0
         self._guard_deaths = 0
         self._noble_deaths = 0
+        self._rioter_deaths = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         # civilian <-> authority (guard or noble) edges, precomputed once: roles
@@ -400,16 +414,25 @@ class RiotPhenomenon:
         # the trait's own default mean, so an average-loyalty force reproduces
         # the plain retreat_threshold unchanged
         avg_guard_loyalty = sum(graph.nodes[g].loyalty for g in guards) / len(guards) if guards else 0.5
-        effective_retreat_threshold = self.retreat_threshold * (0.5 + avg_guard_loyalty)
+        effective_guard_retreat_threshold = self.retreat_threshold * (0.5 + avg_guard_loyalty)
+
+        # same shape for the mob: how angry it was joining (its own worst
+        # grievances, not a class-wide average) decides how much it can take
+        # before it breaks and runs
+        avg_participant_hostility = sum(worst_grievance[p] for p in participants) / len(participants)
+        effective_rioter_retreat_threshold = self.rioter_retreat_threshold * (0.5 + avg_participant_hostility)
 
         self._riots += 1
         self._active_riot = {
             "participants": participants,
+            "initial_participant_count": len(participants),
+            "rioter_deaths": 0,
+            "rioter_retreat_threshold": effective_rioter_retreat_threshold,
             "guards_remaining": guards,
             "initial_guard_count": len(guards),
             "guard_deaths": 0,
-            "retreated": len(guards) == 0,
-            "retreat_threshold": effective_retreat_threshold,
+            "guards_retreated": len(guards) == 0,
+            "guard_retreat_threshold": effective_guard_retreat_threshold,
             "riot_bar": max(1, round(self.riot_bar_per_participant * len(participants))),
         }
         return [Event(day, self.name, "riot", participants[0], participants[0], f"{len(participants)} rioters joined")]
@@ -422,31 +445,50 @@ class RiotPhenomenon:
             self._active_riot = None
             return events
 
-        if not riot["retreated"]:
-            # guards are the front line -- they take the mob's violence first,
-            # a fresh independent roll per guard per day, until enough of them
-            # fall and the rest break and flee
-            still_standing = [g for g in riot["guards_remaining"] if graph.nodes[g].alive]
-            riot["guards_remaining"] = still_standing
+        if not riot["guards_retreated"]:
+            # guards and rioters trade blows simultaneously this day, both
+            # using today's starting counts -- not sequential with an early
+            # exit, so the mob still takes fire even on the day guards happen
+            # to break. Same size-ratio shape on both sides, but
+            # rioter_lethality > guard_lethality (armed and trained: guards
+            # die less often per capita than the mob does)
+            still_standing_guards = [g for g in riot["guards_remaining"] if graph.nodes[g].alive]
+            riot["guards_remaining"] = still_standing_guards
+            living_guard_count = len(still_standing_guards)
+            living_participant_count = len(participants)
             p_death_guard = min(
-                self.death_cap, self.guard_lethality * len(participants) / max(1, riot["initial_guard_count"])
+                self.death_cap, self.guard_lethality * living_participant_count / max(1, living_guard_count)
             )
-            for guard_id in list(still_standing):
-                if riot["retreated"]:
-                    break
+            p_death_rioter = min(
+                self.death_cap, self.rioter_lethality * living_guard_count / max(1, living_participant_count)
+            )
+
+            for guard_id in list(still_standing_guards):
                 if rng.random() < p_death_guard:
                     graph.nodes[guard_id].alive = False
                     riot["guard_deaths"] += 1
                     self._guard_deaths += 1
                     riot["guards_remaining"].remove(guard_id)
                     events.append(Event(day, self.name, "guard_killed", guard_id, guard_id, "killed in the riot"))
-                    if riot["guard_deaths"] / riot["initial_guard_count"] >= riot["retreat_threshold"]:
-                        riot["retreated"] = True
-                        events.append(
-                            Event(day, self.name, "guards_retreat", guard_id, guard_id, "guards break and flee")
-                        )
-            if not riot["retreated"] and not riot["guards_remaining"]:
-                riot["retreated"] = True  # every guard fell without technically crossing the threshold
+
+            for rioter_id in list(participants):
+                if rng.random() < p_death_rioter:
+                    graph.nodes[rioter_id].alive = False
+                    riot["rioter_deaths"] += 1
+                    self._rioter_deaths += 1
+                    events.append(Event(day, self.name, "rioter_killed", rioter_id, rioter_id, "killed in the riot"))
+
+            if not riot["guards_remaining"] or riot["guard_deaths"] / riot["initial_guard_count"] >= riot["guard_retreat_threshold"]:
+                riot["guards_retreated"] = True
+                events.append(
+                    Event(day, self.name, "guards_retreat", participants[0], participants[0], "guards break and flee")
+                )
+            elif riot["rioter_deaths"] / riot["initial_participant_count"] >= riot["rioter_retreat_threshold"]:
+                events.append(
+                    Event(day, self.name, "rioters_rout", participants[0], participants[0],
+                          "the mob breaks and scatters -- guards hold the line")
+                )
+                self._active_riot = None
 
         else:
             # nobles are shielded until the guards break -- then personal hatred,
@@ -494,6 +536,7 @@ class RiotPhenomenon:
             "riots": self._riots,
             "riot_guard_deaths": self._guard_deaths,
             "riot_noble_deaths": self._noble_deaths,
+            "riot_rioter_deaths": self._rioter_deaths,
         }
 
 

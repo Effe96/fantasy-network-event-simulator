@@ -100,27 +100,86 @@ def test_nobles_are_exposed_once_guards_retreat():
     assert phenomenon._noble_deaths == 1  # the only noble, guaranteed lethality, guards broke
 
 
-def test_higher_loyalty_guards_take_more_casualties_before_retreating():
-    # same setup, only guard loyalty differs -- the loyal garrison should
-    # absorb more deaths before its survivors break
+def test_higher_loyalty_guards_get_a_higher_retreat_threshold():
+    # guards and rioters now trade blows simultaneously each day (independent
+    # per-individual rolls), so the exact casualty count before a threshold
+    # trips is no longer deterministic from the outside -- check the
+    # threshold formula itself instead, which is what "scales with loyalty"
+    # actually means
     disloyal = _town(num_hostile_civilians=5, num_guards=10, num_nobles=1, guard_loyalty=0.0)
     loyal = _town(num_hostile_civilians=5, num_guards=10, num_nobles=1, guard_loyalty=1.0)
 
     def make_phenomenon():
-        return RiotPhenomenon(
-            unrest_threshold=0.3, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3,
-            guard_lethality=1000.0, retreat_threshold=0.3, death_cap=1.0, riot_bar_per_participant=10.0,
-        )
+        return RiotPhenomenon(unrest_threshold=0.3, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3)
 
     disloyal_phenomenon = make_phenomenon()
-    _run_days(disloyal_phenomenon, disloyal, days=2)
+    _run_days(disloyal_phenomenon, disloyal, days=1)
     loyal_phenomenon = make_phenomenon()
-    _run_days(loyal_phenomenon, loyal, days=2)
+    _run_days(loyal_phenomenon, loyal, days=1)
 
-    # disloyal: retreat_threshold = 0.3*(0.5+0.0) = 0.15 -> retreats after 2/10 die
-    # loyal:    retreat_threshold = 0.3*(0.5+1.0) = 0.45 -> retreats after 5/10 die
-    assert disloyal_phenomenon._guard_deaths == 2
-    assert loyal_phenomenon._guard_deaths == 5
+    # disloyal: 0.3*(0.5+0.0) = 0.15   loyal: 0.3*(0.5+1.0) = 0.45
+    assert abs(disloyal_phenomenon._active_riot["guard_retreat_threshold"] - 0.15) < 1e-9
+    assert abs(loyal_phenomenon._active_riot["guard_retreat_threshold"] - 0.45) < 1e-9
+
+
+def test_guards_die_less_often_than_rioters_at_equal_force_size():
+    # equal counts on both sides -- the lethality constants alone should
+    # decide who's more likely to die each day (armed and trained: guards
+    # take fewer casualties per capita than the mob they're fighting)
+    phenomenon = RiotPhenomenon()
+    p_death_guard = min(phenomenon.death_cap, phenomenon.guard_lethality * 5 / 5)
+    p_death_rioter = min(phenomenon.death_cap, phenomenon.rioter_lethality * 5 / 5)
+    assert p_death_rioter > p_death_guard
+
+
+def test_rioters_can_die_fighting_guards():
+    graph = _town(num_hostile_civilians=5, num_guards=2)
+    phenomenon = RiotPhenomenon(
+        unrest_threshold=0.3, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3,
+        guard_lethality=0.0, rioter_lethality=1000.0, death_cap=1.0, rioter_retreat_threshold=1000.0,
+    )
+    # guard_lethality=0 -> guards never retreat on their own; rioter_retreat_threshold
+    # effectively unreachable, so the mob fights to the last person instead of routing
+    _run_days(phenomenon, graph, days=3)
+    assert phenomenon._rioter_deaths == 5
+    assert phenomenon._guard_deaths == 0
+
+
+def test_rioters_rout_before_guards_ever_break():
+    # guard_lethality=0 -> guards invincible, never retreat on their own;
+    # rioter_lethality=1000/death_cap=1.0 -> every rioter dies in the first
+    # simultaneous exchange, which both wipes out the mob AND crosses its
+    # rout threshold in the same day -- guards still never took a scratch
+    graph = _town(num_hostile_civilians=10, num_guards=50, hostility=-0.9)
+    phenomenon = RiotPhenomenon(
+        unrest_threshold=0.3, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3,
+        guard_lethality=0.0, rioter_lethality=1000.0, death_cap=1.0, rioter_retreat_threshold=0.3,
+    )
+    events = _run_days(phenomenon, graph, days=3)
+    assert phenomenon._rioter_deaths == 10
+    assert any(event.kind == "rioters_rout" for event in events)
+    assert phenomenon._guard_deaths == 0
+    assert phenomenon._noble_deaths == 0  # guards never broke, nobles were never exposed
+    assert phenomenon._active_riot is None
+
+
+def test_angrier_mobs_get_a_higher_rout_threshold():
+    # same reasoning as the guard-loyalty test: check the threshold formula
+    # itself rather than emergent casualty timing under simultaneous combat
+    calm = _town(num_hostile_civilians=10, num_guards=50, hostility=-0.1)
+    furious = _town(num_hostile_civilians=10, num_guards=50, hostility=-0.9)
+
+    def make_phenomenon():
+        return RiotPhenomenon(unrest_threshold=0.05, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3)
+
+    calm_phenomenon = make_phenomenon()
+    _run_days(calm_phenomenon, calm, days=1)
+    furious_phenomenon = make_phenomenon()
+    _run_days(furious_phenomenon, furious, days=1)
+
+    # calm: 0.3*(0.5+0.1) = 0.18   furious: 0.3*(0.5+0.9) = 0.42
+    assert abs(calm_phenomenon._active_riot["rioter_retreat_threshold"] - 0.18) < 1e-9
+    assert abs(furious_phenomenon._active_riot["rioter_retreat_threshold"] - 0.42) < 1e-9
 
 
 def test_riot_bar_depletion_stops_the_riot():
@@ -179,7 +238,11 @@ def _run_all():
     test_riot_starts_with_enough_hostile_joiners()
     test_guards_shield_nobles_until_they_retreat()
     test_nobles_are_exposed_once_guards_retreat()
-    test_higher_loyalty_guards_take_more_casualties_before_retreating()
+    test_higher_loyalty_guards_get_a_higher_retreat_threshold()
+    test_guards_die_less_often_than_rioters_at_equal_force_size()
+    test_rioters_can_die_fighting_guards()
+    test_rioters_rout_before_guards_ever_break()
+    test_angrier_mobs_get_a_higher_rout_threshold()
     test_riot_bar_depletion_stops_the_riot()
     test_nobles_are_exposed_immediately_when_no_guards_exist()
     test_hatred_toward_sums_only_hostile_incoming_valence()
