@@ -11,7 +11,7 @@ from engine import run_simulation
 
 
 def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description="Run the social-sim demo over a TownShape snapshot.")
+    parser = argparse.ArgumentParser(description="Run the Fantasy Network Event Simulator over a TownShape snapshot.")
     parser.add_argument("--db", required=True, help="Path to a TownShape .db snapshot")
     parser.add_argument("--days", type=int, default=365)
     parser.add_argument("--seed", type=int, default=42)

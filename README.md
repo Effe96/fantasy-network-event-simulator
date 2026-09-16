@@ -1,4 +1,4 @@
-# social-sim-demo
+# Fantasy Network Event Simulator
 
 Standalone prototype exploring a generic "phenomenon propagation" engine
 over a social graph imported (read-only) from a TownShape town snapshot.

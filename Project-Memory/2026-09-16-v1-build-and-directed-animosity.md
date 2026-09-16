@@ -1,11 +1,12 @@
-# social-sim-demo: v1 build, disease death, and directed animosity
+# Fantasy Network Event Simulator: v1 build, disease death, and directed animosity
 
 ### History of the session(s) that built this prototype from scratch through its first real extension. Read this before touching `graph.py`/`phenomena.py`/`engine.py` if you weren't there for it — it explains *why* the model is shaped the way it is, not just what the code does.
 
 ## What this project is
 
-A standalone prototype (`social-sim-demo/`, sibling to `TownShape/`, never
-writes back to it) exploring a generic "phenomenon propagation" engine
+A standalone prototype (this repo, publicly named **Fantasy Network
+Event Simulator**, on disk at `social-sim-demo/` sibling to `TownShape/`,
+never writes back to it) exploring a generic "phenomenon propagation" engine
 over a social graph imported read-only from a TownShape town snapshot.
 Full design: `docs/2026-09-15-social-network-design.md`. Current
 state/roadmap: `Project_Vision/01-network-simulation.md`.

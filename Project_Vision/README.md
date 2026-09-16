@@ -1,4 +1,4 @@
-# social-sim-demo: Project Vision
+# Fantasy Network Event Simulator: Project Vision
 
 Same convention as `TownShape/Project_Vision`, scaled down: this project
 is one cohesive layer (a phenomenon-propagation engine over a social
