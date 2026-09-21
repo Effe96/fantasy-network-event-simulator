@@ -1213,3 +1213,98 @@ class TheftPhenomenon:
             "thefts_arrested": self._arrests,
             "thefts_executed": self._executions,
         }
+
+
+class ReligionPhenomenon:
+    """First scoped slice of Priests: religious devotion + skepticism only --
+    corruption (priests accepting payment for services, likely reusing the
+    same "favor" shape GuardPhenomenon's bribery established) and priests as
+    disease-curers (needs a way to read Contagion's death toll -- the same
+    kind of cross-phenomenon link Guards' patron protection was blocked on)
+    are deferred to later slices, same pattern Guards/Criminals used for
+    their own first thin slices.
+
+    Fires per edge, only between a civilian and a priest. Most civilians'
+    own affinity toward priests they know grows slowly over time, scaled by
+    their own religiousness -- a devotion event, the second concrete
+    instance of the "favor" event type after bribery. A small,
+    deliberately-chosen minority (skepticism above heretic_skepticism_
+    threshold -- ~8% of civilians at the trait's default distribution) feel
+    the opposite: their own affinity toward priests they know erodes
+    instead, scaled by their own skepticism -- a "friction" event, the
+    mirror case. Which one applies to a given civilian is decided once, in
+    init_state (skepticism > threshold), not re-rolled daily -- same
+    "sticky, not recomputed" shape TheftPhenomenon's is_thief flag uses.
+    Only the civilian's own outgoing valence moves; a priest's own feelings
+    toward a given civilian are untouched, same one-directional shape
+    bribery uses."""
+
+    name = "religion"
+
+    def __init__(
+        self,
+        devotion_base_rate: float = 0.01,
+        devotion_affinity_gain: float = 0.1,
+        heretic_skepticism_threshold: float = 0.8,
+        friction_base_rate: float = 0.01,
+        friction_animosity_loss: float = 0.1,
+    ):
+        self.devotion_base_rate = devotion_base_rate
+        self.devotion_affinity_gain = devotion_affinity_gain
+        self.heretic_skepticism_threshold = heretic_skepticism_threshold
+        self.friction_base_rate = friction_base_rate
+        self.friction_animosity_loss = friction_animosity_loss
+        self._devotions = 0
+        self._frictions = 0
+        self._heretics = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        state = {}
+        for resident_id, node in graph.nodes.items():
+            is_heretic = node.role == "civilian" and node.skepticism > self.heretic_skepticism_threshold
+            if is_heretic:
+                self._heretics += 1
+            state[resident_id] = {
+                "role": node.role,
+                "religiousness": node.religiousness,
+                "skepticism": node.skepticism,
+                "is_heretic": is_heretic,
+            }
+        return state
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        roles = {state_a["role"], state_b["role"]}
+        if roles != {"civilian", "priest"}:
+            return 0.0
+        civilian_state = state_a if state_a["role"] == "civilian" else state_b
+        if civilian_state["is_heretic"]:
+            return self.friction_base_rate * civilian_state["skepticism"] * edge.tie_strength
+        return self.devotion_base_rate * civilian_state["religiousness"] * edge.tie_strength
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        edge = graph.get_edge(a, b)
+        civilian_id = a if state[a]["role"] == "civilian" else b
+        priest_id = b if civilian_id == a else a
+
+        if state[civilian_id]["is_heretic"]:
+            new_valence = max(-1.0, edge.valence_from(civilian_id) - self.friction_animosity_loss)
+            edge.set_valence_from(civilian_id, new_valence)
+            self._frictions += 1
+            return [
+                Event(day, self.name, "friction", civilian_id, priest_id,
+                      f"civilian's affinity -{self.friction_animosity_loss:.2f}")
+            ]
+
+        new_valence = min(1.0, edge.valence_from(civilian_id) + self.devotion_affinity_gain)
+        edge.set_valence_from(civilian_id, new_valence)
+        self._devotions += 1
+        return [
+            Event(day, self.name, "devotion", civilian_id, priest_id,
+                  f"civilian's affinity +{self.devotion_affinity_gain:.2f}")
+        ]
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {"devotions": self._devotions, "frictions": self._frictions, "heretics": self._heretics}

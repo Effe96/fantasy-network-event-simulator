@@ -13,6 +13,7 @@ from tests import (
     test_guards,
     test_import_relationships,
     test_import_shopkeeper_customer,
+    test_religion,
     test_riot,
     test_romance,
     test_theft,
@@ -31,6 +32,7 @@ MODULES = [
     test_riot,
     test_guards,
     test_theft,
+    test_religion,
     test_engine,
 ]
 

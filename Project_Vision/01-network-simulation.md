@@ -398,6 +398,33 @@
   believable secondary channel, not a dominant one. Full writeup:
   `docs/decisions.md`'s 2026-09-21 entry.
 
+### Priests: religious devotion + skepticism (`ReligionPhenomenon`)
+
+- **Implemented 2026-09-22** — Priests' first slice, scoped to the
+  vision doc's first bullet under "Priests" below only. Fires per edge,
+  only between a civilian and a priest (`Node.role` already returns
+  `"priest"` for the `priest`/`acolyte` occupations, no new field
+  needed). Most civilians' own affinity toward priests they know grows
+  slowly, scaled by their own `religiousness` — a `devotion` event, the
+  second concrete instance of the **favor** event type after Guards'
+  bribery, same one-directional shape (only the civilian's own outgoing
+  valence moves). A small minority — `skepticism` above
+  `heretic_skepticism_threshold` (0.8, ~7.7% of civilians at the
+  reference town's actual trait distribution, checked directly rather
+  than assumed) — feel the opposite: their own affinity erodes instead,
+  scaled by their own `skepticism` (a `friction` event). Which bucket a
+  civilian falls into is decided once in `init_state`, not re-rolled
+  daily, same "sticky, not recomputed" shape `TheftPhenomenon`'s
+  `is_thief` flag uses.
+- Corruption (priests accepting payment) and priests as disease-curers
+  are deliberately deferred to later slices — see "Priests," below, for
+  what's left and why. Verified on a real run before calling this done:
+  98 devotions / 11 frictions in a year, a modest but real trickle
+  across the reference town's small priesthood (only 4 priests, 313
+  civilian-priest edges total — far fewer than guards' 3,166
+  civilian-guard edges), not a runaway. Full writeup:
+  `docs/decisions.md`'s 2026-09-22 entry.
+
 ### CLI & output (`demo.py`)
 
 - `demo.py --db <snapshot> [--days] [--seed] [--transmission-rate]
@@ -722,9 +749,11 @@ People:
 
 ### Priests
 
-- In a religious town, priests get a broad affinity boost from most
+- ~~**In a religious town, priests get a broad affinity boost from most
   residents; a small, deliberately chosen set of heretics/skeptics get
-  an animosity boost instead.
+  an animosity boost instead.**~~ **Implemented 2026-09-22** — see
+  "Priests: religious devotion + skepticism" under Current State, above,
+  and `docs/decisions.md`'s 2026-09-22 entry.
 - Priests can be corrupt — accepting payment for services.
 - Priests are the town's disease-curers; when a disease kills many
   people, priests are blamed and animosity toward them rises.

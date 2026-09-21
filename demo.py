@@ -10,6 +10,7 @@ from phenomena import (
     CommonAilmentsPhenomenon,
     ContagionPhenomenon,
     GuardPhenomenon,
+    ReligionPhenomenon,
     RiotPhenomenon,
     RomancePhenomenon,
     TheftPhenomenon,
@@ -71,7 +72,8 @@ def main(argv=None) -> None:
     guards = GuardPhenomenon()
     theft = TheftPhenomenon()
     ailments = CommonAilmentsPhenomenon()
-    phenomena = [contagion, violence, romance, riot, guards, theft, ailments]
+    religion = ReligionPhenomenon()
+    phenomena = [contagion, violence, romance, riot, guards, theft, ailments, religion]
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)
@@ -134,6 +136,9 @@ def _print_summary(result) -> None:
           f" {last.get('flu_deaths', 0)} deaths")
     print(f"  diarrhea: {last.get('diarrhea_sick', 0)} currently sick, {last.get('diarrhea_cases', 0)} cases this year,"
           f" {last.get('diarrhea_deaths', 0)} deaths")
+    print("religion:")
+    print(f"  devotions: {last.get('devotions', 0)}  frictions: {last.get('frictions', 0)}"
+          f"  heretics: {last.get('heretics', 0)}")
     print("population:")
     print(f"  alive: {last.get('alive', 0)}  dead: {last.get('dead', 0)} "
           f"(violence {violence_deaths} + disease {disease_deaths} + riots {riot_deaths}"

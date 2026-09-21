@@ -8,6 +8,58 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Priests' first slice: religious devotion + skepticism (`ReligionPhenomenon`)
+
+**Decision:** scoped to the vision doc's first Priests bullet only —
+"religious town → broad affinity boost from most residents; a small,
+deliberately-chosen set of heretics/skeptics get an animosity boost
+instead" — same pattern Guards (bribery-only) and Criminals (thief
+occupation + theft only) used for their own first slices. Corruption
+(priests accepting payment, likely reusing bribery's shape) and priests
+as disease-curers (needs a cross-phenomenon link to Contagion's death
+toll that doesn't exist yet) are deferred.
+
+Fires per edge, only between a civilian and a priest (`Node.role`
+already returns `"priest"` for the `priest`/`acolyte` occupations — no
+new field needed). Most civilians' own affinity toward priests they know
+grows slowly, scaled by their own `religiousness` — a `devotion` event,
+the second concrete instance of the "favor" event type after bribery,
+same one-directional shape (only the civilian's own outgoing valence
+moves, not the priest's). A small minority — `skepticism >
+heretic_skepticism_threshold` (0.8, ~7.7% of civilians at the trait's
+default Gaussian(0.5, 0.2) distribution, confirmed by counting on the
+real reference town rather than assuming) — feel the opposite: their own
+affinity erodes instead, scaled by their own skepticism (a `friction`
+event). Which bucket a civilian falls into is decided once in
+`init_state`, not re-rolled daily, same "sticky, not recomputed" shape
+`TheftPhenomenon`'s `is_thief` flag uses.
+
+**Why checked against the real graph before picking defaults:** per
+[[feedback-check-thresholds-against-real-graph-density]] — the reference
+town has only 4 priests and 313 civilian-priest edges total (guards, by
+contrast, have 40 guards and 3,166 civilian-guard edges), so this
+mechanic's raw event volume was never going to be large regardless of
+rate tuning; picked `devotion_base_rate`/`friction_base_rate` an order
+of magnitude above bribery's (0.01 vs 0.001) to compensate for the much
+smaller edge pool, then verified on a real run rather than assuming the
+guess was right. Result: 98 devotions / 11 frictions in a year — a
+modest, believable trickle across ~288 devotee-eligible and ~24
+heretic-eligible edges, not a runaway (no repeat of common ailments' or
+group violence's first-version bugs) and not silent either.
+
+**Noted, not a bug:** riot counts shifted from the last reference run (6
+→ 9, group-escalated/organic split 3/3 → 8/1) purely because
+`ReligionPhenomenon` was inserted into `demo.py`'s phenomena list —
+every phenomenon shares one `random.Random` instance threaded
+sequentially through the whole day loop (`engine.run_simulation`), so
+adding any new phenomenon's `rng.random()` calls reshuffles every
+downstream draw for the rest of the run, same property that's shifted
+calibration numbers between sessions before. The total (9) stays in the
+same believable order of magnitude as the prior run (6), so this reads
+as ordinary single-seed variance, not a regression in the group-violence
+fix — a multi-seed check would be the way to confirm that rigorously if
+it becomes a live question.
+
 ## 2026-09-21 — Group violence: the bottom-up riot trigger, and a runaway first version caught before shipping
 
 **Decision:** `ViolencePhenomenon` gained a town-wide `end_of_day` check
