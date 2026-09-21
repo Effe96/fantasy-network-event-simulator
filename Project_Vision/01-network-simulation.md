@@ -416,13 +416,26 @@
   civilian falls into is decided once in `init_state`, not re-rolled
   daily, same "sticky, not recomputed" shape `TheftPhenomenon`'s
   `is_thief` flag uses.
-- Corruption (priests accepting payment) and priests as disease-curers
-  are deliberately deferred to later slices — see "Priests," below, for
-  what's left and why. Verified on a real run before calling this done:
-  98 devotions / 11 frictions in a year, a modest but real trickle
-  across the reference town's small priesthood (only 4 priests, 313
-  civilian-priest edges total — far fewer than guards' 3,166
-  civilian-guard edges), not a runaway. Full writeup:
+- Priests as disease-curers is still deliberately deferred — see
+  "Priests," below, for what's left and why. Verified on a real run
+  before calling the devotion/friction slice done: 98 devotions / 11
+  frictions in a year, a modest but real trickle across the reference
+  town's small priesthood (only 4 priests, 313 civilian-priest edges
+  total — far fewer than guards' 3,166 civilian-guard edges), not a
+  runaway. Full writeup: `docs/decisions.md`'s 2026-09-22 entry.
+- **Corruption: implemented 2026-09-22** — reuses bribery's exact
+  shape on the same civilian-priest edge devotion/friction already use:
+  a civilian pays a priest for favorable treatment, scaled by the
+  civilian's own `cunning` and wealth (`BRIBE_WEALTH_FACTOR`, reused
+  again) and restrained by the priest's own `loyalty` (no new
+  "integrity" trait needed). Since it shares an edge with devotion/
+  friction, `edge_probability` returns their combined total and
+  `apply_effect` draws which one actually fired via a weighted roll —
+  the same pattern `ViolencePhenomenon`'s `_pick_aggressor` uses to
+  resolve two outcomes sharing one roll. Verified on a real run: 67
+  devotions / 7 frictions / 4 corruptions (down from 98/11/0, since
+  corruption now claims a share of the same probability budget rather
+  than adding on top) — not a runaway. Full writeup:
   `docs/decisions.md`'s 2026-09-22 entry.
 
 ### CLI & output (`demo.py`)
@@ -754,7 +767,10 @@ People:
   an animosity boost instead.**~~ **Implemented 2026-09-22** — see
   "Priests: religious devotion + skepticism" under Current State, above,
   and `docs/decisions.md`'s 2026-09-22 entry.
-- Priests can be corrupt — accepting payment for services.
+- ~~**Priests can be corrupt — accepting payment for services.**~~
+  **Implemented 2026-09-22** — see "Priests: religious devotion +
+  skepticism" under Current State, above, and `docs/decisions.md`'s
+  2026-09-22 corruption entry.
 - Priests are the town's disease-curers; when a disease kills many
   people, priests are blamed and animosity toward them rises.
 - In a less religious town, priests may resort to bribing guards

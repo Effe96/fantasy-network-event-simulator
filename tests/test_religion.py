@@ -8,13 +8,17 @@ from graph import Edge, Node, SocialGraph
 from phenomena import ReligionPhenomenon
 
 
-def _civilian_priest_graph(religiousness=0.8, skepticism=0.2, civilian_valence_from_civilian=0.0):
+def _civilian_priest_graph(
+    religiousness=0.8, skepticism=0.2, civilian_valence_from_civilian=0.0,
+    civilian_ses="middling", cunning=0.5, priest_loyalty=0.5, priest_valence_from_priest=0.0,
+):
     graph = SocialGraph()
-    graph.add_node(Node(resident_id=1, ses="middling", alive=True, religiousness=religiousness, skepticism=skepticism))
-    graph.add_node(Node(resident_id=2, ses="middling", alive=True, occupation="priest"))
+    graph.add_node(Node(resident_id=1, ses=civilian_ses, alive=True, religiousness=religiousness,
+                         skepticism=skepticism, cunning=cunning))
+    graph.add_node(Node(resident_id=2, ses="middling", alive=True, occupation="priest", loyalty=priest_loyalty))
     graph.add_edge(
         Edge(1, 2, "neighbor", "Equality Matching", time=0.5, intimacy=0.5, services=0.5,
-             valence_a_to_b=civilian_valence_from_civilian, valence_b_to_a=0.0)
+             valence_a_to_b=civilian_valence_from_civilian, valence_b_to_a=priest_valence_from_priest)
     )
     return graph
 
@@ -55,7 +59,7 @@ def test_heretics_use_skepticism_driven_friction_odds_instead():
 
 def test_apply_effect_devotion_raises_only_the_civilians_own_affinity():
     graph = _civilian_priest_graph(religiousness=0.9, skepticism=0.1, civilian_valence_from_civilian=0.2)
-    phenomenon = ReligionPhenomenon(devotion_affinity_gain=0.1)
+    phenomenon = ReligionPhenomenon(devotion_affinity_gain=0.1, corruption_base_rate=0.0)
     state = phenomenon.init_state(graph)
 
     events = phenomenon.apply_effect(graph, state, 1, 2, day=10, rng=random.Random(0))
@@ -69,7 +73,8 @@ def test_apply_effect_devotion_raises_only_the_civilians_own_affinity():
 
 def test_apply_effect_friction_lowers_only_the_heretics_own_affinity():
     graph = _civilian_priest_graph(religiousness=0.1, skepticism=0.95, civilian_valence_from_civilian=0.2)
-    phenomenon = ReligionPhenomenon(friction_animosity_loss=0.3, heretic_skepticism_threshold=0.8)
+    phenomenon = ReligionPhenomenon(friction_animosity_loss=0.3, heretic_skepticism_threshold=0.8,
+                                     corruption_base_rate=0.0)
     state = phenomenon.init_state(graph)
 
     events = phenomenon.apply_effect(graph, state, 1, 2, day=10, rng=random.Random(0))
@@ -83,7 +88,7 @@ def test_apply_effect_friction_lowers_only_the_heretics_own_affinity():
 
 def test_devotion_affinity_is_clamped_at_one():
     graph = _civilian_priest_graph(religiousness=0.9, skepticism=0.1, civilian_valence_from_civilian=0.95)
-    phenomenon = ReligionPhenomenon(devotion_affinity_gain=0.5)
+    phenomenon = ReligionPhenomenon(devotion_affinity_gain=0.5, corruption_base_rate=0.0)
     state = phenomenon.init_state(graph)
     phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
     assert graph.get_edge(1, 2).valence_from(1) == 1.0
@@ -91,10 +96,58 @@ def test_devotion_affinity_is_clamped_at_one():
 
 def test_friction_animosity_is_clamped_at_negative_one():
     graph = _civilian_priest_graph(religiousness=0.1, skepticism=0.95, civilian_valence_from_civilian=-0.95)
-    phenomenon = ReligionPhenomenon(friction_animosity_loss=0.5, heretic_skepticism_threshold=0.8)
+    phenomenon = ReligionPhenomenon(friction_animosity_loss=0.5, heretic_skepticism_threshold=0.8,
+                                     corruption_base_rate=0.0)
     state = phenomenon.init_state(graph)
     phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
     assert graph.get_edge(1, 2).valence_from(1) == -1.0
+
+
+def test_corruption_odds_scale_with_cunning_and_wealth():
+    graph_cunning_rich = _civilian_priest_graph(cunning=0.9, civilian_ses="rich")
+    graph_plain_poor = _civilian_priest_graph(cunning=0.1, civilian_ses="poor")
+    phenomenon = ReligionPhenomenon(devotion_base_rate=0.0, friction_base_rate=0.0, corruption_base_rate=0.1)
+    state_rich = phenomenon.init_state(graph_cunning_rich)
+    state_poor = phenomenon.init_state(graph_plain_poor)
+    p_rich = phenomenon.edge_probability(graph_cunning_rich.get_edge(1, 2), state_rich[1], state_rich[2], day=1)
+    p_poor = phenomenon.edge_probability(graph_plain_poor.get_edge(1, 2), state_poor[1], state_poor[2], day=1)
+    assert p_rich > p_poor
+
+
+def test_a_more_loyal_priest_is_harder_to_corrupt():
+    graph_loyal = _civilian_priest_graph(priest_loyalty=0.95)
+    graph_disloyal = _civilian_priest_graph(priest_loyalty=0.05)
+    phenomenon = ReligionPhenomenon(devotion_base_rate=0.0, friction_base_rate=0.0, corruption_base_rate=0.1)
+    state_loyal = phenomenon.init_state(graph_loyal)
+    state_disloyal = phenomenon.init_state(graph_disloyal)
+    p_loyal = phenomenon.edge_probability(graph_loyal.get_edge(1, 2), state_loyal[1], state_loyal[2], day=1)
+    p_disloyal = phenomenon.edge_probability(graph_disloyal.get_edge(1, 2), state_disloyal[1], state_disloyal[2], day=1)
+    assert p_disloyal > p_loyal
+
+
+def test_apply_effect_corruption_raises_only_the_priests_own_affinity():
+    graph = _civilian_priest_graph(religiousness=0.0, skepticism=0.0, priest_valence_from_priest=0.2)
+    # zero out devotion/friction so the shared roll always resolves to corruption
+    phenomenon = ReligionPhenomenon(devotion_base_rate=0.0, friction_base_rate=0.0,
+                                     corruption_base_rate=1.0, corruption_affinity_gain=0.15)
+    state = phenomenon.init_state(graph)
+
+    events = phenomenon.apply_effect(graph, state, 1, 2, day=10, rng=random.Random(0))
+
+    edge = graph.get_edge(1, 2)
+    assert abs(edge.valence_from(2) - 0.35) < 1e-9  # the priest's own feeling toward the payer went up
+    assert edge.valence_from(1) == 0.0  # the payer's own feelings are untouched
+    assert any(event.kind == "corruption" for event in events)
+    assert phenomenon.summarize(state)["corruptions"] == 1
+
+
+def test_corruption_affinity_is_clamped_at_one():
+    graph = _civilian_priest_graph(religiousness=0.0, skepticism=0.0, priest_valence_from_priest=0.95)
+    phenomenon = ReligionPhenomenon(devotion_base_rate=0.0, friction_base_rate=0.0,
+                                     corruption_base_rate=1.0, corruption_affinity_gain=0.5)
+    state = phenomenon.init_state(graph)
+    phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
+    assert graph.get_edge(1, 2).valence_from(2) == 1.0
 
 
 def test_summarize_counts_heretics_among_civilians_only():
@@ -115,6 +168,10 @@ def _run_all():
     test_apply_effect_friction_lowers_only_the_heretics_own_affinity()
     test_devotion_affinity_is_clamped_at_one()
     test_friction_animosity_is_clamped_at_negative_one()
+    test_corruption_odds_scale_with_cunning_and_wealth()
+    test_a_more_loyal_priest_is_harder_to_corrupt()
+    test_apply_effect_corruption_raises_only_the_priests_own_affinity()
+    test_corruption_affinity_is_clamped_at_one()
     test_summarize_counts_heretics_among_civilians_only()
     print("OK")
 

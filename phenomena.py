@@ -1216,13 +1216,11 @@ class TheftPhenomenon:
 
 
 class ReligionPhenomenon:
-    """First scoped slice of Priests: religious devotion + skepticism only --
-    corruption (priests accepting payment for services, likely reusing the
-    same "favor" shape GuardPhenomenon's bribery established) and priests as
+    """Priests: religious devotion + skepticism, plus corruption. Priests as
     disease-curers (needs a way to read Contagion's death toll -- the same
-    kind of cross-phenomenon link Guards' patron protection was blocked on)
-    are deferred to later slices, same pattern Guards/Criminals used for
-    their own first thin slices.
+    kind of cross-phenomenon link Guards' patron protection was blocked on,
+    though group violence's riot_phenomonon reference is now a precedent for
+    how to wire one) is still deferred to a later slice.
 
     Fires per edge, only between a civilian and a priest. Most civilians'
     own affinity toward priests they know grows slowly over time, scaled by
@@ -1235,9 +1233,20 @@ class ReligionPhenomenon:
     mirror case. Which one applies to a given civilian is decided once, in
     init_state (skepticism > threshold), not re-rolled daily -- same
     "sticky, not recomputed" shape TheftPhenomenon's is_thief flag uses.
-    Only the civilian's own outgoing valence moves; a priest's own feelings
-    toward a given civilian are untouched, same one-directional shape
-    bribery uses."""
+
+    Corruption (added 2026-09-22) reuses bribery's exact shape rather than
+    reinventing it: a civilian pays a priest for favorable treatment,
+    scaled by the civilian's own cunning and wealth (GuardPhenomenon's
+    BRIBE_WEALTH_FACTOR) and restrained by the priest's own loyalty --
+    same "corruptible if low-loyalty" logic guards use, no separate
+    "integrity" trait needed. Only the priest's own outgoing valence
+    toward the payer moves, same one-directional "favor" shape bribery and
+    devotion both use. Devotion/friction and corruption share the same
+    edge and roll against each other, not independently: edge_probability
+    returns their sum, and apply_effect draws which one actually fired,
+    weighted by their relative odds -- same pattern ViolencePhenomenon's
+    _pick_aggressor uses to resolve which of two outcomes wins a shared
+    roll."""
 
     name = "religion"
 
@@ -1248,14 +1257,19 @@ class ReligionPhenomenon:
         heretic_skepticism_threshold: float = 0.8,
         friction_base_rate: float = 0.01,
         friction_animosity_loss: float = 0.1,
+        corruption_base_rate: float = 0.005,
+        corruption_affinity_gain: float = 0.15,
     ):
         self.devotion_base_rate = devotion_base_rate
         self.devotion_affinity_gain = devotion_affinity_gain
         self.heretic_skepticism_threshold = heretic_skepticism_threshold
         self.friction_base_rate = friction_base_rate
         self.friction_animosity_loss = friction_animosity_loss
+        self.corruption_base_rate = corruption_base_rate
+        self.corruption_affinity_gain = corruption_affinity_gain
         self._devotions = 0
         self._frictions = 0
+        self._corruptions = 0
         self._heretics = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
@@ -1269,24 +1283,53 @@ class ReligionPhenomenon:
                 "religiousness": node.religiousness,
                 "skepticism": node.skepticism,
                 "is_heretic": is_heretic,
+                "ses": node.ses,
+                "cunning": node.cunning,
+                "loyalty": node.loyalty,
             }
         return state
+
+    def _faith_probability(self, civilian_state) -> float:
+        if civilian_state["is_heretic"]:
+            return self.friction_base_rate * civilian_state["skepticism"]
+        return self.devotion_base_rate * civilian_state["religiousness"]
+
+    def _corruption_probability(self, civilian_state, priest_state) -> float:
+        wealth_factor = BRIBE_WEALTH_FACTOR.get(civilian_state["ses"], 1.0)
+        priest_restraint = 1.0 - priest_state["loyalty"]
+        return self.corruption_base_rate * civilian_state["cunning"] * wealth_factor * priest_restraint
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         roles = {state_a["role"], state_b["role"]}
         if roles != {"civilian", "priest"}:
             return 0.0
         civilian_state = state_a if state_a["role"] == "civilian" else state_b
-        if civilian_state["is_heretic"]:
-            return self.friction_base_rate * civilian_state["skepticism"] * edge.tie_strength
-        return self.devotion_base_rate * civilian_state["religiousness"] * edge.tie_strength
+        priest_state = state_a if state_a["role"] == "priest" else state_b
+        total = self._faith_probability(civilian_state) + self._corruption_probability(civilian_state, priest_state)
+        return total * edge.tie_strength
 
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
         edge = graph.get_edge(a, b)
         civilian_id = a if state[a]["role"] == "civilian" else b
         priest_id = b if civilian_id == a else a
+        civilian_state = state[civilian_id]
+        priest_state = state[priest_id]
 
-        if state[civilian_id]["is_heretic"]:
+        faith_p = self._faith_probability(civilian_state)
+        corruption_p = self._corruption_probability(civilian_state, priest_state)
+        total = faith_p + corruption_p
+        # total > 0 always holds here: edge_probability already required a
+        # positive roll against this same total for apply_effect to be called
+        if rng.random() < corruption_p / total:
+            new_valence = min(1.0, edge.valence_from(priest_id) + self.corruption_affinity_gain)
+            edge.set_valence_from(priest_id, new_valence)
+            self._corruptions += 1
+            return [
+                Event(day, self.name, "corruption", civilian_id, priest_id,
+                      f"priest's affinity +{self.corruption_affinity_gain:.2f}")
+            ]
+
+        if civilian_state["is_heretic"]:
             new_valence = max(-1.0, edge.valence_from(civilian_id) - self.friction_animosity_loss)
             edge.set_valence_from(civilian_id, new_valence)
             self._frictions += 1
@@ -1307,4 +1350,9 @@ class ReligionPhenomenon:
         return []
 
     def summarize(self, state) -> Dict[str, int]:
-        return {"devotions": self._devotions, "frictions": self._frictions, "heretics": self._heretics}
+        return {
+            "devotions": self._devotions,
+            "frictions": self._frictions,
+            "corruptions": self._corruptions,
+            "heretics": self._heretics,
+        }

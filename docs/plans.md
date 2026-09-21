@@ -6,8 +6,8 @@
 > feature backlog — still the source of truth for *scope* on each item
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
-> plan changes. Last updated 2026-09-22 (Priests' first slice — religious
-> devotion + skepticism — landed. Two Priests items remain: corruption and
+> plan changes. Last updated 2026-09-22 (Priests: religious devotion +
+> skepticism, then corruption, both landed. One Priests item remains:
 > disease-curer blame.).
 
 ## Resume checklist
@@ -101,13 +101,14 @@ landed. Scope recap:
   `is_thief` flag uses. Verified on a real run: 98 devotions / 11
   frictions in a year, no runaway. `docs/decisions.md`'s 2026-09-22
   entry.
-- Corruption: priests accepting payment for services. Likely reuses the
-  bribery *pattern* `GuardPhenomenon` established (edge-level, scaled by
-  the payer's traits and the priest's own integrity) rather than
-  reinventing it — good candidate for finally building the generic
-  **favor** event type (documented in the design doc §"Event taxonomy",
-  not yet implemented) if two phenomena end up wanting the same shape of
-  mechanic.
+- ~~**Corruption: priests accepting payment for services.**~~ **Done
+  (2026-09-22).** Reuses bribery's exact shape on the same civilian-priest
+  edge devotion/friction already use — a `corruption` event, scaled by
+  the civilian's own cunning/wealth and restrained by the priest's own
+  loyalty (no new "integrity" trait needed). Shares a weighted roll with
+  devotion/friction rather than a second independent check on the same
+  edge. Verified on a real run: 67 devotions / 7 frictions / 4
+  corruptions, no runaway. `docs/decisions.md`'s 2026-09-22 entry.
 - Priests as disease-curers: a bad outbreak raises animosity toward them
   (blame). Needs a way to read Contagion's death toll — check whether
   that's readable from the engine's daily summaries/state, or whether it

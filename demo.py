@@ -138,7 +138,7 @@ def _print_summary(result) -> None:
           f" {last.get('diarrhea_deaths', 0)} deaths")
     print("religion:")
     print(f"  devotions: {last.get('devotions', 0)}  frictions: {last.get('frictions', 0)}"
-          f"  heretics: {last.get('heretics', 0)}")
+          f"  corruptions: {last.get('corruptions', 0)}  heretics: {last.get('heretics', 0)}")
     print("population:")
     print(f"  alive: {last.get('alive', 0)}  dead: {last.get('dead', 0)} "
           f"(violence {violence_deaths} + disease {disease_deaths} + riots {riot_deaths}"

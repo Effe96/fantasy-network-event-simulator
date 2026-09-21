@@ -8,6 +8,39 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Priests' corruption, reusing bribery's shape on the same edge/roll as devotion and friction
+
+**Decision:** `ReligionPhenomenon` gains a `corruption` event alongside
+`devotion`/`friction`, scoped exactly as `docs/plans.md` specified —
+"reuses the bribery *pattern*... rather than reinventing it." A
+civilian pays a priest for favorable treatment, scaled by the
+civilian's own `cunning` and wealth (`BRIBE_WEALTH_FACTOR`, the same
+constant `GuardPhenomenon` and `TheftPhenomenon` already reuse) and
+restrained by the priest's own `loyalty` — exactly `GuardPhenomenon`'s
+"a more loyal [authority figure] refuses more often" formula, no new
+"integrity" trait needed despite the plan's wording suggesting one.
+Only the priest's own outgoing valence toward the payer moves, same
+one-directional favor shape bribery and devotion both use.
+
+**Why it shares a roll with devotion/friction, not a separate one:**
+corruption fires on the exact same civilian-priest edge devotion/
+friction already use. Rather than running two independent per-edge
+probability checks on one edge (which the `Phenomenon` protocol doesn't
+support — `edge_probability` returns one float), `edge_probability`
+returns the *sum* of the faith probability (devotion or friction,
+whichever applies) and the corruption probability, and `apply_effect`
+draws which one actually fired via a weighted coin flip
+(`corruption_p / total`) — the same pattern `ViolencePhenomenon`'s
+`_pick_aggressor` already uses to resolve which of two outcomes wins a
+shared roll, reused rather than invented fresh.
+
+**Verified on a real run:** 67 devotions / 7 frictions / 4 corruptions
+(down from 98/11/0 before corruption existed, since corruption now
+claims a share of the same probability budget rather than adding on
+top) — a modest, real number, not a runaway, consistent with
+corruption being deliberately set rarer than devotion
+(`corruption_base_rate=0.005` vs `devotion_base_rate=0.01`).
+
 ## 2026-09-22 — Priests' first slice: religious devotion + skepticism (`ReligionPhenomenon`)
 
 **Decision:** scoped to the vision doc's first Priests bullet only —
