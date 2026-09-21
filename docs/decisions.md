@@ -8,6 +8,247 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-21 — Flu seasonality added; diarrhea's "indefinite growth" was a chart problem, not a model problem
+
+**Decision:** `CommonAilmentsPhenomenon` gained a `flu_winter_multiplier`
+(default 3.0) applied to both the per-edge transmission rate and the
+spontaneous rate during Q4+Q1 (day-of-year <=91 or >=274, recurring every
+calendar year in multi-year runs via `_flu_season_factor`). Diarrhea gets
+no seasonality — the user's own framing only asked for it on flu, since
+flu is airborne/contagious and diarrhea here is a plain per-resident
+hazard roll.
+
+**Why raised:** user asked "are you considering that people can recover?
+It seems strange to me that the diarrhea people are just growing,
+seemingly indefinitely," plus a request that flu get "higher chance and
+higher contagion factor in the last quarter and first quarter of the
+year."
+
+**What was actually true before this fix:** recovery already worked —
+`_resolve_ailment` has always taken `sick` → `immune` → `healthy` on a
+duration/immunity timer (see the entry below), and each ailment's
+*currently-sick* count already fluctuated all year (roughly 12-27 people
+sick with diarrhea at once, in the seed-5/365-day reference run, not a
+monotonic climb). What actually grew indefinitely was the **dashboard's**
+"cumulative cases" chart line, which is a running total by definition —
+plotting it made a fluctuating, recovering population look like it never
+recovered. Fixed by switching that chart to show *currently sick* instead
+of the cumulative counter, so the real up-and-down is visible. Full
+seasonality is a genuinely new feature, not a bug fix — flu had no
+calendar concept at all before this.
+
+## 2026-09-21 — Common ailments: temporary (not permanent, not zero) immunity was the fix a runaway first version needed
+
+**Decision:** new `CommonAilmentsPhenomenon` models flu (contagious,
+edge-based transmission like `ContagionPhenomenon`, plus a small daily
+spontaneous "caught it outside the tracked graph" rate) and diarrhea
+(non-contagious, pure per-resident daily hazard roll, no edges at all).
+Both scale by poverty on two independent axes reusing
+`SES_VULNERABILITY`: the odds of getting sick, and separately the odds
+of dying once sick. Recovering grants **temporary** immunity
+(`flu_immunity_days=90`, `diarrhea_immunity_days=30`) — a third
+per-ailment status (`healthy` / `sick` / `immune`) alongside the
+existing two.
+
+**Why:** the first version had *zero* immunity (straight back to
+`healthy` on recovery, reinfectable the same day), on the theory that
+"common ailments" shouldn't behave like the big epidemic's one-time
+wave. Tested on the reference town before trusting it: flu alone
+produced ~29,500 "cases" in a year and 562 deaths — on a ~1,900-person
+town with ~40-80 ties per resident, a same-day-reinfectable population
+never runs out of susceptible neighbors, unlike the big epidemic whose
+*permanent* immunity eventually exhausts the susceptible pool and lets
+a wave burn out. It wasn't 29,500 different people getting sick once;
+it was a few hundred people cycling sick→healthy→sick every few days,
+all year. Total ailment deaths (693) exceeded violence, riots, and the
+real disease combined — nowhere near "common but not catastrophic."
+
+**Fix and verification:** added a temporary immunity window (long
+enough that a local wave has room to burn out before the same people
+are reinfected, short enough that genuine reinfection later in the
+year is still possible — unlike the epidemic model). Also cut
+`flu_transmission_rate` by ~75× (0.03 → 0.0004) since the original
+value was calibrated with zero regard for how densely-tied the
+reference town is, the same category of mistake violence's own
+`base_rate` needed degree-normalization for. Re-ran the reference
+town: flu settled to 354 cases/year (1 death), diarrhea to 1,628
+cases/year (31 deaths) — comparable in scale to the town's other minor
+death sources, not dominating them.
+
+**How to apply:** `demo.py`'s violence-death accounting was extended
+to subtract `flu_deaths + diarrhea_deaths` from the start this time
+(not discovered as a bug afterward, unlike the riot/execution gaps
+earlier this session) — see the `ailment_deaths` variable. If either
+ailment's total case count needs retuning later, the immunity-window
+knobs (`*_immunity_days`) are now the primary lever for *how often* a
+given resident can get sick again, separate from `*_spontaneous_rate`
+(how easily a wave gets started) and `*_transmission_rate` (how fast it
+spreads once started) — conflating these was part of what made the
+first version hard to reason about.
+
+## 2026-09-21 — Assassination refinement: reused SES_VULNERABILITY for both attacker and victim
+
+**Decision:** `ViolencePhenomenon.apply_effect` now rolls a success
+chance before killing anyone: `min(1.0, success_base_rate *
+victim_vulnerability / attacker_vulnerability)`, using the existing
+`SES_VULNERABILITY` dict for both — victim's value in the numerator
+(poorer victims easier to actually kill, same direction
+`_pick_aggressor`'s weighting already uses), attacker's value in the
+denominator, inverted (a rich attacker's resources make success easier,
+a poor attacker's lack of them makes it harder). A failed attempt never
+kills; the surviving victim's own valence toward the culprit drops by
+`discovery_shock` instead, and no `grief_shock` fires (nobody died).
+
+**Why:** next item in `docs/plans.md`'s Criminals queue, scoped exactly
+as written there: "extends `ViolencePhenomenon`, not a new phenomenon
+... reuses `SES_VULNERABILITY` machinery already in place." Defaults
+(`success_base_rate=0.85`, `discovery_shock=0.5`) were chosen so
+same-class violence (the common case) stays close to the old
+guaranteed-kill behavior, while a poor-attacker-vs-rich-victim attempt
+succeeds only ~21% of the time and the reverse very nearly always
+succeeds (formula would exceed 1.0 there, clamped). Verified on a real
+run: 24 failed attempts out of 109 total violence attempts (~22%), no
+crashes, `demo.py`'s existing violence-death accounting needed no
+changes since a failed attempt never touches `alive`/`dead`.
+
+**How to apply:** "discovery" was scoped to the surviving victim's own
+reaction only, not a town-wide alert or a guard notification — the
+vision doc's fuller version of this (tying into guards, or triggering
+consequences beyond the victim) still needs the same cross-phenomenon
+event link Guards' patron-protection has been blocked on all along, not
+built here. Tests: `tests/test_violence.py`'s
+`test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse`
+and `test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit`.
+
+## 2026-09-21 — Riot lethality: linear size-ratio formula replaced with sqrt, guard:rioter ratio fixed
+
+**Decision:** `_advance_riot`'s per-day death-chance formula changed from
+`lethality * (opposing_count / own_count)` to
+`lethality * sqrt(opposing_count / own_count)` on both sides.
+`guard_lethality` dropped from 0.3 to 0.2 (kept `rioter_lethality` at
+0.6, i.e. still a 3:1 ratio). Under the new formula, total expected
+guard deaths and total expected rioter deaths both reduce to
+`lethality * sqrt(guards * rioters)` — the same size factor for both —
+so the guard:rioter **casualty ratio** comes out to exactly
+`guard_lethality:rioter_lethality`, independent of how the mob's size
+compares to the guard corps.
+
+**Why:** the 2026-09-17 entry below already flagged the ratio as
+miscalibrated in *magnitude* and deferred a fix. 2026-09-21 user
+feedback re-raised it with a concrete example (24 guards died vs. 22
+rioters on a real run — guards dying *more*). Before touching constants,
+verified with real data rather than trusting a single sample: a 30-seed
+aggregate under the **old** formula came back 649 guard deaths vs. 539
+rioter deaths (ratio 1.204, guards dying more) — confirming a real,
+systematic bug, not noise from one unlucky run. Root cause: the old
+linear formula makes each side's *total* expected daily deaths equal to
+`lethality * (opposing side's raw headcount)`, completely independent of
+your own side's headcount. Since rioters are drawn from the whole town
+but the guard corps is small and fixed (~40 in the reference town), a
+merely-somewhat-larger-than-usual mob was enough to make guard casualties
+(driven by the *mob's* size, effectively unbounded) swamp rioter
+casualties (capped by the guard corps' small fixed size) — regardless of
+the 2x/3x lethality edge the constants were meant to express. The sqrt
+formula decouples "who wins per casualty" (purely the lethality
+constants) from "how large is the mob" (which now only paces the
+absolute magnitude of casualties, via `sqrt(guards*rioters)`, not the
+ratio between the two sides).
+
+**Verification:** re-ran the same 30-seed aggregate under the new
+formula: 381 guard deaths vs. 1,036 rioter deaths (ratio 0.368) — close
+to the 0.333 (1:3) target, across 36 riots. Added
+`tests/test_riot.py::test_guards_die_less_often_than_rioters_regardless_of_mob_size`,
+which runs the same "matched vs. lopsided mob size" comparison as a
+permanent regression test (replaces the old
+`test_guards_die_less_often_than_rioters_at_equal_force_size`, which
+only checked the equal-counts case and manually reimplemented the
+formula rather than exercising the real code path — it would have kept
+passing even with the old bug in place, since equal counts made both
+formulas coincide).
+
+**How to apply:** the retreat-threshold and riot-bar mechanics are
+unaffected (they're still fractions of initial headcounts, unrelated to
+this formula). Guards may now hold slightly longer before retreating
+than they used to, since per-day guard casualties are lower — a
+plausible, not-yet-separately-verified side effect. If lethality
+constants are touched again, remember the *ratio* between
+`guard_lethality`/`rioter_lethality` is now what directly sets the
+casualty ratio — no need to also account for typical mob:guard size
+mismatches the way the old formula required.
+
+## 2026-09-21 — Thief occupation is a sticky per-resident flag, not a Node field or a daily recompute
+
+**Decision:** `TheftPhenomenon` tracks `is_thief` in its own per-resident
+state dict, flipped once by a poverty-scaled roll in `end_of_day` (same
+shape as `RomancePhenomenon`'s `married` flag) and never re-evaluated
+afterward. Not a new `Node` field, and not a status derived fresh from
+current circumstances each day.
+
+**Why:** `docs/plans.md` flagged this as an open question to resolve
+before coding, leaning toward the sticky-flag option to match the
+project's established pattern (state a phenomenon tracks) over adding
+graph schema. No new information changed that lean, so it's now decided
+rather than re-litigated.
+
+**How to apply:** if a later slice needs thieves to "reform" or stop
+being thieves, that's a new transition to add explicitly (like Romance
+has no divorce yet) — don't assume the flag re-evaluates on its own.
+Scope for this slice was thief occupation + theft only; assassination
+refinement and group-violence-as-riot-trigger (`docs/plans.md`'s other
+two Criminals items) are still queued next.
+
+## 2026-09-21 — Thief population plateau, take two: arrest had to stop depending on local guard adjacency
+
+**Decision:** `TheftPhenomenon.arrest_chance` is now a flat, town-wide
+probability applied to every caught thief, no longer scaled by (or
+gated on) whether the thief happens to have a guard *neighbor* in the
+social graph. The execution-vs-arrest split now reads a precomputed
+town-wide average guard loyalty (`self._avg_guard_loyalty`, set once in
+`init_state`), not the loyalty of whichever guards happen to be
+adjacent. The local guard-neighbor valence hit (guards *you know*
+getting angrier at you) is unchanged — only whether an arrest actually
+happens stopped depending on it.
+
+**Why — this corrects the same day's earlier decision, below.** That
+first version gated arrest on having a guard neighbor at all. Asked
+directly "are you sure it plateaus?", a 3-year run was checked (not
+just the 1-year trajectory the first version was verified against) and
+the population had gone 94 → 221 thieves from year 1 to year 3 — still
+climbing at essentially the same ~0.2/day rate as year 1, no
+deceleration at all. Digging in: only 20 of 195 caught thieves (10%)
+in year 1 actually got arrested or executed, because with only ~40
+guards among 1,911 residents, most caught thieves simply never had a
+guard neighbor to trigger the old mechanism — the removal pipeline was
+too weak for deterrence to ever meaningfully suppress inflow. The
+original "77→78, looks flat" read from a 1-year single-seed trajectory
+was real but misleading: short-window noise, not convergence. Worth
+recording plainly: **the first fix was verified on too short a horizon
+and the claim of success was wrong** — see `docs/plans.md` for how this
+was caught.
+
+**Verification, this time on a 2-year run:** removal rate rose from
+10% to 43% of catches (68 arrests + 27 executions out of 221 catches
+by day 730). The day-by-day trajectory now shows genuine fluctuation,
+including several real *declines* (day 90→120: 28→27 thieves; 150→180:
+36→34; 240→270: 41→40; 500→550: 65→64; 550→600: 64→63) — mathematically
+only possible when removals outpace new thieves in that window, which
+never happened even once under the old mechanism. Year-1 average ≈36,
+year-2 average ≈66 — still trending up overall but far more slowly, and
+not yet confirmed fully converged by day 730 (a further, more expensive
+long run would be needed to nail down the exact equilibrium level;
+not run, given how costly runs are in this environment — see the
+isolate-phenomena-for-diagnostics note in Claude's own memory for why
+full multi-year full-engine runs are expensive here).
+
+**How to apply:** don't trust a 1-year (or shorter) single-seed
+trajectory as proof of convergence for any similar negative-feedback
+mechanic in this codebase again — check a multi-year run, and ideally
+multiple seeds, before claiming a rate "settles." If the equilibrium
+level (currently drifting somewhere in the 70s-90s by year 2) needs to
+be pinned down further or brought down, `arrest_chance` and
+`deterrence_weight` are the two most direct knobs — `become_thief_rate`
+mostly just shifts how fast the climb starts, not where it settles.
+
 ## 2026-09-17 — Push scope: Project_Vision stays out of what gets pushed going forward
 
 **Decision:** `Project_Vision/01-network-simulation.md` (the roadmap/

@@ -6,21 +6,23 @@
 > feature backlog — still the source of truth for *scope* on each item
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
-> plan changes. Last updated 2026-09-17; next session planned for Sunday
-> (2026-09-20).
+> plan changes. Last updated 2026-09-21 (thief plateau + riot lethality
+> fix landed, then assassination refinement — Criminals' last remaining
+> item is group violence, below).
 
 ## Resume checklist
 
 1. `py -3 tests/run_all.py` — should print `ALL OK`. If not, something's
    wrong before any new work starts.
-2. Skim `docs/decisions.md` (newest entries first) for anything that
-   might trip up new work — especially the riot lethality ratio note
-   below, which is a *known*, deliberately-unfixed gap, not something to
-   rediscover and "fix" again.
-3. The results dashboard (Artifact) reflects the state as of the riot
-   mutual-combat fix + bribery recalibration. It'll go stale again once
-   Criminals lands and changes the numbers meaningfully — refresh it once
-   there's something new worth showing, not proactively before that.
+2. Read every `open` entry in `docs/feedback.md` — that's the inbox for
+   the user's own notes on simulation behavior (not code). Triage each
+   into a fix, a calibration tweak, or a new item below, then flip its
+   status once handled.
+3. Skim `docs/decisions.md` (newest entries first) for anything that
+   might trip up new work.
+4. The results dashboard (Artifact) needs refreshing as of this session
+   (thief plateau + riot lethality fix landed after the last refresh) —
+   see the visualize-every-change convention now in memory.
 
 ## Immediate next: Criminals
 
@@ -28,27 +30,45 @@ Per the agreed order (Guards → **Criminals** → Priests → Nobles →
 Quarantine → Taxes → town-wide dials). Scope from
 `Project_Vision/01-network-simulation.md`'s Criminals section:
 
-- **Thief as an occupation.** Poverty raises the odds a resident becomes
-  one. Open question to resolve before coding: is this a role a resident
-  is assigned once at some point during the run (like Romance retyping an
-  edge), or a derived/dynamic status recomputed from current
-  circumstances? Given the project's "don't create new graph structure
-  you don't need yet" pattern, lean toward a state flag a phenomenon
-  tracks (like Romance's `married` state), not a new `Node` field —
-  decide this properly before writing code, don't default silently.
-- **Theft as a new event type** (manslaughter already covered by
-  Violence). Needs: who steals from whom (an edge to roll against — reuse
-  the existing per-edge `Phenomenon` shape), a discovery chance, and what
-  changes when caught (relationship with nearby residents and guards).
-  The "guards" side of "changes with guards" is a natural second consumer
-  for `GuardPhenomenon`-adjacent logic — check whether it fits inside
-  `GuardPhenomenon` or needs its own `TheftPhenomenon` that also touches
-  guard edges.
-- **Assassination refinement** (extends `ViolencePhenomenon`, not a new
-  phenomenon): a target has a survival chance rather than a guaranteed
-  kill; a *failed* attempt guarantees the attacker is discovered; a poor
-  attacker targeting a rich/noble victim has lower success odds than the
-  reverse. This reuses `SES_VULNERABILITY` machinery already in place.
+- ~~**Thief as an occupation.**~~ **Done (2026-09-21).** `TheftPhenomenon`
+  in `phenomena.py`: a sticky per-resident `is_thief` flag rolled once in
+  `end_of_day`, scaled by poverty (`THIEF_SES_FACTOR`), nobles excluded.
+  Decision recorded in `docs/decisions.md`'s 2026-09-21 entry.
+- ~~**Theft as a new event type**~~ **Done (2026-09-21).** Same
+  `TheftPhenomenon`: fires on an edge with exactly one thief endpoint,
+  scaled by the thief's cunning and the victim's wealth (reuses
+  `BRIBE_WEALTH_FACTOR`). A discovery roll on each theft drops the
+  victim's valence toward the thief and, if the thief has an edge to any
+  guard, that guard's valence too — arrest/patron-protection itself stays
+  deferred (needs the cross-phenomenon link noted below). Covered by
+  `tests/test_theft.py`; wired into `demo.py`.
+- ~~**Population plateau (arrests/deterrence)**~~ **Done (2026-09-21,
+  user feedback) — took two tries.** Caught thieves can now be arrested
+  (loses `is_thief`) or executed (low-loyalty towns, corruption proxy);
+  every removal raises a decaying deterrence level that suppresses the
+  become-a-thief roll. First version gated arrest on the thief having a
+  guard *neighbor* — a 1-year trajectory looked flat (77→78) but a
+  3-year check (prompted by "are you sure it plateaus?") showed it
+  wasn't converging at all (94→221, no deceleration): only ~10% of
+  catches led to a removal given how few guards there are relative to
+  the town. Corrected to a flat, town-wide arrest chance (43% of
+  catches now). A 2-year run with the fix shows real fluctuation,
+  including genuine population declines, for the first time — the exact
+  long-run equilibrium level isn't fully pinned down yet. Poverty-
+  severity and a real corruption dial (vs. reusing guard loyalty) still
+  deferred — see `Project_Vision`'s Economy & poverty section.
+  `docs/decisions.md`'s two 2026-09-21 entries (the mistake and the
+  correction are both recorded).
+- ~~**Assassination refinement**~~ **Done (2026-09-21).** A violent
+  attempt now has a success chance (`min(1.0, success_base_rate *
+  victim_vulnerability / attacker_vulnerability)`, reusing
+  `SES_VULNERABILITY` for both sides) instead of an automatic kill.
+  Same-class violence stays close to the old behavior; poor-vs-rich
+  succeeds rarely (~21%), rich-vs-poor almost always. A failed attempt
+  never kills — the surviving victim's own valence toward the culprit
+  drops sharply instead, no `grief_shock` (nobody died). Verified on a
+  real run: 24 failed attempts / 109 total. `docs/decisions.md`'s
+  2026-09-21 entry.
 - **Group violence**: enough people sharing high animosity toward the
   same target, with enough affinity among themselves, can attempt a
   killing together with a much higher success chance than any one alone —
@@ -137,11 +157,15 @@ needs for a real high/low-corruption contrast.
 Not a separate project phase — fold each into whichever feature above
 naturally needs it, rather than doing them standalone:
 
-- **Riot guard:rioter lethality ratio** is calibrated in the wrong
-  *magnitude* (currently ~11:18 guard:rioter deaths on a real run; target
-  is roughly **1 guard per 3 rioters**). Retune `guard_lethality`/
-  `rioter_lethality` next time riot combat is touched — see
-  `docs/decisions.md`'s 2026-09-17 entry and design doc §12.2.
+- ~~**Riot guard:rioter lethality ratio**~~ **Fixed (2026-09-21).** The
+  old linear size-ratio formula let mob size swamp the lethality
+  constants (guards were dying *more* than rioters on a real 30-seed
+  aggregate: 649 vs. 539). Switched to a sqrt size factor, which makes
+  the casualty ratio equal to `guard_lethality:rioter_lethality`
+  regardless of mob size; retuned to a clean 3:1 (0.2/0.6). Same
+  aggregate after the fix: 381 guard deaths vs. 1,036 rioter deaths
+  (ratio 0.368, close to the 0.333 target). See `docs/decisions.md`'s
+  2026-09-21 entry.
 - **Births still don't create real `Node`s.** Needs a
   `Phenomenon.default_state(resident_id)`-style protocol addition so
   every phenomenon can produce sane starting state for a resident who
