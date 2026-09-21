@@ -6,9 +6,9 @@
 > feature backlog — still the source of truth for *scope* on each item
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
-> plan changes. Last updated 2026-09-21 (thief plateau + riot lethality
-> fix landed, then assassination refinement — Criminals' last remaining
-> item is group violence, below).
+> plan changes. Last updated 2026-09-21 (group violence landed — the
+> bottom-up riot trigger, plugged into `RiotPhenomenon`'s existing state
+> machine as planned — closing out Criminals. **Priests** is next.).
 
 ## Resume checklist
 
@@ -20,15 +20,18 @@
    status once handled.
 3. Skim `docs/decisions.md` (newest entries first) for anything that
    might trip up new work.
-4. The results dashboard (Artifact) needs refreshing as of this session
-   (thief plateau + riot lethality fix landed after the last refresh) —
-   see the visualize-every-change convention now in memory.
+4. Check whether the results dashboard (Artifact) is current against the
+   latest reference-town run before assuming it's stale or trusting a
+   note here about it — see the visualize-every-change convention in
+   memory, and verify by reading the live artifact rather than a
+   possibly-outdated note like this one.
 
-## Immediate next: Criminals
+## Criminals — done (2026-09-21)
 
 Per the agreed order (Guards → **Criminals** → Priests → Nobles →
-Quarantine → Taxes → town-wide dials). Scope from
-`Project_Vision/01-network-simulation.md`'s Criminals section:
+Quarantine → Taxes → town-wide dials). All four scoped items from
+`Project_Vision/01-network-simulation.md`'s Criminals section have
+landed. Scope recap:
 
 - ~~**Thief as an occupation.**~~ **Done (2026-09-21).** `TheftPhenomenon`
   in `phenomena.py`: a sticky per-resident `is_thief` flag rolled once in
@@ -69,19 +72,22 @@ Quarantine → Taxes → town-wide dials). Scope from
   drops sharply instead, no `grief_shock` (nobody died). Verified on a
   real run: 24 failed attempts / 109 total. `docs/decisions.md`'s
   2026-09-21 entry.
-- **Group violence**: enough people sharing high animosity toward the
-  same target, with enough affinity among themselves, can attempt a
-  killing together with a much higher success chance than any one alone —
-  and if enough band together, this escalates directly into a riot.
-  **This is the bottom-up riot trigger** flagged as "not yet built" in
-  the design doc §12 — it should plug into the *existing*
-  `RiotPhenomenon._active_riot` state machine (start one directly with a
-  pre-formed participant list) rather than inventing a second riot
-  concept. Worth designing this connection point deliberately once
-  Criminals' group-violence mechanic exists, rather than bolting it on
-  after the fact.
+- ~~**Group violence**~~ **Done (2026-09-21).** `ViolencePhenomenon`
+  gained a town-wide `end_of_day` check: haters of the same target who
+  are also mutually tied to each other band together (union-find on
+  affinity), with a much higher success chance than any solo attempt
+  (`sqrt(band size)` boost). A large enough band skips the kill roll and
+  becomes a riot directly via a new `RiotPhenomenon._begin_riot`
+  (factored out of `_start_riot`'s own tail) — the bottom-up riot
+  trigger plugged into the *existing* riot state machine, exactly as
+  planned, not a second riot concept. A first version (looser
+  thresholds, no "does this actually happen today" roll) produced 345
+  riots in a year before being caught by the same real-run-verification
+  habit that caught the thief-plateau and riot-lethality issues; fixed
+  with stricter thresholds plus an explicit action-rate gate. See
+  `docs/decisions.md`'s 2026-09-21 entry.
 
-## After that: Priests
+## Next: Priests
 
 - Religious town → broad affinity boost from most residents; a small,
   deliberately-chosen set of heretics/skeptics get an animosity boost

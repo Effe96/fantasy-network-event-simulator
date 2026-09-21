@@ -8,6 +8,61 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-21 — Group violence: the bottom-up riot trigger, and a runaway first version caught before shipping
+
+**Decision:** `ViolencePhenomenon` gained a town-wide `end_of_day` check
+(`_check_group_violence`) alongside its existing per-edge solo path.
+Once a day, it scans every live edge for anyone hated above
+`group_hate_threshold` (0.7) by more than one person, then union-finds
+those haters into `band`s using `group_affinity_threshold` (0.3) mutual
+ties between them — sharing a grudge alone isn't enough, they also have
+to actually know and like each other. The single largest qualifying band
+that day gets one `group_action_rate` (0.1) roll to see whether it
+actually acts. If it does: a band below `riot_phenomenon.min_participants`
+attempts a joint killing, success chance boosted by `sqrt(len(band))`
+over the same solo-assassination formula (reusing `SES_VULNERABILITY`
+both ways, `success_base_rate`); a band *at or above* that size skips the
+kill roll entirely and becomes a riot instead, via a new
+`RiotPhenomenon._begin_riot` factored out of `_start_riot`'s own tail —
+this is the bottom-up riot trigger flagged "not yet built" in the design
+doc, reusing the existing riot state machine directly rather than
+inventing a second one (per `docs/plans.md`'s explicit instruction).
+`ViolencePhenomenon` is constructed with an optional `riot_phenomenon`
+reference (wired in `demo.py`, which now builds `riot` before `violence`)
+— the first deliberate case of one phenomenon reaching directly into
+another's state, previously flagged as a missing capability (Guards'
+patron protection was blocked on the same gap).
+
+**Why a two-stage gate, not just tuned thresholds:** a first version had
+neither `group_action_rate` nor thresholds this strict
+(`group_hate_threshold=0.4`, `group_affinity_threshold=0.15` — both
+picked as "sounds like real hostility/affinity" guesses, never checked
+against the actual graph). Tested on the reference town before trusting
+it, per the standing "verify with a real run" habit from the thief-
+plateau and riot-lethality incidents: **345 riots in one year**, almost
+all (`group_escalates_to_riot` events) traced straight back to this
+mechanic — the organic baseline is ~1/year. Root cause: on this graph's
+baseline relationship-valence noise alone, with zero simulated events
+ever having fired, 15,248 directed edges already cross a 0.4 hostility
+threshold, and some of those haters happened to be mutually tied into
+bands as large as 65 people. Unlike solo violence (which has a
+degree-normalized `base_rate` roll gating whether a hostile edge
+actually erupts *today*), the first group-violence version was a hard
+deterministic trigger: once a qualifying band existed, it always acted,
+and a qualifying band existed on nearly every single day. Fixed two
+ways together: (1) raised both thresholds to 0.7/0.3, where the same
+day-1 scan caps out at band size 3 instead of 65; (2) added
+`group_action_rate` as an explicit "does this actually boil over today"
+roll, the same shape `RiotPhenomenon.riot_base_rate` already uses on top
+of its own unrest threshold. Re-verified on the same town/seed: **6
+riots** (3 organic, 3 group-escalated — close to doubling the organic
+rate, not swamping it) and 27 group-violence kills alongside 95 solo
+kills, a believable secondary channel. `tests/test_violence.py` covers
+band formation (requires both hate *and* mutual affinity, not just a
+shared grudge), the size-based success boost, the riot-escalation
+handoff (and its absence below the size threshold or with no
+`riot_phenomenon` wired in), and the action-rate gate itself.
+
 ## 2026-09-21 — Flu seasonality added; diarrhea's "indefinite growth" was a chart problem, not a model problem
 
 **Decision:** `CommonAilmentsPhenomenon` gained a `flu_winter_multiplier`

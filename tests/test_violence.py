@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from graph import Edge, Node, SocialGraph
-from phenomena import ViolencePhenomenon
+from phenomena import RiotPhenomenon, ViolencePhenomenon
 
 
 def _graph_with_valence(valence_a_to_b: float, valence_b_to_a: float = None) -> SocialGraph:
@@ -163,7 +163,142 @@ def test_summarize_counts_alive_and_dead():
     phenomenon = ViolencePhenomenon()
     state = phenomenon.init_state(graph)
     state[1]["alive"] = False
-    assert phenomenon.summarize(state) == {"alive": 1, "dead": 1}
+    assert phenomenon.summarize(state) == {"alive": 1, "dead": 1, "group_kills": 0}
+
+
+def _group_town(num_haters, victim_id=100, victim_ses="poor", hater_ses="poor", hate=-0.9, affinity=0.6):
+    """A victim hated independently by `num_haters` people (ids 1..N), who are
+    themselves chained together (1-2, 2-3, ...) by mutual affinity -- a single
+    connected band, without needing every pair directly tied. Equal SES by
+    default so success chance reduces to a clean function of band size."""
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=victim_id, ses=victim_ses, alive=True))
+    for i in range(1, num_haters + 1):
+        graph.add_node(Node(resident_id=i, ses=hater_ses, alive=True))
+        graph.add_edge(Edge(i, victim_id, "neighbor", "Equality Matching", 0.5, 0.5, 0.5,
+                             valence_a_to_b=hate, valence_b_to_a=0.0))
+    for i in range(1, num_haters):
+        graph.add_edge(Edge(i, i + 1, "coworker", "Authority Ranking", 0.5, 0.5, 0.5,
+                             valence_a_to_b=affinity, valence_b_to_a=affinity))
+    return graph, victim_id
+
+
+def test_haters_with_no_tie_to_each_other_do_not_band_together():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=100, ses="poor", alive=True))
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True))
+    graph.add_node(Node(resident_id=2, ses="poor", alive=True))
+    graph.add_edge(Edge(1, 100, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, 0.0))
+    graph.add_edge(Edge(2, 100, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, 0.0))
+    # no edge between 1 and 2 at all -- sharing a grudge alone isn't enough
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert events == []
+    assert graph.nodes[100].alive is True
+
+
+def test_haters_who_dislike_each_other_do_not_band_together():
+    graph, victim_id = _group_town(num_haters=2, affinity=-0.9)  # haters despise each other
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert events == []
+    assert graph.nodes[victim_id].alive is True
+
+
+def test_mutually_tied_haters_band_together_and_can_kill():
+    graph, victim_id = _group_town(num_haters=2)
+    # sqrt(2) boost guarantees success; group_action_rate=1.0 makes the "does
+    # this band act today" roll deterministic, isolating the kill logic itself
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, group_action_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert graph.nodes[victim_id].alive is False
+    assert any(event.kind == "group_violence" for event in events)
+    assert phenomenon._group_kills == 1
+
+
+def test_group_success_chance_grows_with_band_size():
+    # mismatched vulnerability (rich victim, poor haters) keeps the success
+    # chance away from the 1.0 ceiling so the sqrt(band size) boost is visible
+    trials = 200
+
+    def kill_rate(num_haters):
+        kills = 0
+        for seed in range(trials):
+            graph, victim_id = _group_town(num_haters, victim_ses="rich", hater_ses="poor")
+            phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, group_action_rate=1.0)
+            state = phenomenon.init_state(graph)
+            phenomenon.end_of_day(graph, state, day=1, rng=random.Random(seed))
+            kills += not graph.nodes[victim_id].alive
+        return kills / trials
+
+    assert kill_rate(9) > kill_rate(4)
+
+
+def test_failed_group_attempt_drops_victims_valence_toward_every_band_member():
+    graph, victim_id = _group_town(num_haters=2)
+    phenomenon = ViolencePhenomenon(success_base_rate=0.0, discovery_shock=0.3, min_group_size=2, group_action_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+
+    assert graph.nodes[victim_id].alive is True
+    for hater_id in (1, 2):
+        edge = graph.get_edge(hater_id, victim_id)
+        assert edge.valence_from(victim_id) < 0  # dropped from its starting 0.0
+    assert any(event.kind == "group_failed_attempt" for event in events)
+
+
+def test_large_enough_band_escalates_into_a_riot_instead_of_a_kill():
+    graph, victim_id = _group_town(num_haters=5)
+    riot = RiotPhenomenon(min_participants=3)
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, riot_phenomenon=riot, group_action_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+
+    assert riot._riots == 1
+    assert riot._active_riot is not None
+    assert set(riot._active_riot["participants"]) == {1, 2, 3, 4, 5}
+    assert any(event.kind == "group_escalates_to_riot" for event in events)
+    assert any(event.kind == "riot" for event in events)
+    assert phenomenon._group_kills == 0  # handed off to the riot, not killed directly
+
+
+def test_band_too_small_for_a_riot_still_just_kills_the_victim():
+    graph, victim_id = _group_town(num_haters=2)
+    riot = RiotPhenomenon(min_participants=3)  # band of 2 stays below this
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, riot_phenomenon=riot, group_action_rate=1.0)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+
+    assert riot._riots == 0
+    assert graph.nodes[victim_id].alive is False
+    assert phenomenon._group_kills == 1
+
+
+def test_large_band_without_a_riot_phenomenon_wired_in_still_just_kills():
+    graph, victim_id = _group_town(num_haters=5)
+    # riot_phenomenon left as None
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, group_action_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+
+    assert graph.nodes[victim_id].alive is False
+    assert any(event.kind == "group_violence" for event in events)
+
+
+def test_group_action_rate_gates_whether_a_qualifying_band_acts_today():
+    # a qualifying band exists every single day here (nothing removes it),
+    # but with group_action_rate=0.0 it must never act
+    graph, victim_id = _group_town(num_haters=2)
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, group_action_rate=0.0)
+    state = phenomenon.init_state(graph)
+    for day in range(1, 31):
+        events = phenomenon.end_of_day(graph, state, day=day, rng=random.Random(day))
+        assert events == []
+    assert graph.nodes[victim_id].alive is True
+    assert phenomenon._group_kills == 0
 
 
 def _run_all():
@@ -177,6 +312,15 @@ def _run_all():
     test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse()
     test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit()
     test_summarize_counts_alive_and_dead()
+    test_haters_with_no_tie_to_each_other_do_not_band_together()
+    test_haters_who_dislike_each_other_do_not_band_together()
+    test_mutually_tied_haters_band_together_and_can_kill()
+    test_group_success_chance_grows_with_band_size()
+    test_failed_group_attempt_drops_victims_valence_toward_every_band_member()
+    test_large_enough_band_escalates_into_a_riot_instead_of_a_kill()
+    test_band_too_small_for_a_riot_still_just_kills_the_victim()
+    test_large_band_without_a_riot_phenomenon_wired_in_still_just_kills()
+    test_group_action_rate_gates_whether_a_qualifying_band_acts_today()
     print("OK")
 
 

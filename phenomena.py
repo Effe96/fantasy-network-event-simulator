@@ -350,7 +350,23 @@ class ViolencePhenomenon:
     always. A failed attempt never kills; the surviving victim's own
     valence toward the culprit drops sharply instead (`discovery_shock`)
     -- they now know exactly who came after them. No grief_shock fires
-    on a failure, since nobody died for bystanders to react to."""
+    on a failure, since nobody died for bystanders to react to.
+
+    Group violence (added 2026-09-21, Criminals' last item per
+    `docs/plans.md`): a town-wide check, run once a day in `end_of_day`
+    alongside the per-edge solo path above. If enough people who each hate
+    the same target above `group_hate_threshold` are *also* tied to each
+    other by at least `group_affinity_threshold` mutual affinity (a `band`,
+    found by union-find over the haters), they can act together -- a much
+    higher success chance than any one of them alone (`success_base_rate`
+    boosted by `sqrt(len(band))`). If the band is already large enough to
+    qualify as a riot (`riot_phenomenon.min_participants`), it skips the
+    group-kill roll entirely and becomes a riot instead, via
+    `RiotPhenomenon._begin_riot` -- this is the bottom-up riot trigger
+    flagged as "not yet built" in the design doc, reusing the riot state
+    machine directly rather than inventing a second one. Only the single
+    largest qualifying band acts per day, to keep this rare and avoid a
+    victim being processed twice."""
 
     name = "violence"
 
@@ -360,11 +376,35 @@ class ViolencePhenomenon:
         grief_shock: float = 0.15,
         success_base_rate: float = 0.85,
         discovery_shock: float = 0.5,
+        riot_phenomenon: Optional["RiotPhenomenon"] = None,
+        group_hate_threshold: float = 0.7,
+        group_affinity_threshold: float = 0.3,
+        min_group_size: int = 2,
+        group_action_rate: float = 0.1,
     ):
         self.base_rate = base_rate
         self.grief_shock = grief_shock
         self.success_base_rate = success_base_rate
         self.discovery_shock = discovery_shock
+        self.riot_phenomenon = riot_phenomenon
+        self.group_hate_threshold = group_hate_threshold
+        self.group_affinity_threshold = group_affinity_threshold
+        self.min_group_size = min_group_size
+        # a qualifying band existing doesn't mean it acts *today* -- same idea
+        # as RiotPhenomenon's own riot_base_rate roll on top of its unrest
+        # threshold. A first version had neither this roll nor thresholds
+        # this strict: at group_hate_threshold=0.4 (a first-guess "meaningful
+        # hostility" number), 15,248 directed edges already cross it on day 1
+        # from baseline relationship-valence noise alone, no events ever
+        # having fired, and some resulting bands reached 65 people -- so
+        # group violence fired 345 times in a year, almost all escalating
+        # straight into a riot. Fixed with both a stricter threshold pair
+        # (0.7/0.3, where day-1 bands cap out at size 3) and this rate --
+        # together they reproduce the pre-existing ~1/year organic riot rate
+        # plus a handful of group-triggered ones on top, not 345. See
+        # docs/decisions.md's 2026-09-21 entry.
+        self.group_action_rate = group_action_rate
+        self._group_kills = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         return {resident_id: {"alive": True} for resident_id in graph.nodes}
@@ -433,11 +473,121 @@ class ViolencePhenomenon:
         return events
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        return self._check_group_violence(graph, state, day, rng)
+
+    def _check_group_violence(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        # one pass over every live edge, same cost as the engine's own
+        # per-edge solo-violence pass -- there's no cheaper way to find "who
+        # is hated by several different people at once" without scanning
+        hostile_toward: Dict[int, List[int]] = {}
+        for edge in graph.edges.values():
+            a, b = edge.resident_a, edge.resident_b
+            if not (graph.nodes[a].alive and graph.nodes[b].alive):
+                continue
+            if -edge.valence_from(a) >= self.group_hate_threshold:
+                hostile_toward.setdefault(b, []).append(a)
+            if -edge.valence_from(b) >= self.group_hate_threshold:
+                hostile_toward.setdefault(a, []).append(b)
+
+        candidates = sorted(
+            (victim for victim, haters in hostile_toward.items() if len(haters) >= self.min_group_size),
+            key=lambda victim: -len(hostile_toward[victim]),
+        )
+        for victim in candidates:
+            band = self._find_band(graph, hostile_toward[victim])
+            if len(band) < self.min_group_size:
+                continue
+            if rng.random() >= self.group_action_rate:
+                return []  # a band exists, but grudges don't boil over every single day
+            return self._resolve_group_violence(graph, state, victim, band, day, rng)
         return []
+
+    def _find_band(self, graph, haters: List[int]) -> List[int]:
+        # union-find over the haters: two of them only band together if they
+        # also know and like each other (group_affinity_threshold), not just
+        # because they happen to share a grudge against the same person
+        parent = {hater: hater for hater in haters}
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i in range(len(haters)):
+            for j in range(i + 1, len(haters)):
+                edge = graph.get_edge(haters[i], haters[j])
+                if edge is None:
+                    continue
+                mutual_affinity = (edge.valence_from(haters[i]) + edge.valence_from(haters[j])) / 2
+                if mutual_affinity >= self.group_affinity_threshold:
+                    root_i, root_j = find(haters[i]), find(haters[j])
+                    if root_i != root_j:
+                        parent[root_i] = root_j
+
+        groups: Dict[int, List[int]] = {}
+        for hater in haters:
+            groups.setdefault(find(hater), []).append(hater)
+        return max(groups.values(), key=len)
+
+    def _resolve_group_violence(
+        self, graph, state, victim: int, band: List[int], day: int, rng: random.Random
+    ) -> List[Event]:
+        if (
+            self.riot_phenomenon is not None
+            and self.riot_phenomenon._active_riot is None
+            and len(band) >= self.riot_phenomenon.min_participants
+        ):
+            avg_band_hostility = sum(-graph.get_edge(h, victim).valence_from(h) for h in band) / len(band)
+            events = [
+                Event(day, self.name, "group_escalates_to_riot", band[0], victim,
+                      f"{len(band)} people banded together against {victim}, spilling into a riot")
+            ]
+            events.extend(self.riot_phenomenon._begin_riot(graph, day, band, avg_band_hostility))
+            return events
+
+        # the band's own worst hater is the "ringleader" for bookkeeping
+        # (event attribution, grief_shock target) -- the others still get a
+        # discovery_shock hit on failure and count toward the success roll
+        ringleader = max(band, key=lambda h: -graph.get_edge(h, victim).valence_from(h))
+        victim_vulnerability = SES_VULNERABILITY.get(graph.nodes[victim].ses, 1.0)
+        avg_attacker_vulnerability = sum(SES_VULNERABILITY.get(graph.nodes[h].ses, 1.0) for h in band) / len(band)
+        success_chance = min(
+            1.0,
+            self.success_base_rate * victim_vulnerability / avg_attacker_vulnerability * math.sqrt(len(band)),
+        )
+
+        if rng.random() >= success_chance:
+            for hater in band:
+                edge = graph.get_edge(hater, victim)
+                edge.set_valence_from(victim, max(-1.0, edge.valence_from(victim) - self.discovery_shock))
+            return [
+                Event(day, self.name, "group_failed_attempt", ringleader, victim,
+                      f"{len(band)}-strong band failed -- victim's valence dropped toward all of them")
+            ]
+
+        state[victim]["alive"] = False
+        graph.nodes[victim].alive = False
+        self._group_kills += 1
+        events = [Event(day, self.name, "group_violence", ringleader, victim, f"killed by a {len(band)}-strong band")]
+
+        for neighbor_id in graph.neighbors(victim):
+            if neighbor_id in band:
+                continue
+            edge_to_ringleader = graph.get_edge(neighbor_id, ringleader)
+            if edge_to_ringleader is None:
+                continue
+            edge_to_victim = graph.get_edge(neighbor_id, victim)
+            shock = self.grief_shock * edge_to_victim.tie_strength
+            new_valence = max(-1.0, edge_to_ringleader.valence_from(neighbor_id) - shock)
+            edge_to_ringleader.set_valence_from(neighbor_id, new_valence)
+            events.append(Event(day, self.name, "grief_shock", neighbor_id, ringleader, f"valence -{shock:.3f}"))
+
+        return events
 
     def summarize(self, state) -> Dict[str, int]:
         alive = sum(1 for resident_state in state.values() if resident_state["alive"])
-        return {"alive": alive, "dead": len(state) - alive}
+        return {"alive": alive, "dead": len(state) - alive, "group_kills": self._group_kills}
 
 
 ADULT_MIN_AGE = 18  # matches TownShape's own town_relationships/family.py adulthood threshold
@@ -671,17 +821,29 @@ class RiotPhenomenon:
         if len(participants) < self.min_participants:
             return []  # not enough people banded together for it to count as a riot
 
+        # same shape for the mob: how angry it was joining (its own worst
+        # grievances, not a class-wide average) decides how much it can take
+        # before it breaks and runs
+        avg_participant_hostility = sum(worst_grievance[p] for p in participants) / len(participants)
+        return self._begin_riot(graph, day, participants, avg_participant_hostility)
+
+    def _begin_riot(
+        self, graph, day: int, participants: List[int], avg_participant_hostility: float
+    ) -> List[Event]:
+        """The actual riot-state-creation tail, factored out of `_start_riot` so
+        a pre-formed band from `ViolencePhenomenon`'s group-violence mechanic can
+        become a riot directly -- reusing this same state machine (per
+        `docs/plans.md`) rather than inventing a second riot concept.
+        `avg_participant_hostility` is the caller's own measure of how angry the
+        band was (organic riots use each participant's worst grievance toward an
+        authority figure; group violence uses their hostility toward the shared
+        target instead), since it feeds the mob's retreat threshold below."""
         guards = [rid for rid, node in graph.nodes.items() if node.alive and node.role == "guard"]
         # a more loyal garrison holds much longer than an unloyal one -- 0.5 is
         # the trait's own default mean, so an average-loyalty force reproduces
         # the plain retreat_threshold unchanged
         avg_guard_loyalty = sum(graph.nodes[g].loyalty for g in guards) / len(guards) if guards else 0.5
         effective_guard_retreat_threshold = self.retreat_threshold * (0.5 + avg_guard_loyalty)
-
-        # same shape for the mob: how angry it was joining (its own worst
-        # grievances, not a class-wide average) decides how much it can take
-        # before it breaks and runs
-        avg_participant_hostility = sum(worst_grievance[p] for p in participants) / len(participants)
         effective_rioter_retreat_threshold = self.rioter_retreat_threshold * (0.5 + avg_participant_hostility)
 
         self._riots += 1

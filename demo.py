@@ -45,7 +45,10 @@ def main(argv=None) -> None:
     # ponytail: linear scale-up, 3x at max aggression (1.0); tune this constant if a
     # max-aggression town should feel more/less volatile than "three times as violent"
     aggression_factor = 1.0 + 2.0 * graph.town_aggression
-    violence = ViolencePhenomenon(base_rate=0.01 / average_degree * aggression_factor)
+    # constructed before violence so it can be wired into it below (group
+    # violence's riot-escalation path calls straight into this instance)
+    riot = RiotPhenomenon(unrest_threshold=0.15 / aggression_factor, riot_base_rate=0.03 * aggression_factor)
+    violence = ViolencePhenomenon(base_rate=0.01 / average_degree * aggression_factor, riot_phenomenon=riot)
     contagion = ContagionPhenomenon(
         base_rate=args.transmission_rate,
         infectious_days=args.infectious_days,
@@ -55,8 +58,9 @@ def main(argv=None) -> None:
     # residents are already married at import (see romance's design note), so
     # the eligible unmarried-and-connected pool is small on its own
     romance = RomancePhenomenon()
-    # same aggression_factor as violence: an aggressive town riots more readily
-    # and reaches unrest sooner (vision doc: "more frequent riots").
+    # riot's own thresholds (set above, alongside its construction): same
+    # aggression_factor as violence, since an aggressive town riots more
+    # readily and reaches unrest sooner (vision doc: "more frequent riots").
     # unrest_threshold=0.15 (not the earlier 0.25) is a deliberate margin below
     # the reference town's natural baseline civilian-to-authority hostility
     # (~0.25-0.26) -- at 0.25 the threshold sat almost exactly ON that
@@ -64,7 +68,6 @@ def main(argv=None) -> None:
     # effectively unreachable in a normal year, not just rare. Verified in
     # isolation (fresh RNG stream, no other phenomena running): 20/30
     # independent year-long trials produced at least one riot at these values.
-    riot = RiotPhenomenon(unrest_threshold=0.15 / aggression_factor, riot_base_rate=0.03 * aggression_factor)
     guards = GuardPhenomenon()
     theft = TheftPhenomenon()
     ailments = CommonAilmentsPhenomenon()
@@ -113,7 +116,7 @@ def _print_summary(result) -> None:
     print(f"  final susceptible/infected/recovered/deceased: "
           f"{last.get('susceptible', 0)}/{last.get('infected', 0)}/{last.get('recovered', 0)}/{disease_deaths}")
     print("violence:")
-    print(f"  deaths: {violence_deaths}")
+    print(f"  deaths: {violence_deaths}  (of which group violence: {last.get('group_kills', 0)})")
     print("romance:")
     print(f"  married residents: {last.get('married_residents', 0)}  births: {last.get('births', 0)}")
     print("riots:")

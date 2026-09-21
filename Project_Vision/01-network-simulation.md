@@ -288,14 +288,22 @@
   deaths (ratio 0.368, close to the 0.333 target). Full writeup:
   `docs/decisions.md`'s 2026-09-21 entry. Regression test:
   `tests/test_riot.py::test_guards_die_less_often_than_rioters_regardless_of_mob_size`.
-- **Not yet built**: the bottom-up trigger from Criminals' "group
-  violence escalates into a riot" (Criminals doesn't exist yet); any
-  resolution-phase valence shift (catharsis vs. crackdown backlash) —
-  deliberately left out since the source material doesn't commit to a
-  direction and either would be a guess. A new riot can still trigger
-  again immediately after one ends if the underlying hostility hasn't
-  cooled — not treated as a bug, but worth knowing if two riots show up
-  back-to-back in a log.
+- **Group violence's bottom-up trigger: implemented 2026-09-21** — see
+  "Criminals: group violence" below for the full mechanic. On the riot
+  side, this added `RiotPhenomenon._begin_riot`, factored out of
+  `_start_riot`'s own tail so a pre-formed band from `ViolencePhenomenon`
+  can become a riot directly, using the same state machine (no second
+  riot concept). `avg_participant_hostility` is now an explicit parameter
+  to that method rather than something `_start_riot` alone knew how to
+  compute, since a group-violence-originated band's "how angry was it"
+  measure (average hostility toward the shared target) differs from an
+  organic riot's (average worst grievance toward an authority figure).
+- **Not yet built**: any resolution-phase valence shift (catharsis vs.
+  crackdown backlash) — deliberately left out since the source material
+  doesn't commit to a direction and either would be a guess. A new riot
+  can still trigger again immediately after one ends if the underlying
+  hostility hasn't cooled — not treated as a bug, but worth knowing if
+  two riots show up back-to-back in a log.
 
 ### Guards: bribery (`GuardPhenomenon`)
 
@@ -308,10 +316,11 @@
 
 ### Criminals: thief occupation + theft (`TheftPhenomenon`)
 
-- **Implemented**, scoped to thief occupation + theft only — assassination
-  refinement and the bottom-up group-violence-into-riot trigger (see
-  "Criminals" below) are deferred to a later slice, same pattern Guards
-  used for bribery-only.
+- **Implemented**, scoped to thief occupation + theft. Assassination
+  refinement (see below) and group violence (see
+  "Criminals: group violence" below) landed as later slices in the same
+  session, same pattern Guards used for bribery-only — Criminals is now
+  fully built out per this section's original scope.
 - Becoming a thief is a **sticky per-resident flag**, rolled once in
   `end_of_day` (like Romance's `married` flag, not a new `Node` field),
   scaled by `ses` (poor ×2, rich ×0.3) — poverty raises the daily odds of
@@ -356,6 +365,38 @@
   pinned down yet; a longer/more-seeded verification is the natural
   next check if the exact level matters, not run given how expensive
   multi-year full-town runs are in this environment.
+
+### Criminals: group violence (`ViolencePhenomenon`)
+
+- **Implemented 2026-09-21** — Criminals' last item, and the bottom-up
+  riot trigger flagged "not yet built" under Riots above. A town-wide
+  `end_of_day` check (alongside `ViolencePhenomenon`'s existing per-edge
+  solo path): anyone hated above `group_hate_threshold` (0.7) by two or
+  more people who are *also* mutually tied to each other by
+  `group_affinity_threshold` (0.3) — union-find over the haters, so
+  sharing a grudge alone isn't enough — forms a `band`. The single
+  largest qualifying band per day gets one `group_action_rate` (0.1)
+  roll to see whether it acts at all that day. If it does: a band below
+  `riot_phenomenon.min_participants` attempts a joint killing, success
+  chance the same solo-assassination formula boosted by
+  `sqrt(len(band))`; a band at or above that size skips the kill roll
+  and becomes a riot directly, via a new `RiotPhenomenon._begin_riot`
+  reusing the existing riot state machine (see "Riots," above).
+- **Calibration bug, caught before shipping (same session)**: a first
+  version (`group_hate_threshold=0.4`, `group_affinity_threshold=0.15`,
+  no action-rate roll at all) produced **345 riots in one year** on the
+  reference town — the organic baseline is ~1/year. Root cause: those
+  looser thresholds are crossed by baseline relationship-valence noise
+  alone (15,248 directed edges exceed 0.4 hostility on day 1, before any
+  simulated event ever fires), with some resulting bands as large as 65
+  people, and the mechanic had no probabilistic dampener analogous to
+  solo violence's degree-normalized `base_rate` — a qualifying band
+  existed on nearly every day and always acted. Fixed with stricter
+  thresholds (where the same day-1 scan caps out at band size 3) plus
+  the explicit action-rate roll. Re-verified: 6 riots (3 organic, 3
+  group-escalated) and 27 group kills alongside 95 solo kills — a
+  believable secondary channel, not a dominant one. Full writeup:
+  `docs/decisions.md`'s 2026-09-21 entry.
 
 ### CLI & output (`demo.py`)
 
@@ -675,11 +716,9 @@ People:
   Tests: `tests/test_violence.py`'s
   `test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse`
   and `test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit`.
-- **Group violence**: if enough people share high animosity toward the
-  same target, and enough affinity with each other, they can attempt a
-  killing together with a much higher success chance than any one of
-  them alone — and if enough band together, this can escalate directly
-  into a riot. (Shares the riot-model dependency flagged under Guards.)
+- ~~**Group violence**~~ **Implemented 2026-09-21** — see
+  "Criminals: group violence" under Current State, above, and
+  `docs/decisions.md`'s 2026-09-21 entry. Closes out Criminals.
 
 ### Priests
 
