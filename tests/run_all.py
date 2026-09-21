@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests import (
+    test_ailments,
     test_attributes,
     test_contagion,
     test_engine,
@@ -14,6 +15,7 @@ from tests import (
     test_import_shopkeeper_customer,
     test_riot,
     test_romance,
+    test_theft,
     test_violence,
 )
 
@@ -23,10 +25,12 @@ MODULES = [
     test_import_relationships,
     test_import_shopkeeper_customer,
     test_contagion,
+    test_ailments,
     test_violence,
     test_romance,
     test_riot,
     test_guards,
+    test_theft,
     test_engine,
 ]
 

@@ -1,3 +1,4 @@
+import math
 import random
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
@@ -115,12 +116,255 @@ class ContagionPhenomenon:
 SES_VULNERABILITY = {"poor": 2.0, "middling": 1.0, "rich": 0.5}
 
 
+class CommonAilmentsPhenomenon:
+    """Common ailments (added 2026-09-21, user feedback): unlike
+    `ContagionPhenomenon`'s single rare, severe, patient-zero-driven
+    epidemic, a town should also have ordinary sickness running
+    continuously all year, alongside it, not instead of it. Two named
+    ailments for now (the user's own examples, not exhaustive):
+
+    - **Flu is contagious** -- spreads over edges the same way
+      `ContagionPhenomenon` does (same staged-pending-infection discipline,
+      so a case caught this morning can't chain further today), plus a
+      small daily spontaneous chance (`flu_spontaneous_rate`) of catching
+      it from outside the tracked social graph entirely. That spontaneous
+      trickle is what lets flu keep circulating all year without ever
+      needing a `patient_zero` seed or dying out for good.
+    - **Diarrhea is not contagious** -- a plain per-resident daily hazard
+      roll, no edges involved at all (`edge_probability` never fires for
+      it); getting it doesn't depend on who you know.
+
+    Both scale by poverty on *two* independent axes, reusing
+    `SES_VULNERABILITY` the same way other phenomena already do: the odds
+    of getting sick at all, and separately, the odds of dying from it once
+    sick (kept low by default -- these are common, not catastrophic).
+    Recovering grants **temporary** immunity (`flu_immunity_days` /
+    `diarrhea_immunity_days`), not permanent like the big epidemic and not
+    zero either. Zero immunity was tried first and produced a runaway
+    result: on a densely-tied real town (~40-80 edges/resident), a
+    same-day-reinfectable population never runs out of susceptible
+    neighbors the way the big epidemic's *permanent* immunity eventually
+    does, so flu alone produced ~30,000 "cases" in a year (repeat
+    infections of the same few hundred people cycling every few days, not
+    30,000 different people) and several hundred deaths -- nowhere near
+    "common but not catastrophic." A temporary immunity window is what
+    lets someone genuinely get the same ailment again later in the year
+    (unlike the epidemic model) while still giving each local wave room to
+    actually burn out before the same people are reinfected. A resident
+    can independently have the big epidemic, flu, and/or diarrhea at once
+    -- no cross-phenomenon link exists to prevent that, matching how every
+    other phenomenon here stays self-contained.
+
+    Flu is also **seasonal** (user feedback, 2026-09-21): both its
+    transmission rate and its spontaneous rate are multiplied by
+    `flu_winter_multiplier` during Q4 and Q1 (day-of-year <=91 or >=274).
+    Diarrhea has no seasonality -- the user's own framing only asked for
+    it on flu."""
+
+    name = "ailments"
+
+    def __init__(
+        self,
+        flu_transmission_rate: float = 0.0004,
+        flu_spontaneous_rate: float = 0.0003,
+        flu_duration_days: int = 5,
+        flu_immunity_days: int = 90,
+        flu_case_fatality_rate: float = 0.005,
+        flu_winter_multiplier: float = 3.0,
+        diarrhea_spontaneous_rate: float = 0.0015,
+        diarrhea_duration_days: int = 3,
+        diarrhea_immunity_days: int = 30,
+        diarrhea_case_fatality_rate: float = 0.01,
+    ):
+        self.flu_transmission_rate = flu_transmission_rate
+        self.flu_spontaneous_rate = flu_spontaneous_rate
+        self.flu_duration_days = flu_duration_days
+        self.flu_immunity_days = flu_immunity_days
+        self.flu_case_fatality_rate = flu_case_fatality_rate
+        # applied to both the spontaneous rate and the per-edge transmission
+        # rate during Q4+Q1 (day-of-year < 91 or >= 273) -- flu is seasonal,
+        # diarrhea isn't (user feedback, 2026-09-21)
+        self.flu_winter_multiplier = flu_winter_multiplier
+        self.diarrhea_spontaneous_rate = diarrhea_spontaneous_rate
+        self.diarrhea_duration_days = diarrhea_duration_days
+        self.diarrhea_immunity_days = diarrhea_immunity_days
+        self.diarrhea_case_fatality_rate = diarrhea_case_fatality_rate
+        # staged like ContagionPhenomenon's _pending_infections -- a case
+        # transmitted this morning shouldn't be infectious again this
+        # afternoon against a fresh roll of the same day's edges
+        self._pending_flu: List[int] = []
+        self._flu_cases = 0
+        self._flu_deaths = 0
+        self._diarrhea_cases = 0
+        self._diarrhea_deaths = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        return {
+            resident_id: {
+                "ses": node.ses,
+                "flu": {"status": "healthy", "days_left": 0},
+                "diarrhea": {"status": "healthy", "days_left": 0},
+            }
+            for resident_id, node in graph.nodes.items()
+        }
+
+    def _flu_season_factor(self, day: int) -> float:
+        # day-of-year (1-indexed) so multi-year runs re-enter winter every year;
+        # Q1 = day-of-year 1-91, Q4 = 274-365 -- "last quarter and first quarter"
+        day_of_year = ((day - 1) % 365) + 1
+        if day_of_year <= 91 or day_of_year >= 274:
+            return self.flu_winter_multiplier
+        return 1.0
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        # diarrhea never fires through the per-edge path -- only flu is contagious.
+        # "immune" is a third status (see _resolve_ailment) -- transmission needs
+        # exactly one side sick and the other genuinely healthy, not immune
+        if {state_a["flu"]["status"], state_b["flu"]["status"]} != {"sick", "healthy"}:
+            return 0.0
+        return self.flu_transmission_rate * edge.tie_strength * self._flu_season_factor(day)
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        newly_sick, source = (a, b) if state[a]["flu"]["status"] == "healthy" else (b, a)
+        if newly_sick in self._pending_flu:
+            return []  # already caught it earlier today via another edge
+        self._pending_flu.append(newly_sick)
+        return [Event(day, self.name, "flu_transmission", source, newly_sick, "caught the flu")]
+
+    def _resolve_ailment(
+        self,
+        graph,
+        state,
+        day: int,
+        rng: random.Random,
+        ailment: str,
+        just_sickened,
+        case_fatality_rate: float,
+        immunity_days: int,
+    ) -> List[Event]:
+        events: List[Event] = []
+        for resident_id, resident_state in state.items():
+            if not graph.nodes[resident_id].alive:
+                continue  # the dead don't recover -- another phenomenon may have killed them
+            ailment_state = resident_state[ailment]
+
+            if ailment_state["status"] == "immune":
+                ailment_state["days_left"] -= 1
+                if ailment_state["days_left"] <= 0:
+                    ailment_state["status"] = "healthy"  # immunity wore off -- can catch it again
+                continue
+
+            if ailment_state["status"] != "sick" or resident_id in just_sickened:
+                continue  # a case caught today hasn't started losing days yet
+            ailment_state["days_left"] -= 1
+            if ailment_state["days_left"] > 0:
+                continue
+            fatality_p = min(1.0, case_fatality_rate * SES_VULNERABILITY.get(resident_state["ses"], 1.0))
+            if rng.random() < fatality_p:
+                graph.nodes[resident_id].alive = False
+                if ailment == "flu":
+                    self._flu_deaths += 1
+                else:
+                    self._diarrhea_deaths += 1
+                events.append(Event(day, self.name, f"{ailment}_died", resident_id, resident_id, f"died of {ailment}"))
+            else:
+                ailment_state["status"] = "immune"
+                ailment_state["days_left"] = immunity_days
+                events.append(
+                    Event(day, self.name, f"{ailment}_recovered", resident_id, resident_id, f"recovered from {ailment}")
+                )
+        return events
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        events: List[Event] = []
+
+        just_flu: set = set(self._pending_flu)
+        for resident_id in self._pending_flu:
+            state[resident_id]["flu"] = {"status": "sick", "days_left": self.flu_duration_days}
+            self._flu_cases += 1
+        self._pending_flu.clear()
+
+        # flu's small background trickle -- "caught it outside the tracked
+        # social graph" -- is what lets it keep circulating all year without
+        # a patient_zero seed or ever fully dying out
+        for resident_id, resident_state in state.items():
+            if resident_id in just_flu or resident_state["flu"]["status"] != "healthy":
+                continue
+            if not graph.nodes[resident_id].alive:
+                continue
+            p = self.flu_spontaneous_rate * SES_VULNERABILITY.get(resident_state["ses"], 1.0) * self._flu_season_factor(day)
+            if rng.random() < p:
+                resident_state["flu"] = {"status": "sick", "days_left": self.flu_duration_days}
+                self._flu_cases += 1
+                just_flu.add(resident_id)
+                events.append(Event(day, self.name, "flu_spontaneous", resident_id, resident_id, "caught the flu"))
+
+        just_diarrhea: set = set()
+        for resident_id, resident_state in state.items():
+            if resident_state["diarrhea"]["status"] != "healthy":
+                continue
+            if not graph.nodes[resident_id].alive:
+                continue
+            p = self.diarrhea_spontaneous_rate * SES_VULNERABILITY.get(resident_state["ses"], 1.0)
+            if rng.random() < p:
+                resident_state["diarrhea"] = {"status": "sick", "days_left": self.diarrhea_duration_days}
+                self._diarrhea_cases += 1
+                just_diarrhea.add(resident_id)
+                events.append(Event(day, self.name, "diarrhea_onset", resident_id, resident_id, "came down with diarrhea"))
+
+        events.extend(
+            self._resolve_ailment(
+                graph, state, day, rng, "flu", just_flu, self.flu_case_fatality_rate, self.flu_immunity_days
+            )
+        )
+        events.extend(
+            self._resolve_ailment(
+                graph, state, day, rng, "diarrhea", just_diarrhea, self.diarrhea_case_fatality_rate,
+                self.diarrhea_immunity_days,
+            )
+        )
+        return events
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {
+            "flu_sick": sum(1 for s in state.values() if s["flu"]["status"] == "sick"),
+            "flu_cases": self._flu_cases,
+            "flu_deaths": self._flu_deaths,
+            "diarrhea_sick": sum(1 for s in state.values() if s["diarrhea"]["status"] == "sick"),
+            "diarrhea_cases": self._diarrhea_cases,
+            "diarrhea_deaths": self._diarrhea_deaths,
+        }
+
+
 class ViolencePhenomenon:
+    """Assassination refinement (added 2026-09-21, per
+    `Project_Vision/01-network-simulation.md`'s Criminals section): a
+    violent attempt is no longer guaranteed to kill. Success reuses the
+    same `SES_VULNERABILITY` dict two ways at once -- the victim's own
+    value (a poor victim is easier to actually kill, same reasoning
+    `_pick_aggressor` already uses) divided by the attacker's value,
+    inverted (a rich attacker's resources make success easier, a poor
+    attacker's lack of them makes it harder) -- so same-class violence
+    stays close to `success_base_rate` while a poor-attacker-vs-rich-
+    victim attempt succeeds rarely and the reverse succeeds almost
+    always. A failed attempt never kills; the surviving victim's own
+    valence toward the culprit drops sharply instead (`discovery_shock`)
+    -- they now know exactly who came after them. No grief_shock fires
+    on a failure, since nobody died for bystanders to react to."""
+
     name = "violence"
 
-    def __init__(self, base_rate: float = 0.01, grief_shock: float = 0.15):
+    def __init__(
+        self,
+        base_rate: float = 0.01,
+        grief_shock: float = 0.15,
+        success_base_rate: float = 0.85,
+        discovery_shock: float = 0.5,
+    ):
         self.base_rate = base_rate
         self.grief_shock = grief_shock
+        self.success_base_rate = success_base_rate
+        self.discovery_shock = discovery_shock
 
     def init_state(self, graph) -> Dict[int, Any]:
         return {resident_id: {"alive": True} for resident_id in graph.nodes}
@@ -157,6 +401,17 @@ class ViolencePhenomenon:
         edge = graph.get_edge(a, b)
         culprit = self._pick_aggressor(graph, edge, a, b, rng)
         victim = b if culprit == a else a
+
+        victim_vulnerability = SES_VULNERABILITY.get(graph.nodes[victim].ses, 1.0)
+        attacker_vulnerability = SES_VULNERABILITY.get(graph.nodes[culprit].ses, 1.0)
+        success_chance = min(1.0, self.success_base_rate * victim_vulnerability / attacker_vulnerability)
+
+        if rng.random() >= success_chance:
+            edge.set_valence_from(victim, max(-1.0, edge.valence_from(victim) - self.discovery_shock))
+            return [
+                Event(day, self.name, "failed_attempt", culprit, victim,
+                      f"survived -- victim's valence -{self.discovery_shock:.2f}")
+            ]
 
         state[victim]["alive"] = False
         graph.nodes[victim].alive = False
@@ -306,7 +561,7 @@ class RiotPhenomenon:
         riot_base_rate: float = 0.03,
         join_rate: float = 0.5,
         min_participants: int = 3,
-        guard_lethality: float = 0.3,
+        guard_lethality: float = 0.2,
         rioter_lethality: float = 0.6,
         noble_lethality: float = 0.1,
         retreat_threshold: float = 0.3,
@@ -320,8 +575,15 @@ class RiotPhenomenon:
         self.min_participants = min_participants
         self.guard_lethality = guard_lethality
         # armed and trained: rioters die faster fighting guards than guards die
-        # fighting rioters (rioter_lethality > guard_lethality, same size-ratio
-        # formula on both sides -- see _advance_riot)
+        # fighting rioters. Per-day totals scale with sqrt(participants *
+        # guards) on BOTH sides (see _advance_riot), which makes the
+        # guard:rioter casualty *ratio* exactly guard_lethality:rioter_lethality
+        # regardless of mob size -- an earlier linear-ratio version let a
+        # large mob (more common than not, since the mob is drawn from the
+        # whole town but the guard corps is small and fixed) swamp this
+        # 3:1 intent entirely; confirmed empirically (30-seed aggregate: 649
+        # guard deaths vs 539 rioter deaths, guards dying *more*) before
+        # retuning, see docs/decisions.md's 2026-09-21 entry
         self.rioter_lethality = rioter_lethality
         self.noble_lethality = noble_lethality
         # base fraction of the initial guard count that needs to die before they
@@ -449,19 +711,29 @@ class RiotPhenomenon:
             # guards and rioters trade blows simultaneously this day, both
             # using today's starting counts -- not sequential with an early
             # exit, so the mob still takes fire even on the day guards happen
-            # to break. Same size-ratio shape on both sides, but
-            # rioter_lethality > guard_lethality (armed and trained: guards
-            # die less often per capita than the mob does)
+            # to break.
+            #
+            # Per-individual death chance scales with sqrt(opposing side's
+            # headcount / own side's headcount), not the raw ratio: total
+            # expected deaths on each side then reduce to
+            # lethality * sqrt(guards * rioters) -- the same size factor for
+            # both sides -- so the guard:rioter *casualty ratio* comes out to
+            # exactly guard_lethality:rioter_lethality regardless of how the
+            # mob's size compares to the guard corps. A plain linear ratio
+            # (removed 2026-09-21) let mob size dominate instead: since the
+            # mob is drawn from the whole town but the guard corps is small
+            # and fixed, a merely-somewhat-larger-than-usual mob was enough
+            # to make guards die *more* than rioters despite
+            # rioter_lethality > guard_lethality -- confirmed on a 30-seed
+            # aggregate (649 guard deaths vs 539 rioter deaths) before this
+            # fix, see docs/decisions.md.
             still_standing_guards = [g for g in riot["guards_remaining"] if graph.nodes[g].alive]
             riot["guards_remaining"] = still_standing_guards
             living_guard_count = len(still_standing_guards)
             living_participant_count = len(participants)
-            p_death_guard = min(
-                self.death_cap, self.guard_lethality * living_participant_count / max(1, living_guard_count)
-            )
-            p_death_rioter = min(
-                self.death_cap, self.rioter_lethality * living_guard_count / max(1, living_participant_count)
-            )
+            size_factor = math.sqrt(living_participant_count / max(1, living_guard_count))
+            p_death_guard = min(self.death_cap, self.guard_lethality * size_factor)
+            p_death_rioter = min(self.death_cap, self.rioter_lethality / size_factor)
 
             for guard_id in list(still_standing_guards):
                 if rng.random() < p_death_guard:
@@ -600,3 +872,182 @@ class GuardPhenomenon:
 
     def summarize(self, state) -> Dict[str, int]:
         return {"bribes": self._bribes}
+
+
+# ponytail: same placeholder shape as SES_VULNERABILITY -- poverty raises the
+# odds someone turns to thievery; tune if a real wealth-inequality dial lands
+THIEF_SES_FACTOR = {"poor": 2.0, "middling": 1.0, "rich": 0.3}
+
+
+class TheftPhenomenon:
+    """First scoped slice of Criminals: thief occupation + theft only --
+    assassination refinement and group-violence-as-riot-trigger (vision doc's
+    other two Criminals items) are deferred to a later slice, same pattern
+    GuardPhenomenon used for bribery-only.
+
+    Becoming a thief is a sticky per-resident flag rolled once in
+    end_of_day (like Romance's `married` flag) -- poverty raises the daily
+    odds of the roll, but once it lands a resident stays a thief; it is not
+    a status recomputed from circumstances every day, and not a new `Node`
+    field. Nobles never become thieves (vision doc: "Nobles don't steal").
+
+    Theft itself reuses the per-edge Phenomenon shape: it fires on an edge
+    with exactly one thief endpoint, scaled by the thief's own cunning and
+    the victim's wealth (richer victims are more attractive targets --
+    reuses GuardPhenomenon's BRIBE_WEALTH_FACTOR, since both are "how
+    tempting is this person's wealth" the same way). A caught thief's
+    relationship with the victim, and with any guard they know, both take
+    an animosity hit.
+
+    Arrest/deterrence (added 2026-09-21, user feedback: an unbounded thief
+    population -- 27% of a town in one year -- isn't realistic since
+    nothing ever removed the flag). A caught thief can be arrested
+    (clears `is_thief`, so they can go straight or become a thief again
+    later) or, in a low-loyalty (corrupt) town, executed instead (removed
+    from the graph entirely) -- a harsher, more effective deterrent.
+    Every arrest or execution raises a decaying town-wide `_deterrence`
+    level that suppresses the become-a-thief roll.
+
+    First version of this (still 2026-09-21) gated arrest on the thief
+    having an actual guard *neighbor* in the social graph -- with only
+    ~40 guards among 1,911 residents, most caught thieves never had one,
+    so only ~10% of catches ever led to a removal and the population kept
+    climbing steadily for years (94 -> 221 thieves from year 1 to year 3
+    on the reference town, not a plateau at all -- verified with a 3-year
+    run before trusting a 1-year trajectory that merely looked flat).
+    Corrected to a flat town-wide arrest chance, using the town's average
+    guard loyalty (not just a caught thief's own guard neighbors) for the
+    execution-vs-arrest split -- law enforcement catching up with you
+    doesn't require personally knowing a guard. The local guard-neighbor
+    valence hit (guards *you know* getting angrier at you) stays
+    proximity-based, separate from whether you actually get arrested.
+    Patron protection and the full poverty-severity/corruption-dial
+    version of this stay deferred (see the design doc's Economy &
+    poverty section)."""
+
+    name = "theft"
+
+    def __init__(
+        self,
+        become_thief_rate: float = 0.00015,
+        theft_base_rate: float = 0.01,
+        discovery_chance: float = 0.4,
+        caught_animosity: float = 0.3,
+        arrest_chance: float = 0.5,
+        execution_weight: float = 0.5,
+        deterrence_decay: float = 0.985,
+        deterrence_weight: float = 0.25,
+    ):
+        self.become_thief_rate = become_thief_rate
+        self.theft_base_rate = theft_base_rate
+        self.discovery_chance = discovery_chance
+        self.caught_animosity = caught_animosity
+        # town-wide, not scaled by the thief's own guard neighbors -- law
+        # enforcement catching up with a caught thief doesn't require them
+        # to personally know a guard (see class docstring for why this
+        # changed from a per-neighbor chance)
+        self.arrest_chance = arrest_chance
+        # given an arrest happens, a corrupt (low-loyalty) town is more
+        # likely to just kill the thief than book them -- 0.5 is the trait's
+        # own default mean, so an average-loyalty town only executes about
+        # a quarter of its arrests
+        self.execution_weight = execution_weight
+        self.deterrence_decay = deterrence_decay
+        self.deterrence_weight = deterrence_weight
+        self._thefts = 0
+        self._caught = 0
+        self._arrests = 0
+        self._executions = 0
+        # town-wide, decaying "how much deterrence is in the air right now"
+        # -- same reason RiotPhenomenon keeps its own bookkeeping on self
+        # rather than in the per-resident state dict
+        self._deterrence = 0.0
+        # precomputed once at init (guard roles/loyalty are static) -- the
+        # execution-vs-arrest split reads the town's law enforcement as a
+        # whole, not just the individual guards a given thief happens to
+        # know
+        self._avg_guard_loyalty = 0.5
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        guard_loyalties = [node.loyalty for node in graph.nodes.values() if node.role == "guard"]
+        if guard_loyalties:
+            self._avg_guard_loyalty = sum(guard_loyalties) / len(guard_loyalties)
+        return {
+            resident_id: {"role": node.role, "ses": node.ses, "cunning": node.cunning, "is_thief": False}
+            for resident_id, node in graph.nodes.items()
+        }
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        if state_a["is_thief"] == state_b["is_thief"]:
+            return 0.0  # exactly one thief needed on the edge -- neither, or both, doesn't fire
+        thief_state, victim_state = (state_a, state_b) if state_a["is_thief"] else (state_b, state_a)
+        wealth_factor = BRIBE_WEALTH_FACTOR.get(victim_state["ses"], 1.0)
+        return self.theft_base_rate * thief_state["cunning"] * wealth_factor * edge.tie_strength
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        thief_id, victim_id = (a, b) if state[a]["is_thief"] else (b, a)
+        self._thefts += 1
+        events = [Event(day, self.name, "theft", thief_id, victim_id, "stole from")]
+
+        if rng.random() >= self.discovery_chance:
+            return events
+        self._caught += 1
+
+        edge = graph.get_edge(thief_id, victim_id)
+        new_valence = max(-1.0, edge.valence_from(victim_id) - self.caught_animosity)
+        edge.set_valence_from(victim_id, new_valence)
+        events.append(
+            Event(day, self.name, "caught", victim_id, thief_id, f"victim's valence -{self.caught_animosity:.2f}")
+        )
+
+        for guard_id in graph.neighbors(thief_id):
+            if graph.nodes[guard_id].role != "guard":
+                continue
+            guard_edge = graph.get_edge(thief_id, guard_id)
+            new_guard_valence = max(-1.0, guard_edge.valence_from(guard_id) - self.caught_animosity)
+            guard_edge.set_valence_from(guard_id, new_guard_valence)
+            events.append(
+                Event(day, self.name, "guard_notified", guard_id, thief_id,
+                      f"guard's valence -{self.caught_animosity:.2f}")
+            )
+
+        if rng.random() >= self.arrest_chance:
+            return events
+
+        execution_chance = self.execution_weight * (1.0 - self._avg_guard_loyalty)
+
+        self._deterrence += 1.0
+        if rng.random() < execution_chance:
+            graph.nodes[thief_id].alive = False
+            self._executions += 1
+            events.append(Event(day, self.name, "executed", thief_id, thief_id, "killed after being caught stealing"))
+        else:
+            state[thief_id]["is_thief"] = False
+            self._arrests += 1
+            events.append(Event(day, self.name, "arrested", thief_id, thief_id, "arrested and no longer a thief"))
+
+        return events
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        self._deterrence *= self.deterrence_decay
+        events: List[Event] = []
+        for resident_id, resident_state in state.items():
+            if resident_state["is_thief"] or resident_state["role"] == "noble":
+                continue
+            if not graph.nodes[resident_id].alive:
+                continue
+            base_p = self.become_thief_rate * THIEF_SES_FACTOR.get(resident_state["ses"], 1.0)
+            p = base_p / (1.0 + self.deterrence_weight * self._deterrence)
+            if rng.random() < p:
+                resident_state["is_thief"] = True
+                events.append(Event(day, self.name, "became_thief", resident_id, resident_id, "turned to thievery"))
+        return events
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {
+            "thieves": sum(1 for s in state.values() if s["is_thief"]),
+            "thefts": self._thefts,
+            "thefts_caught": self._caught,
+            "thefts_arrested": self._arrests,
+            "thefts_executed": self._executions,
+        }

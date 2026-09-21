@@ -6,7 +6,15 @@ from dataclasses import asdict
 from pathlib import Path
 
 from graph import import_snapshot
-from phenomena import ContagionPhenomenon, GuardPhenomenon, RiotPhenomenon, RomancePhenomenon, ViolencePhenomenon
+from phenomena import (
+    CommonAilmentsPhenomenon,
+    ContagionPhenomenon,
+    GuardPhenomenon,
+    RiotPhenomenon,
+    RomancePhenomenon,
+    TheftPhenomenon,
+    ViolencePhenomenon,
+)
 from engine import run_simulation
 
 
@@ -58,7 +66,9 @@ def main(argv=None) -> None:
     # independent year-long trials produced at least one riot at these values.
     riot = RiotPhenomenon(unrest_threshold=0.15 / aggression_factor, riot_base_rate=0.03 * aggression_factor)
     guards = GuardPhenomenon()
-    phenomena = [contagion, violence, romance, riot, guards]
+    theft = TheftPhenomenon()
+    ailments = CommonAilmentsPhenomenon()
+    phenomena = [contagion, violence, romance, riot, guards, theft, ailments]
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)
@@ -91,8 +101,12 @@ def _print_summary(result) -> None:
     last = result.daily_summaries[-1]
     peak = max(result.daily_summaries, key=lambda row: row.get("infected", 0))
     disease_deaths = last.get("deceased", 0)
-    riot_deaths = last.get("riot_guard_deaths", 0) + last.get("riot_noble_deaths", 0)
-    violence_deaths = last.get("dead", 0) - disease_deaths - riot_deaths
+    riot_deaths = (
+        last.get("riot_guard_deaths", 0) + last.get("riot_noble_deaths", 0) + last.get("riot_rioter_deaths", 0)
+    )
+    executed_deaths = last.get("thefts_executed", 0)
+    ailment_deaths = last.get("flu_deaths", 0) + last.get("diarrhea_deaths", 0)
+    violence_deaths = last.get("dead", 0) - disease_deaths - riot_deaths - executed_deaths - ailment_deaths
 
     print("contagion:")
     print(f"  peak simultaneous infected: {peak.get('infected', 0)} (day {peak['day']})")
@@ -104,12 +118,23 @@ def _print_summary(result) -> None:
     print(f"  married residents: {last.get('married_residents', 0)}  births: {last.get('births', 0)}")
     print("riots:")
     print(f"  riots: {last.get('riots', 0)}  guards killed: {last.get('riot_guard_deaths', 0)}"
+          f"  rioters killed: {last.get('riot_rioter_deaths', 0)}"
           f"  nobles killed: {last.get('riot_noble_deaths', 0)}")
     print("guards:")
     print(f"  bribes: {last.get('bribes', 0)}")
+    print("theft:")
+    print(f"  thieves: {last.get('thieves', 0)}  thefts: {last.get('thefts', 0)}"
+          f"  caught: {last.get('thefts_caught', 0)}  arrested: {last.get('thefts_arrested', 0)}"
+          f"  executed: {executed_deaths}")
+    print("common ailments:")
+    print(f"  flu: {last.get('flu_sick', 0)} currently sick, {last.get('flu_cases', 0)} cases this year,"
+          f" {last.get('flu_deaths', 0)} deaths")
+    print(f"  diarrhea: {last.get('diarrhea_sick', 0)} currently sick, {last.get('diarrhea_cases', 0)} cases this year,"
+          f" {last.get('diarrhea_deaths', 0)} deaths")
     print("population:")
     print(f"  alive: {last.get('alive', 0)}  dead: {last.get('dead', 0)} "
-          f"(violence {violence_deaths} + disease {disease_deaths} + riots {riot_deaths})")
+          f"(violence {violence_deaths} + disease {disease_deaths} + riots {riot_deaths}"
+          f" + executed {executed_deaths} + ailments {ailment_deaths})")
     print(f"Total events logged: {len(result.events)}")
 
 

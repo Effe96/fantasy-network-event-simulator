@@ -122,14 +122,38 @@ def test_higher_loyalty_guards_get_a_higher_retreat_threshold():
     assert abs(loyal_phenomenon._active_riot["guard_retreat_threshold"] - 0.45) < 1e-9
 
 
-def test_guards_die_less_often_than_rioters_at_equal_force_size():
-    # equal counts on both sides -- the lethality constants alone should
-    # decide who's more likely to die each day (armed and trained: guards
-    # take fewer casualties per capita than the mob they're fighting)
-    phenomenon = RiotPhenomenon()
-    p_death_guard = min(phenomenon.death_cap, phenomenon.guard_lethality * 5 / 5)
-    p_death_rioter = min(phenomenon.death_cap, phenomenon.rioter_lethality * 5 / 5)
-    assert p_death_rioter > p_death_guard
+def _aggregate_combat_deaths(num_guards, num_civilians, trials=30):
+    total_guard_deaths = total_rioter_deaths = 0
+    for seed in range(trials):
+        graph = _town(num_hostile_civilians=num_civilians, num_guards=num_guards, num_nobles=0)
+        phenomenon = RiotPhenomenon(unrest_threshold=0.05, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3)
+        _run_days(phenomenon, graph, days=2, seed=seed)  # day 1 starts the riot, day 2 is the first combat round
+        total_guard_deaths += phenomenon._guard_deaths
+        total_rioter_deaths += phenomenon._rioter_deaths
+    return total_guard_deaths, total_rioter_deaths
+
+
+def test_guards_die_less_often_than_rioters_regardless_of_mob_size():
+    # the lethality constants alone should decide who's more likely to die,
+    # not how the mob's size happens to compare to the (small, fixed) guard
+    # corps -- confirmed on a real 30-seed aggregate this was NOT true of an
+    # earlier linear-ratio formula (649 guard deaths vs 539 rioter deaths,
+    # guards dying *more*, since the mob is drawn from the whole town but
+    # the guard corps is small and fixed) -- see docs/decisions.md's
+    # 2026-09-21 entry
+    matched_g, matched_r = _aggregate_combat_deaths(num_guards=10, num_civilians=10)
+    lopsided_g, lopsided_r = _aggregate_combat_deaths(num_guards=10, num_civilians=80)
+
+    assert matched_r > matched_g
+    assert lopsided_r > lopsided_g
+
+    # the guard:rioter casualty *ratio* should be roughly the same in both
+    # scenarios (close to guard_lethality/rioter_lethality) -- it's the
+    # ratio staying stable across very different mob sizes that the old
+    # formula got wrong, not just "rioters die more" in any one scenario
+    matched_ratio = matched_g / matched_r
+    lopsided_ratio = lopsided_g / lopsided_r
+    assert abs(matched_ratio - lopsided_ratio) < 0.15
 
 
 def test_rioters_can_die_fighting_guards():
@@ -239,7 +263,7 @@ def _run_all():
     test_guards_shield_nobles_until_they_retreat()
     test_nobles_are_exposed_once_guards_retreat()
     test_higher_loyalty_guards_get_a_higher_retreat_threshold()
-    test_guards_die_less_often_than_rioters_at_equal_force_size()
+    test_guards_die_less_often_than_rioters_regardless_of_mob_size()
     test_rioters_can_die_fighting_guards()
     test_rioters_rout_before_guards_ever_break()
     test_angrier_mobs_get_a_higher_rout_threshold()

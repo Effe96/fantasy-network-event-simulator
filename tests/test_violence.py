@@ -116,6 +116,48 @@ def test_grief_shock_increases_neighbors_animosity_toward_culprit():
     assert any(event.kind == "grief_shock" and event.resident_a == 3 for event in events)
 
 
+def test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse():
+    trials = 300
+
+    def success_rate(attacker_ses, victim_ses):
+        successes = 0
+        for seed in range(trials):
+            graph = SocialGraph()
+            graph.add_node(Node(resident_id=1, ses=attacker_ses, alive=True))
+            graph.add_node(Node(resident_id=2, ses=victim_ses, alive=True))
+            graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
+            phenomenon = ViolencePhenomenon(success_base_rate=0.85)
+            phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 1  # force resident 1 as culprit
+            state = phenomenon.init_state(graph)
+            phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(seed))
+            successes += not graph.nodes[2].alive
+        return successes / trials
+
+    poor_attacks_rich = success_rate("poor", "rich")
+    rich_attacks_poor = success_rate("rich", "poor")
+    assert poor_attacks_rich < rich_attacks_poor
+
+
+def test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True))
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True))
+    graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5,
+                         valence_a_to_b=-0.9, valence_b_to_a=0.2))
+    # poor attacking rich: success_chance = min(1, 0.0 * ...) = 0 -- guaranteed failure
+    phenomenon = ViolencePhenomenon(success_base_rate=0.0, discovery_shock=0.3)
+    phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 1  # 1 (poor) attacks 2 (rich)
+    state = phenomenon.init_state(graph)
+
+    events = phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
+
+    assert graph.nodes[2].alive is True
+    assert state[2]["alive"] is True
+    edge = graph.get_edge(1, 2)
+    assert abs(edge.valence_from(2) - (-0.1)) < 1e-9  # 0.2 - 0.3 discovery_shock
+    assert any(event.kind == "failed_attempt" for event in events)
+
+
 def test_summarize_counts_alive_and_dead():
     graph = _graph_with_valence(-0.5)
     phenomenon = ViolencePhenomenon()
@@ -132,6 +174,8 @@ def _run_all():
     test_aggressor_is_the_more_hostile_side_when_vulnerability_is_equal()
     test_loyalty_dampens_own_odds_of_being_the_aggressor()
     test_grief_shock_increases_neighbors_animosity_toward_culprit()
+    test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse()
+    test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit()
     test_summarize_counts_alive_and_dead()
     print("OK")
 
