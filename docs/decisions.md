@@ -8,6 +8,33 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — Death record: TownShape's `deaths` shape, kept in memory
+
+**Decision:** `graph.deaths`, one row per death (`resident_id`, `day`,
+`cause`, `killed_by`), written by `graph.record_death`. All 11 kill sites
+in `phenomena.py` now go through it instead of setting `alive = False`
+directly. `demo.py` writes it out as `deaths.csv`.
+
+**Why not TownShape's own table:** TownShape already has a `deaths` table
+with a `cause` column, reported by the temple. But the sim opens the
+reference `.db` read-only, and writing back into it would change the
+reference snapshot on every run, so seed-5 runs would stop being
+comparable. The user picked in-memory + CSV over writing into a copy of
+the `.db`. The row shape mirrors TownShape's table, so writing into a
+copy later is a straight mapping.
+
+**Causes:** `plague` (TownShape's own word for epidemic deaths), `flu`,
+`diarrhea`, `violence` (solo, hired and group; `killed_by` is the culprit
+or the band's ringleader), `riot`, `execution` (thieves, and a coup
+plotter caught before striking), `coup` (the loser of an attempted coup).
+Note that `demo.py`'s printed summary still counts the caught plotter
+under violence, not execution.
+
+**Verified:** the reference run (seed 5) is unchanged, with the same 298
+deaths, and every one now has a cause: 112 plague, 96 violence, 34 riot,
+33 diarrhea, 16 execution, 7 flu. `tests/test_engine.py` checks the
+record matches the dead count.
+
 ## 2026-09-22 — Coup mechanic: governor as a single town-wide fact, not a Node field
 
 **Decision:** `graph.governor_id: Optional[int]`, same shape

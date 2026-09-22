@@ -44,6 +44,12 @@ def test_violence_can_remove_a_resident():
     deaths = [event for event in result.events if event.kind == "violence"]
     assert len(deaths) >= 1
     assert result.daily_summaries[-1]["dead"] >= 1
+    # every death lands in the death record, with a cause and (for violence)
+    # the culprit -- a kill site that skips record_death breaks this count
+    assert len(graph.deaths) == result.daily_summaries[-1]["dead"]
+    assert all(not graph.nodes[d["resident_id"]].alive for d in graph.deaths)
+    violent = [d for d in graph.deaths if d["cause"] == "violence"]
+    assert violent and all(d["killed_by"] is not None for d in violent)
 
 
 def test_daily_summaries_cover_every_day_requested():

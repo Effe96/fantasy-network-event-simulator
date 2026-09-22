@@ -3,7 +3,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -96,6 +96,17 @@ class SocialGraph:
         # first time it needs one, rather than duplicating that selection
         # logic here too.
         self.governor_id: Optional[int] = None
+        # Same shape as TownShape's own `deaths` table (resident, date,
+        # cause), in memory rather than written back: the reference .db is
+        # opened read-only so reruns on one seed stay comparable. Every
+        # phenomenon that kills goes through record_death, so "who died of
+        # what" is one lookup for anything that needs it (e.g. blaming a
+        # priest for an illness death).
+        self.deaths: List[Dict[str, Any]] = []
+
+    def record_death(self, resident_id: int, day: int, cause: str, killed_by: Optional[int] = None) -> None:
+        self.nodes[resident_id].alive = False
+        self.deaths.append({"resident_id": resident_id, "day": day, "cause": cause, "killed_by": killed_by})
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.resident_id] = node

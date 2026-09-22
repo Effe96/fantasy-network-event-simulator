@@ -84,7 +84,15 @@ def main(argv=None) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_summary_csv(out_dir / "summary.csv", result.daily_summaries)
     _write_events_json(out_dir / "events.json", result.events)
+    _write_deaths_csv(out_dir / "deaths.csv", graph.deaths)
     _print_summary(result)
+
+
+def _write_deaths_csv(path: Path, deaths) -> None:
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["resident_id", "day", "cause", "killed_by"])
+        writer.writeheader()
+        writer.writerows(deaths)
 
 
 def _write_summary_csv(path: Path, daily_summaries) -> None:

@@ -112,10 +112,9 @@ landed. Scope recap:
   edge. Verified on a real run: 67 devotions / 7 frictions / 4
   corruptions, no runaway. `docs/decisions.md`'s 2026-09-22 entry.
 - Priests as disease-curers: a bad outbreak raises animosity toward them
-  (blame). Needs a way to read Contagion's death toll — check whether
-  that's readable from the engine's daily summaries/state, or whether it
-  needs the same kind of cross-phenomenon link Guards' patron-protection
-  was blocked on.
+  (blame). **Unblocked 2026-09-23:** `graph.deaths` now records every
+  death with its cause (`plague`/`flu`/`diarrhea` for sickness), readable
+  from any phenomenon. Guards' patron-protection can read the same record.
 - Quarantine authority (see Quarantine, below — cross-cutting with
   Nobles).
 

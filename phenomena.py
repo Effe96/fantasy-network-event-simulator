@@ -97,7 +97,7 @@ class ContagionPhenomenon:
                 fatality_p = min(1.0, self.case_fatality_rate * SES_VULNERABILITY.get(graph.nodes[resident_id].ses, 1.0))
                 if rng.random() < fatality_p:
                     resident_state["status"] = "deceased"
-                    graph.nodes[resident_id].alive = False
+                    graph.record_death(resident_id, day, "plague")
                     events.append(Event(day, self.name, "died", resident_id, resident_id, "died from infection"))
                 else:
                     resident_state["status"] = "recovered"
@@ -261,7 +261,7 @@ class CommonAilmentsPhenomenon:
                 continue
             fatality_p = min(1.0, case_fatality_rate * SES_VULNERABILITY.get(resident_state["ses"], 1.0))
             if rng.random() < fatality_p:
-                graph.nodes[resident_id].alive = False
+                graph.record_death(resident_id, day, ailment)
                 if ailment == "flu":
                     self._flu_deaths += 1
                 else:
@@ -566,7 +566,7 @@ class ViolencePhenomenon:
             ]
 
         state[victim]["alive"] = False
-        graph.nodes[victim].alive = False
+        graph.record_death(victim, day, "violence", killed_by=culprit)
         if hired:
             self._hired_assassinations += 1
 
@@ -656,7 +656,7 @@ class ViolencePhenomenon:
 
         if coup["suspicion"] > 0 and rng.random() < self.coup_detection_rate * coup["suspicion"]:
             self._active_coup = None
-            graph.nodes[plotter_id].alive = False
+            graph.record_death(plotter_id, day, "execution")
             self._coups_attempted += 1
             events.append(Event(day, self.name, "coup_discovered", plotter_id, graph.governor_id,
                                  "plot uncovered before it could strike"))
@@ -674,13 +674,13 @@ class ViolencePhenomenon:
         self._active_coup = None
         self._coups_attempted += 1
         if rng.random() < success_chance:
-            graph.nodes[governor_id].alive = False
+            graph.record_death(governor_id, day, "coup", killed_by=plotter_id)
             graph.governor_id = plotter_id
             self._coups_succeeded += 1
             events.append(Event(day, self.name, "coup_succeeds", plotter_id, governor_id,
                                  f"seized power with {len(living_mercenaries)} mercenaries"))
         else:
-            graph.nodes[plotter_id].alive = False
+            graph.record_death(plotter_id, day, "coup", killed_by=governor_id)
             events.append(Event(day, self.name, "coup_fails", plotter_id, governor_id,
                                  f"attempt with {len(living_mercenaries)} mercenaries repelled"))
         return events
@@ -837,7 +837,7 @@ class ViolencePhenomenon:
             ]
 
         state[victim]["alive"] = False
-        graph.nodes[victim].alive = False
+        graph.record_death(victim, day, "violence", killed_by=ringleader)
         self._group_kills += 1
         events = [Event(day, self.name, "group_violence", ringleader, victim, f"killed by a {len(band)}-strong band")]
 
@@ -1179,7 +1179,7 @@ class RiotPhenomenon:
 
             for guard_id in list(still_standing_guards):
                 if rng.random() < p_death_guard:
-                    graph.nodes[guard_id].alive = False
+                    graph.record_death(guard_id, day, "riot")
                     riot["guard_deaths"] += 1
                     self._guard_deaths += 1
                     riot["guards_remaining"].remove(guard_id)
@@ -1187,7 +1187,7 @@ class RiotPhenomenon:
 
             for rioter_id in list(participants):
                 if rng.random() < p_death_rioter:
-                    graph.nodes[rioter_id].alive = False
+                    graph.record_death(rioter_id, day, "riot")
                     riot["rioter_deaths"] += 1
                     self._rioter_deaths += 1
                     events.append(Event(day, self.name, "rioter_killed", rioter_id, rioter_id, "killed in the riot"))
@@ -1227,7 +1227,7 @@ class RiotPhenomenon:
                         self.noble_lethality * len(participants) / len(nobles) * relative_hatred,
                     )
                     if rng.random() < p_death_noble:
-                        graph.nodes[noble_id].alive = False
+                        graph.record_death(noble_id, day, "riot")
                         self._noble_deaths += 1
                         riot["riot_bar"] -= 1
                         events.append(Event(day, self.name, "noble_killed", noble_id, noble_id, "killed in the riot"))
@@ -1460,7 +1460,7 @@ class TheftPhenomenon:
 
         self._deterrence += 1.0
         if rng.random() < execution_chance:
-            graph.nodes[thief_id].alive = False
+            graph.record_death(thief_id, day, "execution")
             self._executions += 1
             events.append(Event(day, self.name, "executed", thief_id, thief_id, "killed after being caught stealing"))
         else:
