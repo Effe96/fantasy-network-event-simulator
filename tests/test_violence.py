@@ -163,7 +163,79 @@ def test_summarize_counts_alive_and_dead():
     phenomenon = ViolencePhenomenon()
     state = phenomenon.init_state(graph)
     state[1]["alive"] = False
-    assert phenomenon.summarize(state) == {"alive": 1, "dead": 1, "group_kills": 0}
+    assert phenomenon.summarize(state) == {
+        "alive": 1, "dead": 1, "group_kills": 0, "hired_assassinations": 0,
+    }
+
+
+def test_noble_culprit_hires_an_assassin_with_reduced_grief_shock():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True))  # noble culprit
+    graph.nodes[1].is_noble = True
+    graph.add_node(Node(resident_id=2, ses="poor", alive=True))  # victim
+    graph.add_node(Node(resident_id=3, ses="middling", alive=True))  # victim's neighbor
+    graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
+    graph.add_edge(Edge(1, 3, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, 0.1, 0.1))
+    graph.add_edge(Edge(2, 3, "sibling", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))
+
+    phenomenon = ViolencePhenomenon(
+        base_rate=1.0, success_base_rate=1.0, grief_shock=0.15, noble_hired_assassin_shock_factor=0.5,
+    )
+    phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 1  # force the noble as culprit
+    state = phenomenon.init_state(graph)
+
+    edge_2_3_tie_strength = graph.get_edge(2, 3).tie_strength
+    events = phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
+
+    assert graph.nodes[2].alive is False
+    assert phenomenon._hired_assassinations == 1
+    assert any(event.kind == "hired_assassination" for event in events)
+    edge_1_3 = graph.get_edge(1, 3)
+    full_shock = 0.15 * edge_2_3_tie_strength
+    assert abs(edge_1_3.valence_from(3) - (0.1 - full_shock * 0.5)) < 1e-9  # halved, not zeroed
+
+
+def test_non_noble_culprit_gets_full_grief_shock_not_the_hired_discount():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True))  # ordinary culprit, not a noble
+    graph.add_node(Node(resident_id=2, ses="poor", alive=True))
+    graph.add_node(Node(resident_id=3, ses="middling", alive=True))
+    graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
+    graph.add_edge(Edge(1, 3, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, 0.1, 0.1))
+    graph.add_edge(Edge(2, 3, "sibling", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))
+
+    phenomenon = ViolencePhenomenon(base_rate=1.0, success_base_rate=1.0, grief_shock=0.15)
+    phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 1
+    state = phenomenon.init_state(graph)
+
+    edge_2_3_tie_strength = graph.get_edge(2, 3).tie_strength
+    events = phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
+
+    assert phenomenon._hired_assassinations == 0
+    assert any(event.kind == "violence" for event in events)
+    edge_1_3 = graph.get_edge(1, 3)
+    full_shock = 0.15 * edge_2_3_tie_strength
+    assert abs(edge_1_3.valence_from(3) - (0.1 - full_shock)) < 1e-9  # full grief_shock, no discount
+
+
+def test_noble_culprit_failed_attempt_gets_reduced_discovery_shock():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True))
+    graph.nodes[1].is_noble = True
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True))
+    graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5,
+                         valence_a_to_b=-0.9, valence_b_to_a=0.2))
+    # poor attacking rich: success_chance = 0 -- guaranteed failure
+    phenomenon = ViolencePhenomenon(success_base_rate=0.0, discovery_shock=0.3, noble_hired_assassin_shock_factor=0.5)
+    phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 1
+    state = phenomenon.init_state(graph)
+
+    events = phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
+
+    assert graph.nodes[2].alive is True
+    edge = graph.get_edge(1, 2)
+    assert abs(edge.valence_from(2) - (0.2 - 0.15)) < 1e-9  # 0.3 discovery_shock halved to 0.15
+    assert any(event.kind == "hired_assassin_failed" for event in events)
 
 
 def _group_town(num_haters, victim_id=100, victim_ses="poor", hater_ses="poor", hate=-0.9, affinity=0.6):
@@ -312,6 +384,9 @@ def _run_all():
     test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse()
     test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit()
     test_summarize_counts_alive_and_dead()
+    test_noble_culprit_hires_an_assassin_with_reduced_grief_shock()
+    test_non_noble_culprit_gets_full_grief_shock_not_the_hired_discount()
+    test_noble_culprit_failed_attempt_gets_reduced_discovery_shock()
     test_haters_with_no_tie_to_each_other_do_not_band_together()
     test_haters_who_dislike_each_other_do_not_band_together()
     test_mutually_tied_haters_band_together_and_can_kill()

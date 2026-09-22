@@ -8,6 +8,41 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Nobles hire assassins: same success math, insulated consequences
+
+**Decision:** when `ViolencePhenomenon._pick_aggressor` picks a noble as
+the solo-violence culprit, the attack's success chance is computed
+exactly the same way as any other attacker's (a noble's wealth already
+buys a skilled hand via the existing `SES_VULNERABILITY` ratio — nothing
+new needed there). What changes is the *consequence*: a new
+`noble_hired_assassin_shock_factor` (default 0.5) scales down both
+`grief_shock` (neighbors' reaction to a successful kill) and
+`discovery_shock` (the victim's own reaction to a failed attempt) — a
+hired hand distances the noble from a witnessed act, but doesn't erase
+suspicion entirely (halved, not zeroed).
+
+**Why not model an actual assassin resident/edge:** the project-wide
+rule (design doc §6.3, reaffirmed for Romance) is that no phenomenon
+invents a graph edge or relationship that wasn't already there. A noble
+"hiring" an assassin would need an edge to someone who may not exist in
+their network at all — scoping this to a consequence-side discount, not
+a new relationship, keeps that rule intact and needed no new
+infrastructure.
+
+**Why halved, not zeroed:** zeroing would make nobles fully consequence-
+free killers, which reads as broken rather than "insulated" — some word
+still gets around even through a hired hand. 0.5 is a first-guess
+midpoint, not derived from any real-world number; revisit if noble
+violence starts looking too consequence-free (or not different enough
+from personal violence) in practice.
+
+**Verified:** full test suite green (`tests/test_violence.py` — three
+new tests: successful hired kill halves grief_shock, a non-noble
+culprit is unaffected, a failed hired attempt halves discovery_shock).
+Real run on the reference town (seed 5): 4 hired assassinations in a
+year, out of 111 total violence deaths — a real but modest share, not a
+runaway.
+
 ## 2026-09-22 — Seed 5 is not a riot-heavy outlier; the full engine runs riot-hot for every seed, and the true driver is group violence, not Nobles
 
 **Supersedes the previous entry's "seed 5 is landing in an unusually

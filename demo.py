@@ -122,7 +122,8 @@ def _print_summary(result) -> None:
     print(f"  final susceptible/infected/recovered/deceased: "
           f"{last.get('susceptible', 0)}/{last.get('infected', 0)}/{last.get('recovered', 0)}/{disease_deaths}")
     print("violence:")
-    print(f"  deaths: {violence_deaths}  (of which group violence: {last.get('group_kills', 0)})")
+    print(f"  deaths: {violence_deaths}  (of which group violence: {last.get('group_kills', 0)},"
+          f" hired assassinations: {last.get('hired_assassinations', 0)})")
     print("romance:")
     print(f"  married residents: {last.get('married_residents', 0)}  births: {last.get('births', 0)}")
     print("riots:")

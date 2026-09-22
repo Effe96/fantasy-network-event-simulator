@@ -6,11 +6,12 @@
 > feature backlog — still the source of truth for *scope* on each item
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
-> plan changes. Last updated 2026-09-22 (Priests: religious devotion +
+> plan changes. Last updated 2026-09-22 (Nobles hire assassins landed —
+> second of Nobles' items done, two remain: mercenary hiring and the
+> coup mechanic, both still open. Priests: religious devotion +
 > skepticism, then corruption, both landed — one item remains,
 > disease-curer blame. Also landed: family-correlated religiousness/
-> skepticism (user request), and Nobles' starting resentment skew — the
-> first of two Nobles items.).
+> skepticism (user request), and Nobles' starting resentment skew.).
 
 ## Resume checklist
 
@@ -146,8 +147,17 @@ landed. Scope recap:
   cap — lowers an attacker's (or a riot's?) success chance against them.
   Consider whether this should feed into `RiotPhenomenon`'s
   `noble_lethality`/hatred-based targeting as a per-noble modifier.
-- Nobles hire assassins rather than committing manslaughter themselves —
-  ties into Criminals' assassination mechanic above.
+- ~~**Nobles hire assassins rather than committing manslaughter
+  themselves**~~ **Done (2026-09-22).** `ViolencePhenomenon.apply_effect`:
+  when `_pick_aggressor` picks a noble as culprit, the success-chance
+  formula is untouched (their wealth already buys a skilled assassin via
+  the existing SES-vulnerability math), but `noble_hired_assassin_shock_factor`
+  (0.5) halves both `grief_shock` (neighbors' reaction if it succeeds) and
+  `discovery_shock` (the victim's reaction if it fails) — a hired hand
+  insulates the noble from the personal fallout a witnessed act would
+  carry, without zeroing it. New `hired_assassinations` counter in
+  `summarize`/`demo.py`. Verified on the reference town (seed 5): 4 hired
+  assassinations in a year, out of 111 total violence deaths.
 - Coup mechanic: rising taxes → noble animosity toward the governor →
   mercenaries hired to move against them. **Needs a governor concept**,
   which doesn't exist yet — decide whether that's a real new `Node`

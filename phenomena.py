@@ -366,7 +366,17 @@ class ViolencePhenomenon:
     flagged as "not yet built" in the design doc, reusing the riot state
     machine directly rather than inventing a second one. Only the single
     largest qualifying band acts per day, to keep this rare and avoid a
-    victim being processed twice."""
+    victim being processed twice.
+
+    Nobles hire assassins (added 2026-09-22, Nobles' second slice): a noble
+    picked as the solo-violence aggressor doesn't swing the blade personally
+    -- same success-chance formula (their wealth already buys a skilled
+    assassin, nothing new to model there), but a hired hand insulates the
+    noble from the personal fallout a witnessed act would carry, so
+    `noble_hired_assassin_shock_factor` scales down both `grief_shock`
+    (neighbors) and `discovery_shock` (a surviving victim) rather than
+    zeroing them -- word still gets around, just less directly than if the
+    noble had been seen doing it themselves."""
 
     name = "violence"
 
@@ -381,12 +391,15 @@ class ViolencePhenomenon:
         group_affinity_threshold: float = 0.3,
         min_group_size: int = 2,
         group_action_rate: float = 0.1,
+        noble_hired_assassin_shock_factor: float = 0.5,
     ):
         self.base_rate = base_rate
         self.grief_shock = grief_shock
         self.success_base_rate = success_base_rate
         self.discovery_shock = discovery_shock
         self.riot_phenomenon = riot_phenomenon
+        self.noble_hired_assassin_shock_factor = noble_hired_assassin_shock_factor
+        self._hired_assassinations = 0
         self.group_hate_threshold = group_hate_threshold
         self.group_affinity_threshold = group_affinity_threshold
         self.min_group_size = min_group_size
@@ -441,22 +454,29 @@ class ViolencePhenomenon:
         edge = graph.get_edge(a, b)
         culprit = self._pick_aggressor(graph, edge, a, b, rng)
         victim = b if culprit == a else a
+        hired = graph.nodes[culprit].is_noble
+        shock_factor = self.noble_hired_assassin_shock_factor if hired else 1.0
 
         victim_vulnerability = SES_VULNERABILITY.get(graph.nodes[victim].ses, 1.0)
         attacker_vulnerability = SES_VULNERABILITY.get(graph.nodes[culprit].ses, 1.0)
         success_chance = min(1.0, self.success_base_rate * victim_vulnerability / attacker_vulnerability)
 
         if rng.random() >= success_chance:
-            edge.set_valence_from(victim, max(-1.0, edge.valence_from(victim) - self.discovery_shock))
+            shock = self.discovery_shock * shock_factor
+            edge.set_valence_from(victim, max(-1.0, edge.valence_from(victim) - shock))
+            kind = "hired_assassin_failed" if hired else "failed_attempt"
             return [
-                Event(day, self.name, "failed_attempt", culprit, victim,
-                      f"survived -- victim's valence -{self.discovery_shock:.2f}")
+                Event(day, self.name, kind, culprit, victim,
+                      f"survived -- victim's valence -{shock:.2f}")
             ]
 
         state[victim]["alive"] = False
         graph.nodes[victim].alive = False
+        if hired:
+            self._hired_assassinations += 1
 
-        events = [Event(day, self.name, "violence", culprit, victim, "escalated conflict")]
+        kind = "hired_assassination" if hired else "violence"
+        events = [Event(day, self.name, kind, culprit, victim, "escalated conflict")]
 
         for neighbor_id in graph.neighbors(victim):
             if neighbor_id == culprit:
@@ -465,7 +485,7 @@ class ViolencePhenomenon:
             if edge_to_culprit is None:
                 continue
             edge_to_victim = graph.get_edge(neighbor_id, victim)
-            shock = self.grief_shock * edge_to_victim.tie_strength
+            shock = self.grief_shock * edge_to_victim.tie_strength * shock_factor
             new_valence = max(-1.0, edge_to_culprit.valence_from(neighbor_id) - shock)
             edge_to_culprit.set_valence_from(neighbor_id, new_valence)
             events.append(Event(day, self.name, "grief_shock", neighbor_id, culprit, f"valence -{shock:.3f}"))
@@ -587,7 +607,12 @@ class ViolencePhenomenon:
 
     def summarize(self, state) -> Dict[str, int]:
         alive = sum(1 for resident_state in state.values() if resident_state["alive"])
-        return {"alive": alive, "dead": len(state) - alive, "group_kills": self._group_kills}
+        return {
+            "alive": alive,
+            "dead": len(state) - alive,
+            "group_kills": self._group_kills,
+            "hired_assassinations": self._hired_assassinations,
+        }
 
 
 ADULT_MIN_AGE = 18  # matches TownShape's own town_relationships/family.py adulthood threshold
