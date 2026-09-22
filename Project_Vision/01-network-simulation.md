@@ -43,6 +43,14 @@
   and only ever mutated in the direction that actually changed (see
   `grief_shock` below). `tie_strength` averages the two valences'
   magnitudes with `time`/`intimacy`/`services`.
+  **Noble/poor skew (2026-09-22, Nobles' first slice):** where one
+  endpoint is a noble and the other a poor resident, `_apply_noble_poor_
+  skew` shifts the poor party's own outgoing valence further negative by
+  a fixed amount on top of the plain synthesis draw (additive, not a
+  hard override) — real, verified resentment "from the start," not the
+  neutral synthesis every other role pairing still gets. Tax-driven
+  further growth is deferred (needs Taxes). Full writeup:
+  `docs/decisions.md`'s 2026-09-22 entry.
 - **Import** (`import_snapshot`) is read-only against a TownShape `.db`
   and fully deterministic per `(db_path, seed)`: loads living residents,
   loads `relationships` rows as edges with attributes synthesized from
@@ -793,15 +801,14 @@ People:
 
 ### Nobles
 
-- Noble/poor animosity starts already skewed toward resentment on the
-  poor side, and rises further with riots and general unrest (e.g. from
-  high taxes) — disproportionately from the poor side. High enough
-  animosity has the same riot risk as with guards. **Riot risk itself
-  implemented** (see "Riots" above, including the guards-shield-nobles-
-  until-they-break mechanic); the *skewed starting animosity* and *rises
-  with taxes* parts are still proposed, not implemented — noble/civilian
-  edges get the same neutral-mean valence synthesis as everyone else
-  today.
+- ~~**Noble/poor animosity starts already skewed toward resentment on
+  the poor side**~~ **Implemented 2026-09-22** — see the Social graph
+  section's Edge entry, above, and `docs/decisions.md`'s 2026-09-22
+  entry. **Rises further with riots and general unrest (e.g. from high
+  taxes)** is still proposed, not implemented — needs Taxes, which
+  doesn't exist yet. High enough animosity has the same riot risk as
+  with guards — **riot risk itself implemented** (see "Riots" above,
+  including the guards-shield-nobles-until-they-break mechanic).
 - Nobles may call a quarantine if the outbreak starts near wealthy areas
   or once wealthy residents start dying; a governor, if one exists,
   absorbs most of the resulting public anger for that call.

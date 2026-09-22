@@ -8,6 +8,35 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Nobles' first slice: poor residents start out resenting nobles, not neutral
+
+**Decision:** `graph.py` gained `_apply_noble_poor_skew`, called from both
+`_load_relationships` and `_load_shopkeeper_customer` right before each
+edge is inserted (covers every edge-source path, not just one). Scoped
+to exactly the first half of the vision doc's Nobles bullet — "noble/poor
+animosity skewed toward resentment on the poor side from the start" —
+the tax-driven *growth* half is deliberately deferred, since it needs
+Taxes, which doesn't exist yet. Where one edge endpoint is a noble and
+the other is a poor (not middling/rich) resident, the poor party's own
+outgoing valence gets a fixed extra negative shift
+(`NOBLE_POOR_RESENTMENT_SHIFT = 0.25`) layered on top of whatever the
+plain per-edge synthesis already drew — additive, not a hard override,
+so real variance survives. Only the poor person's own feelings move; a
+noble's own view of a poor person they know is untouched, same
+one-directional shape the family-trait correlation above and every
+phenomenon's favor/wrongdoing events already use.
+
+**Verified on the real reference town:** 5,101 noble-poor edges exist
+(a real chunk of the ~75k-edge graph); average poor→noble hostility is
+now +0.24 (positive = resentment) and 77.9% of these edges are net
+hostile from the poor side, vs. the roughly-50/50 split a neutral
+baseline draw would produce. Riots (which read civilian-to-authority
+hostility, and nobles are part of `AUTHORITY_ROLES`) rose from the
+6-15/year range seen in recent runs to 10 this run — a real,
+expected consequence (the vision doc itself predicts "more frequent
+riots" once this lands), not a runaway; still nowhere near the
+345-riot bug group violence's first version produced.
+
 ## 2026-09-22 — Family members are more likely to share faith/skepticism (not assured)
 
 **Decision:** `graph.py`'s trait synthesis gained a family-correlation

@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from graph import import_snapshot
+from graph import NOBLE_POOR_RESENTMENT_SHIFT, Edge, Node, SocialGraph, _apply_noble_poor_skew, import_snapshot
 from tests.fixtures import make_test_db
 
 
@@ -187,6 +187,70 @@ def test_family_grouping_does_not_extend_to_spouses():
     assert avg_spouse_gap > 0.15
 
 
+def test_apply_noble_poor_skew_lowers_only_the_poor_persons_own_valence():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True))
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True, is_noble=True))
+    edge = Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, valence_a_to_b=0.1, valence_b_to_a=0.1)
+    _apply_noble_poor_skew(graph, edge)
+    assert abs(edge.valence_from(1) - (0.1 - NOBLE_POOR_RESENTMENT_SHIFT)) < 1e-9
+    assert edge.valence_from(2) == 0.1  # the noble's own feelings are untouched
+
+
+def test_apply_noble_poor_skew_does_nothing_between_two_nobles():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="rich", alive=True, is_noble=True))
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True, is_noble=True))
+    edge = Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, 0.1, 0.1)
+    _apply_noble_poor_skew(graph, edge)
+    assert edge.valence_from(1) == 0.1
+    assert edge.valence_from(2) == 0.1
+
+
+def test_apply_noble_poor_skew_does_nothing_for_non_poor_civilians():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="middling", alive=True))
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True, is_noble=True))
+    edge = Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, 0.1, 0.1)
+    _apply_noble_poor_skew(graph, edge)
+    assert edge.valence_from(1) == 0.1
+
+
+def test_apply_noble_poor_skew_is_clamped_at_negative_one():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True))
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True, is_noble=True))
+    edge = Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, valence_a_to_b=-0.9, valence_b_to_a=0.0)
+    _apply_noble_poor_skew(graph, edge)
+    assert edge.valence_from(1) == -1.0
+
+
+def test_import_poor_residents_are_more_resentful_toward_nobles_than_toward_peers():
+    # statistical: same poor resident, one edge to a noble and one to an
+    # ordinary middling neighbor -- only the noble edge should carry the
+    # extra resentment shift, on average across seeds
+    noble_valences = []
+    peer_valences = []
+    for seed in range(40):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = str(Path(tmp) / "town.db")
+            make_test_db(
+                db_path,
+                residents=[
+                    (1, "poor", None),
+                    (2, "rich", None, None, None, None, None, 1),  # noble
+                    (3, "middling", None),
+                ],
+                relationships=[(1, 2, "neighbor"), (1, 3, "neighbor")],
+            )
+            graph = import_snapshot(db_path, seed=seed)
+            noble_valences.append(graph.get_edge(1, 2).valence_from(1))
+            peer_valences.append(graph.get_edge(1, 3).valence_from(1))
+    avg_noble = sum(noble_valences) / len(noble_valences)
+    avg_peer = sum(peer_valences) / len(peer_valences)
+    assert avg_noble < avg_peer
+
+
 def _run_all():
     test_import_loads_all_residents()
     test_import_loads_relationship_edges_with_correct_types()
@@ -200,6 +264,11 @@ def _run_all():
     test_occupation_and_is_noble_are_imported()
     test_siblings_have_more_similar_religiousness_than_unrelated_residents()
     test_family_grouping_does_not_extend_to_spouses()
+    test_apply_noble_poor_skew_lowers_only_the_poor_persons_own_valence()
+    test_apply_noble_poor_skew_does_nothing_between_two_nobles()
+    test_apply_noble_poor_skew_does_nothing_for_non_poor_civilians()
+    test_apply_noble_poor_skew_is_clamped_at_negative_one()
+    test_import_poor_residents_are_more_resentful_toward_nobles_than_toward_peers()
     print("OK")
 
 

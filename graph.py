@@ -202,6 +202,33 @@ def synthesize_relationship_attributes(relationship_type: str, rng: random.Rando
     }
 
 
+# ponytail: single tunable knob for the vision doc's own "resentment on
+# the poor side" language -- a fixed extra negative shift layered on top
+# of whatever the plain per-edge synthesis already drew, so real variance
+# is preserved (the skew is additive, not a hard override). Tax-driven
+# further growth (raising this as unrest/taxes rise) is deferred -- needs
+# Taxes, which doesn't exist yet.
+NOBLE_POOR_RESENTMENT_SHIFT = 0.25
+
+
+def _apply_noble_poor_skew(graph: "SocialGraph", edge: Edge) -> None:
+    """Nobles and poor residents don't get the same neutral synthesis as
+    everyone else (vision doc: "noble/poor animosity skewed toward
+    resentment on the poor side from the start"). Only the poor party's own
+    outgoing valence shifts further negative; a noble's own feelings toward
+    a poor person they know are untouched -- same one-directional shape
+    the family-trait correlation and every phenomenon's own favor/wrongdoing
+    events already use."""
+    node_a, node_b = graph.nodes[edge.resident_a], graph.nodes[edge.resident_b]
+    if node_a.is_noble and not node_b.is_noble and node_b.ses == "poor":
+        poor_id = node_b.resident_id
+    elif node_b.is_noble and not node_a.is_noble and node_a.ses == "poor":
+        poor_id = node_a.resident_id
+    else:
+        return
+    edge.set_valence_from(poor_id, _clamp_signed(edge.valence_from(poor_id) - NOBLE_POOR_RESENTMENT_SHIFT))
+
+
 def _age_from_birth_date(birth_date: Optional[str], reference_year: Optional[int]) -> Optional[int]:
     if birth_date is None or reference_year is None:
         return None
@@ -253,15 +280,15 @@ def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: rando
         if resident_a_id not in graph.nodes or resident_b_id not in graph.nodes:
             continue
         attrs = synthesize_relationship_attributes(relationship_type, rng)
-        graph.add_edge(
-            Edge(
-                resident_a=resident_a_id,
-                resident_b=resident_b_id,
-                source_type=relationship_type,
-                fiske_type=FISKE_TAGS[relationship_type],
-                **attrs,
-            )
+        edge = Edge(
+            resident_a=resident_a_id,
+            resident_b=resident_b_id,
+            source_type=relationship_type,
+            fiske_type=FISKE_TAGS[relationship_type],
+            **attrs,
         )
+        _apply_noble_poor_skew(graph, edge)
+        graph.add_edge(edge)
 
 
 def _load_town_state(conn: sqlite3.Connection, graph: SocialGraph) -> Optional[int]:
@@ -310,19 +337,19 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
         # drawn independently: the customer's opinion of the staff member need not match the reverse
         valence_a_to_b = _clamp_signed(rng.gauss(valence_mean, 0.30))
         valence_b_to_a = _clamp_signed(rng.gauss(valence_mean, 0.30))
-        graph.add_edge(
-            Edge(
-                resident_a=customer_id,
-                resident_b=staff_id,
-                source_type="shopkeeper_customer",
-                fiske_type=FISKE_TAGS["shopkeeper_customer"],
-                time=time,
-                intimacy=intimacy,
-                services=services,
-                valence_a_to_b=valence_a_to_b,
-                valence_b_to_a=valence_b_to_a,
-            )
+        edge = Edge(
+            resident_a=customer_id,
+            resident_b=staff_id,
+            source_type="shopkeeper_customer",
+            fiske_type=FISKE_TAGS["shopkeeper_customer"],
+            time=time,
+            intimacy=intimacy,
+            services=services,
+            valence_a_to_b=valence_a_to_b,
+            valence_b_to_a=valence_b_to_a,
         )
+        _apply_noble_poor_skew(graph, edge)
+        graph.add_edge(edge)
 
 
 def import_snapshot(db_path: str, seed: int) -> SocialGraph:

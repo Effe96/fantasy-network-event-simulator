@@ -7,8 +7,10 @@
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
 > plan changes. Last updated 2026-09-22 (Priests: religious devotion +
-> skepticism, then corruption, both landed. One Priests item remains:
-> disease-curer blame.).
+> skepticism, then corruption, both landed — one item remains,
+> disease-curer blame. Also landed: family-correlated religiousness/
+> skepticism (user request), and Nobles' starting resentment skew — the
+> first of two Nobles items.).
 
 ## Resume checklist
 
@@ -117,14 +119,20 @@ landed. Scope recap:
 - Quarantine authority (see Quarantine, below — cross-cutting with
   Nobles).
 
-## After that: Nobles
+## Nobles — in progress (started 2026-09-22)
 
-- Noble/poor animosity skewed toward resentment on the poor side from the
-  start, rising further with riots/unrest (especially from high taxes).
-  Note: Riots' *risk* mechanic is already implemented and noble-aware
-  (§12 of the design doc); this item is specifically about the *starting
-  skew* and *tax-driven growth*, which aren't built yet — noble/civilian
-  edges currently get the same neutral synthesis as everyone else.
+- ~~**Noble/poor animosity skewed toward resentment on the poor side from
+  the start**~~ **Done (2026-09-22).** `graph.py`'s `_apply_noble_poor_skew`,
+  called from both edge-loading paths (`_load_relationships` and
+  `_load_shopkeeper_customer`): where one edge endpoint is a noble and
+  the other a poor resident, the poor party's own outgoing valence gets
+  a fixed extra negative shift (0.25) on top of the plain synthesis draw
+  — additive, real variance survives. Verified on the reference town:
+  5,101 noble-poor edges, 77.9% now net hostile from the poor side (vs.
+  a neutral ~50/50 baseline); riots rose to 10/year, a real and expected
+  consequence, not a runaway. **Tax-driven growth is still deferred** —
+  needs Taxes, which doesn't exist yet (see Taxes, below). `docs/decisions.md`'s
+  2026-09-22 entry.
 - Mercenary hiring, scaling with animosity directed at a noble, with a
   cap — lowers an attacker's (or a riot's?) success chance against them.
   Consider whether this should feed into `RiotPhenomenon`'s
