@@ -7,10 +7,9 @@
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
 > plan changes. Last updated 2026-09-23 (Coup mechanic landed: all
-> four Nobles items are done. Its 5-year freeze after day 153 was checked
-> and is genuine equilibrium, see `docs/decisions.md`. One Priests item
-> remains, disease-curer blame. Next up per the build order: Quarantine,
-> then Taxes, then town-wide dials.).
+> four Nobles items are done. Death record (`graph.deaths`) added, which
+> unblocked Priests' disease-curer blame, now also done. Next up per the
+> build order: Quarantine, then Taxes, then town-wide dials.).
 
 ## Resume checklist
 
@@ -111,10 +110,9 @@ landed. Scope recap:
   devotion/friction rather than a second independent check on the same
   edge. Verified on a real run: 67 devotions / 7 frictions / 4
   corruptions, no runaway. `docs/decisions.md`'s 2026-09-22 entry.
-- Priests as disease-curers: a bad outbreak raises animosity toward them
-  (blame). **Unblocked 2026-09-23:** `graph.deaths` now records every
-  death with its cause (`plague`/`flu`/`diarrhea` for sickness), readable
-  from any phenomenon. Guards' patron-protection can read the same record.
+- ~~Priests as disease-curers: a bad outbreak raises animosity toward
+  them (blame).~~ **Done 2026-09-23**, reading `graph.deaths`. Guards'
+  patron-protection can read the same record.
 - Quarantine authority (see Quarantine, below — cross-cutting with
   Nobles).
 

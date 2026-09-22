@@ -160,6 +160,47 @@ def test_summarize_counts_heretics_among_civilians_only():
     assert phenomenon.summarize(state)["heretics"] == 1
 
 
+def _mourner_graph():
+    # civilian 1 knows priest 2 and loses resident 3 (a spouse-strength tie)
+    graph = _civilian_priest_graph()
+    graph.add_node(Node(resident_id=3, ses="middling", alive=True))
+    graph.add_edge(Edge(1, 3, "spouse", "Communal Sharing", 0.8, 0.8, 0.8, 0.5, 0.5))
+    return graph
+
+
+def test_sickness_death_during_an_outbreak_makes_mourners_blame_priests():
+    graph = _mourner_graph()
+    phenomenon = ReligionPhenomenon(blame_outbreak_threshold=1, blame_shock=0.1)
+    state = phenomenon.init_state(graph)
+    graph.record_death(3, day=5, cause="plague")
+    events = phenomenon.end_of_day(graph, state, day=5, rng=random.Random(0))
+    expected = -0.1 * graph.get_edge(1, 3).tie_strength
+    assert abs(graph.get_edge(1, 2).valence_from(1) - expected) < 1e-9
+    assert graph.get_edge(1, 2).valence_from(2) == 0.0  # the priest's own feelings don't move
+    assert [e.kind for e in events] == ["blame"]
+    # the same death is never blamed twice
+    phenomenon.end_of_day(graph, state, day=6, rng=random.Random(0))
+    assert abs(graph.get_edge(1, 2).valence_from(1) - expected) < 1e-9
+
+
+def test_no_blame_below_the_outbreak_threshold():
+    graph = _mourner_graph()
+    phenomenon = ReligionPhenomenon(blame_outbreak_threshold=2)
+    state = phenomenon.init_state(graph)
+    graph.record_death(3, day=5, cause="flu")
+    assert phenomenon.end_of_day(graph, state, day=5, rng=random.Random(0)) == []
+    assert graph.get_edge(1, 2).valence_from(1) == 0.0
+
+
+def test_non_sickness_deaths_are_not_blamed_on_priests():
+    graph = _mourner_graph()
+    phenomenon = ReligionPhenomenon(blame_outbreak_threshold=1)
+    state = phenomenon.init_state(graph)
+    graph.record_death(3, day=5, cause="violence", killed_by=1)
+    assert phenomenon.end_of_day(graph, state, day=5, rng=random.Random(0)) == []
+    assert graph.get_edge(1, 2).valence_from(1) == 0.0
+
+
 def _run_all():
     test_only_fires_between_a_civilian_and_a_priest()
     test_more_religious_civilians_show_devotion_more_readily()
@@ -173,6 +214,9 @@ def _run_all():
     test_apply_effect_corruption_raises_only_the_priests_own_affinity()
     test_corruption_affinity_is_clamped_at_one()
     test_summarize_counts_heretics_among_civilians_only()
+    test_sickness_death_during_an_outbreak_makes_mourners_blame_priests()
+    test_no_blame_below_the_outbreak_threshold()
+    test_non_sickness_deaths_are_not_blamed_on_priests()
     print("OK")
 
 

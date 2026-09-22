@@ -1258,6 +1258,8 @@ class RiotPhenomenon:
 # wealth aggregate yet (see the "Wealth inequality" candidate town parameter);
 # swap for that once it exists
 BRIBE_WEALTH_FACTOR = {"poor": 0.5, "middling": 1.0, "rich": 2.0}
+# graph.deaths causes that count as "disease" for priests' curer blame
+SICKNESS_CAUSES = {"plague", "flu", "diarrhea"}
 
 
 class GuardPhenomenon:
@@ -1496,11 +1498,8 @@ class TheftPhenomenon:
 
 
 class ReligionPhenomenon:
-    """Priests: religious devotion + skepticism, plus corruption. Priests as
-    disease-curers (needs a way to read Contagion's death toll -- the same
-    kind of cross-phenomenon link Guards' patron protection was blocked on,
-    though group violence's riot_phenomonon reference is now a precedent for
-    how to wire one) is still deferred to a later slice.
+    """Priests: religious devotion + skepticism, corruption, and blame as the
+    town's disease-curers.
 
     Fires per edge, only between a civilian and a priest. Most civilians'
     own affinity toward priests they know grows slowly over time, scaled by
@@ -1527,7 +1526,20 @@ class ReligionPhenomenon:
     returns their sum, and apply_effect draws which one actually fired,
     weighted by their relative odds -- same pattern ViolencePhenomenon's
     _pick_aggressor uses to resolve which of two outcomes wins a shared
-    roll."""
+    roll.
+
+    Disease-curer blame (added 2026-09-23) reads graph.deaths, the shared
+    death record, rather than wiring a reference to Contagion/Ailments:
+    during an outbreak -- at least blame_outbreak_threshold sickness deaths
+    in the last blame_window_days -- every living civilian who had a tie to
+    someone who just died of sickness lowers their own valence toward each
+    priest they know, by blame_shock * tie_strength to the deceased (losing
+    a spouse stings more than losing a neighbor). Same grief-shaped,
+    one-directional move as violence's grief_shock. The threshold sits far
+    above routine illness: on the reference town flu+diarrhea never exceed
+    7 deaths in any 30-day window, while the epidemic kills 112 in a week.
+    Deaths from before the outbreak crossed the threshold aren't blamed
+    retroactively."""
 
     name = "religion"
 
@@ -1540,6 +1552,13 @@ class ReligionPhenomenon:
         friction_animosity_loss: float = 0.1,
         corruption_base_rate: float = 0.005,
         corruption_affinity_gain: float = 0.15,
+        blame_window_days: int = 30,
+        blame_outbreak_threshold: int = 10,
+        # 0.1 was tried first: on the reference town it pushed 87
+        # civilian-priest pairs past group_hate_threshold (from 4) and bands
+        # of 15 mourners rioted against 3 of the 4 priests. 0.05 leaves no
+        # priest-targeted mobs; riots/group kills unchanged over 5 seeds.
+        blame_shock: float = 0.05,
     ):
         self.devotion_base_rate = devotion_base_rate
         self.devotion_affinity_gain = devotion_affinity_gain
@@ -1552,6 +1571,11 @@ class ReligionPhenomenon:
         self._frictions = 0
         self._corruptions = 0
         self._heretics = 0
+        self.blame_window_days = blame_window_days
+        self.blame_outbreak_threshold = blame_outbreak_threshold
+        self.blame_shock = blame_shock
+        self._deaths_seen = 0  # index into graph.deaths already processed
+        self._blames = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         state = {}
@@ -1628,7 +1652,39 @@ class ReligionPhenomenon:
         ]
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
-        return []
+        new_deaths = graph.deaths[self._deaths_seen:]
+        self._deaths_seen = len(graph.deaths)
+        new_sickness = [d for d in new_deaths if d["cause"] in SICKNESS_CAUSES]
+        if not new_sickness:
+            return []
+        recent = sum(
+            1 for d in graph.deaths
+            if d["cause"] in SICKNESS_CAUSES and d["day"] > day - self.blame_window_days
+        )
+        if recent < self.blame_outbreak_threshold:
+            return []
+
+        # ponytail: graph.neighbors scans every edge, fine for one outbreak's
+        # deaths; index adjacency on the graph if blame ever runs daily at scale
+        blame_by_civilian: Dict[int, float] = {}
+        for death in new_sickness:
+            deceased = death["resident_id"]
+            for mourner in graph.neighbors(deceased):
+                if graph.nodes[mourner].alive and state[mourner]["role"] == "civilian":
+                    shock = self.blame_shock * graph.get_edge(mourner, deceased).tie_strength
+                    blame_by_civilian[mourner] = blame_by_civilian.get(mourner, 0.0) + shock
+
+        events = []
+        for civilian_id, shock in blame_by_civilian.items():
+            for priest_id in graph.neighbors(civilian_id):
+                if not graph.nodes[priest_id].alive or state[priest_id]["role"] != "priest":
+                    continue
+                edge = graph.get_edge(civilian_id, priest_id)
+                edge.set_valence_from(civilian_id, max(-1.0, edge.valence_from(civilian_id) - shock))
+                self._blames += 1
+                events.append(Event(day, self.name, "blame", civilian_id, priest_id,
+                                    f"lost ties to sickness -- civilian's affinity -{shock:.2f}"))
+        return events
 
     def summarize(self, state) -> Dict[str, int]:
         return {
@@ -1636,4 +1692,5 @@ class ReligionPhenomenon:
             "frictions": self._frictions,
             "corruptions": self._corruptions,
             "heretics": self._heretics,
+            "blames": self._blames,
         }

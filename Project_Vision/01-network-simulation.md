@@ -437,8 +437,12 @@
   civilian falls into is decided once in `init_state`, not re-rolled
   daily, same "sticky, not recomputed" shape `TheftPhenomenon`'s
   `is_thief` flag uses.
-- Priests as disease-curers is still deliberately deferred — see
-  "Priests," below, for what's left and why. Verified on a real run
+- **Disease-curer blame: implemented 2026-09-23** — during an outbreak
+  (10+ sickness deaths in 30 days, far above routine flu/diarrhea), a
+  civilian who loses a tie to sickness lowers their own valence toward
+  every priest they know, weighted by how close the lost tie was. Reads
+  `graph.deaths`. See `docs/decisions.md`'s 2026-09-23 entry.
+- Devotion/friction verified on a real run
   before calling the devotion/friction slice done: 98 devotions / 11
   frictions in a year, a modest but real trickle across the reference
   town's small priesthood (only 4 priests, 313 civilian-priest edges
@@ -792,8 +796,10 @@ People:
   **Implemented 2026-09-22** — see "Priests: religious devotion +
   skepticism" under Current State, above, and `docs/decisions.md`'s
   2026-09-22 corruption entry.
-- Priests are the town's disease-curers; when a disease kills many
-  people, priests are blamed and animosity toward them rises.
+- ~~**Priests are the town's disease-curers; when a disease kills many
+  people, priests are blamed and animosity toward them rises.**~~
+  **Implemented 2026-09-23** — see `docs/decisions.md`'s 2026-09-23
+  blame entry.
 - In a less religious town, priests may resort to bribing guards
   themselves.
 - Priests (alongside nobles) can declare a quarantine for a sufficiently

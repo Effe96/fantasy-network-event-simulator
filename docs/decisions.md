@@ -8,6 +8,45 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — Priests blamed for outbreaks, by the people who lost someone
+
+**Decision:** `ReligionPhenomenon.end_of_day` reads new `graph.deaths`
+rows. When sickness deaths (`plague`/`flu`/`diarrhea`) in the last
+`blame_window_days` (30) reach `blame_outbreak_threshold` (10), each new
+sickness death makes every living civilian tied to the deceased lower
+their own valence toward every priest they know, by `blame_shock *
+tie_strength` to the deceased. Only the civilian's side moves, same shape
+as violence's grief_shock.
+
+**Why this threshold:** checked on the reference year (seed 5). Flu and
+diarrhea together never exceed 7 deaths in any 30-day window; the
+epidemic kills 112 within a week. At 10, routine illness never triggers
+blame and an outbreak always does.
+
+**Why mourners, not the whole town:** the vision doc says priests are
+"blamed" when disease "kills many". Blame from people who actually lost
+someone is grounded in the graph and reuses the grief idea violence
+already has. Of the 166 civilians who know a priest, 157 lost at least
+one tie in the reference outbreak, so the reach is wide anyway.
+
+**`blame_shock` 0.1 → 0.05, caught before shipping:** my static estimate
+(median 4 losses × ~0.35 tie strength × 0.1 ≈ 0.14 per civilian) was
+wrong. Civilians who know a priest are well connected, and the real
+median drop per civilian-priest pair was **0.59**. On the reference year
+that took pairs past `group_hate_threshold` from 4 to 87, and 15-person
+bands of mourners went after 3 of the town's 4 priests, spilling into
+riots (riot deaths 34 → 125). At 0.05 no mob formed against a priest.
+A 5-seed comparison, blame off vs 0.05, with import and RNG varied
+together as `--seed` does: riots 7.4 vs 6.8/year, group kills 20.0 vs
+21.0, riot deaths 45.8 vs 64.4. The riot-death gap came from two seeds'
+large ordinary riots, none aimed at a priest, and riots only count
+hostility toward guards and nobles (`AUTHORITY_ROLES`), so blame can't
+feed them. That gap is noise.
+
+**Not modeled:** priests actually curing anyone. Nothing in the sim
+treats patients yet, so blame falls on every priest a mourner knows.
+Quarantine (next) is the natural place for priests to act on disease.
+
 ## 2026-09-23 — Death record: TownShape's `deaths` shape, kept in memory
 
 **Decision:** `graph.deaths`, one row per death (`resident_id`, `day`,
