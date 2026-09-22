@@ -8,6 +8,90 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Coup mechanic: governor as a single town-wide fact, not a Node field
+
+**Decision:** `graph.governor_id: Optional[int]`, same shape
+`town_aggression` already uses, not a new `Node.is_governor` boolean.
+Picked lazily (and re-picked on succession) by
+`ViolencePhenomenon._ensure_governor` — the highest-degree living
+noble — the first time the coup mechanic needs one, rather than adding
+import-time selection logic in `graph.py` too.
+
+**Why a single field, not a Node flag:** there's exactly one governor
+at a time; a boolean nearly every one of ~1,911 residents would carry
+as `False` is the wrong shape for "one town-wide fact," same reasoning
+`town_aggression` already established.
+
+**Why "most powerful noble" (highest degree), not a new random draw:**
+checked TownShape's own data first (same discipline as `is_ex_soldier`)
+— no governor/mayor/ruler concept exists anywhere in `town_state` or
+the wider source, so this is synthetic regardless. Highest-degree noble
+was `docs/plans.md`'s own suggested convention, and checking it against
+the reference town justified it further: 36 of the other 39 nobles
+already share a *direct* edge with that pick, so "most connected" also
+happens to maximize how many nobles can actually reach them to plot —
+this project never invents an edge, so a governor nobody has a real tie
+to would make the whole mechanic nearly unreachable.
+
+**Why lazy selection instead of import-time:** the same "pick the
+highest-degree living noble" logic has to run again anyway for
+succession (a governor dying from *any* cause, not just a coup, needs a
+replacement) — doing it once, called at the top of `_check_coup` every
+day, avoids writing that selection twice. A town with zero nobles
+simply never gets a governor (`None`), and running scripts that never
+touch `ViolencePhenomenon`'s coup mechanic at all never pay for it,
+since nothing computes `governor_id` unless something asks.
+
+**Coup resolution, decided without a specified formula:** the vision
+doc gives the ingredients (animosity → hire mercenaries → suspicion
+grows) but not what happens once suspicion is high or mercenaries are
+ready. Modeled as two independent risks racing each other, both
+probabilistic (never a hard wall in either direction):
+- **Detection risk grows continuously with suspicion**
+  (`coup_detection_rate * suspicion`, checked every day once
+  `suspicion > 0`) rather than a fixed threshold — a fully-mercenary'd
+  plot still always has *some* chance of going undetected, matching how
+  every other roll in this project works (nothing here is ever
+  deterministic once a threshold is crossed).
+- **The attempt itself reuses `apply_effect`'s own defense math**:
+  `coup_success_base_rate * (1 + mercenaries)`, then multiplied by
+  `mercenary_protection_factor ** governor's_own_living_mercenaries` —
+  the exact formula mercenary protection already uses against ordinary
+  assassination attempts, now paying off against a coup too, rather
+  than inventing a second defense formula.
+- **Failure, either way, costs the plotter their life** (armed
+  insurrection against the town's ruler isn't a survivable mistake);
+  **success kills the old governor and hands the title to the
+  plotter** — reusing the existing `alive=False` death mechanic rather
+  than inventing an "removed from power but alive" status.
+
+**Deferred:** "rising taxes raise noble animosity toward the governor"
+— Taxes doesn't exist yet, same deferral `_apply_noble_poor_skew`
+already made for tax-driven growth. The coup mechanic is built entirely
+on whatever noble-to-governor animosity the graph already carries or
+accumulates dynamically (e.g. grief_shock touching that specific edge).
+
+**Verified:** 10 new tests (governor selection, succession, no-governor
+edge case, threshold gating, mercenary hiring/suspicion, plotter death
+mid-plot, detection, success against an unprotected governor, defense
+reducing success chance). Full suite green.
+
+**5-year saturation is genuine equilibrium, not a stall (checked
+2026-09-23):** a 5-year reference run (seed 5) ends with the same
+totals as the 1-year run (36 protection mercenaries, 1 failed coup,
+3 coup mercenaries, all by day 153). An instrumented replay of the
+same run showed why. 44 nobles/priests at import, 18 alive at day
+1825, and **all 18 survivors are below `mercenary_min_enemies`**: 0
+are capped out, and 0 still want a mercenary but can't reach one. The
+residents hated enough to hire protection were the same ones who died
+(violence, riots). Their mercenaries do return to the pool: dead
+employers free them, per `_mercenary_candidates`' alive check. So
+demand dried up; candidates never ran out. Coups follow the same
+pattern: the only noble past `coup_animosity_threshold` died in the
+failed attempt, and no one else has crossed it since. Same shape as
+Romance's "low rate is correct, not underfiring." New demand would
+need rising animosity, which is Taxes' job (deferred, see above).
+
 ## 2026-09-22 — Mercenary hiring can reach a friend of a friend, not just a direct tie
 
 **Decision:** `_mercenary_candidates` tries a noble/priest's direct

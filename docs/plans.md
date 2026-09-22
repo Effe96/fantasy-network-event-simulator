@@ -6,12 +6,11 @@
 > feature backlog — still the source of truth for *scope* on each item
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
-> plan changes. Last updated 2026-09-22 (Mercenary protection landed —
-> third of Nobles' items done, one remains: the coup mechanic, blocked
-> on a governor concept. Also landed the same day: Nobles hire assassins,
-> Priests' devotion/skepticism/corruption (one Priests item remains,
-> disease-curer blame), family-correlated religiousness/skepticism, and
-> Nobles' starting resentment skew.).
+> plan changes. Last updated 2026-09-23 (Coup mechanic landed: all
+> four Nobles items are done. Its 5-year freeze after day 153 was checked
+> and is genuine equilibrium, see `docs/decisions.md`. One Priests item
+> remains, disease-curer blame. Next up per the build order: Quarantine,
+> then Taxes, then town-wide dials.).
 
 ## Resume checklist
 
@@ -177,11 +176,28 @@ landed. Scope recap:
   carry, without zeroing it. New `hired_assassinations` counter in
   `summarize`/`demo.py`. Verified on the reference town (seed 5): 4 hired
   assassinations in a year, out of 111 total violence deaths.
-- Coup mechanic: rising taxes → noble animosity toward the governor →
-  mercenaries hired to move against them. **Needs a governor concept**,
-  which doesn't exist yet — decide whether that's a real new `Node`
-  attribute/role, or a derived "most powerful noble" convention, before
-  building the coup logic on top of it.
+- ~~**Coup mechanic: rising taxes → noble animosity toward the governor →
+  mercenaries hired to move against them.**~~ **Done 2026-09-23.**
+  `graph.governor_id` (new, `graph.py`) — no real TownShape data models a
+  governor, so it's a single town-wide fact (like `town_aggression`), not
+  a `Node` field: the "most powerful noble" convention, lazily
+  picked/re-picked (succession included) by `ViolencePhenomenon._ensure_governor`
+  as the highest-degree living noble the first time it's needed, rather
+  than duplicating selection logic at import time too. 36 of 39 other
+  nobles already share a direct edge with that pick on the reference
+  town. `_check_coup`/`_advance_coup`: one noble at a time
+  (`_active_coup`, same "one active event" shape `RiotPhenomenon` uses)
+  can plot against the governor once animosity over an *existing* edge
+  crosses `coup_animosity_threshold`; hires coup mercenaries from the
+  same pool/rules `_mercenary_candidates` already provides, each hire
+  raising `suspicion`, which is *also* each day's chance of being
+  discovered outright before the plot is ready. Reaching
+  `coup_mercenary_cap` triggers the attempt, reusing the exact same
+  `mercenary_protection_factor` defense formula against the governor's
+  own hired protection. **Rising taxes as the animosity driver is
+  deferred** — Taxes doesn't exist yet, same deferral Nobles' resentment
+  skew already made. 10 new tests, full suite green. `docs/decisions.md`'s
+  2026-09-22 entry.
 - Bribing priests to improve reputation with poor residents, scaled by
   each individual's own `religiousness`.
 

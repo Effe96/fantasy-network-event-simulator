@@ -87,6 +87,15 @@ class SocialGraph:
         # at import; a "guardrail" multiplier for phenomena to apply, not a
         # phenomenon itself.
         self.town_aggression: float = 0.0
+        # No real TownShape data for this (checked town_state's own columns
+        # and the wider source -- no governor/mayor/ruler concept exists to
+        # import). A single town-wide fact, same shape as town_aggression,
+        # rather than a Node field almost everyone would carry as False.
+        # Left unset at import; ViolencePhenomenon's coup mechanic picks (and
+        # re-picks, on succession) the town's most powerful living noble the
+        # first time it needs one, rather than duplicating that selection
+        # logic here too.
+        self.governor_id: Optional[int] = None
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.resident_id] = node

@@ -165,6 +165,7 @@ def test_summarize_counts_alive_and_dead():
     state[1]["alive"] = False
     assert phenomenon.summarize(state) == {
         "alive": 1, "dead": 1, "group_kills": 0, "hired_assassinations": 0, "mercenaries_hired": 0,
+        "coups_attempted": 0, "coups_succeeded": 0, "coup_mercenaries_hired": 0,
     }
 
 
@@ -327,6 +328,167 @@ def test_no_hire_when_the_only_ex_soldier_is_more_than_two_hops_away():
     events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
     assert events == []
     assert state[100]["mercenaries"] == []
+
+
+def _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids=(), governor_mercenary_ids=()):
+    """A governor (id 200) and a plotter noble (id 100) whose own valence
+    toward the governor is `animosity`, over a real existing edge (this
+    project never invents one to trigger a coup against a stranger).
+    `graph.governor_id` is set directly -- governor *selection* itself is
+    covered separately, this isolates the coup mechanic from it."""
+    graph = SocialGraph()
+    graph.governor_id = 200
+    graph.add_node(Node(resident_id=200, ses="rich", alive=True, is_noble=True))
+    graph.add_node(Node(resident_id=100, ses="rich", alive=True, is_noble=True))
+    graph.add_edge(Edge(100, 200, "coworker", "Authority Ranking", 0.5, 0.5, 0.5,
+                         valence_a_to_b=animosity, valence_b_to_a=0.0))
+    for ex_id in plotter_ex_soldier_ids:
+        graph.add_node(Node(resident_id=ex_id, ses="poor", alive=True, is_ex_soldier=True))
+        graph.add_edge(Edge(100, ex_id, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, 0.5, 0.5))
+    for gm_id in governor_mercenary_ids:
+        graph.add_node(Node(resident_id=gm_id, ses="poor", alive=True, is_ex_soldier=True))
+        graph.add_edge(Edge(200, gm_id, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, 0.5, 0.5))
+    return graph
+
+
+def test_governor_is_the_highest_degree_living_noble():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="rich", alive=True, is_noble=True))
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True, is_noble=True))
+    for i in range(10, 13):  # 3 extra neighbors, only for noble 2
+        graph.add_node(Node(resident_id=i, ses="poor", alive=True))
+        graph.add_edge(Edge(2, i, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, 0.0, 0.0))
+    phenomenon = ViolencePhenomenon()
+    phenomenon._ensure_governor(graph, random.Random(0))
+    assert graph.governor_id == 2
+
+
+def test_governor_succession_when_the_governor_dies():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="rich", alive=True, is_noble=True))
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True, is_noble=True))
+    phenomenon = ViolencePhenomenon()
+    phenomenon._ensure_governor(graph, random.Random(0))
+    old_governor = graph.governor_id
+    graph.nodes[old_governor].alive = False
+    phenomenon._ensure_governor(graph, random.Random(0))
+    assert graph.governor_id != old_governor
+    assert graph.nodes[graph.governor_id].alive is True
+
+
+def test_no_governor_when_no_nobles_exist():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="poor", alive=True))
+    phenomenon = ViolencePhenomenon()
+    phenomenon._ensure_governor(graph, random.Random(0))
+    assert graph.governor_id is None
+
+
+def test_coup_does_not_begin_below_animosity_threshold():
+    graph = _governor_and_plotter(animosity=-0.3)  # below the default 0.5
+    phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert phenomenon._active_coup is None
+
+
+def test_coup_begins_once_animosity_crosses_threshold_and_the_roll_hits():
+    graph = _governor_and_plotter(animosity=-0.9)
+    phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert phenomenon._active_coup is not None
+    assert phenomenon._active_coup["plotter"] == 100
+    assert any(event.kind == "coup_begins" for event in events)
+
+
+def test_coup_hires_mercenaries_and_raises_suspicion():
+    graph = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10})
+    phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0,
+                                     coup_hire_rate=1.0, coup_detection_rate=0.0)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))  # begins
+    phenomenon.end_of_day(graph, state, day=2, rng=random.Random(0))  # hires
+    assert phenomenon._active_coup["mercenaries"] == [10]
+    assert phenomenon._active_coup["suspicion"] > 0
+    assert state[10]["hired_by"] == 100
+
+
+def test_coup_abandoned_if_the_plotter_dies_mid_plot():
+    graph = _governor_and_plotter(animosity=-0.9)
+    phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    graph.nodes[100].alive = False
+    events = phenomenon.end_of_day(graph, state, day=2, rng=random.Random(0))
+    assert phenomenon._active_coup is None
+    assert any(event.kind == "coup_abandoned" for event in events)
+
+
+def test_high_suspicion_can_get_the_plot_discovered_before_it_strikes():
+    graph = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10})
+    phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0,
+                                     coup_hire_rate=1.0, coup_detection_rate=1.0,
+                                     coup_suspicion_per_mercenary=0.5, coup_mercenary_cap=5)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))  # begins
+    events = phenomenon.end_of_day(graph, state, day=2, rng=random.Random(0))  # hires, then caught
+    assert phenomenon._active_coup is None
+    assert graph.nodes[100].alive is False  # the plotter, not the governor
+    assert graph.nodes[200].alive is True
+    assert any(event.kind == "coup_discovered" for event in events)
+    assert phenomenon._coups_attempted == 1
+
+
+def test_coup_succeeds_against_an_unprotected_governor():
+    graph = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12})
+    phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0,
+                                     coup_hire_rate=1.0, coup_detection_rate=0.0,
+                                     coup_mercenary_cap=3, coup_success_base_rate=1.0)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))  # begins
+    for day in range(2, 6):
+        events = phenomenon.end_of_day(graph, state, day=day, rng=random.Random(day))
+        if phenomenon._active_coup is None:
+            break
+    assert graph.nodes[200].alive is False  # the old governor
+    assert graph.governor_id == 100  # the plotter seized power
+    assert phenomenon._coups_succeeded == 1
+    assert any(event.kind == "coup_succeeds" for event in events)
+
+
+def test_governor_protection_mercenaries_reduce_coup_success_chance():
+    # unprotected: guaranteed success (base_rate*4 capped at 1.0, no defense)
+    graph_unprotected = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12})
+    phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0,
+                                     coup_hire_rate=1.0, coup_detection_rate=0.0,
+                                     coup_mercenary_cap=3, coup_success_base_rate=0.25,
+                                     mercenary_protection_factor=0.1)
+    state = phenomenon.init_state(graph_unprotected)
+    phenomenon.end_of_day(graph_unprotected, state, day=1, rng=random.Random(0))
+    for day in range(2, 6):
+        phenomenon.end_of_day(graph_unprotected, state, day=day, rng=random.Random(day))
+        if phenomenon._active_coup is None:
+            break
+    assert graph_unprotected.nodes[200].alive is False
+
+    # heavily protected governor: same setup, but with 3 living protection
+    # mercenaries already in place -- success_chance *= 0.1**3, must survive
+    graph_protected = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12},
+                                             governor_mercenary_ids={20, 21, 22})
+    phenomenon2 = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0,
+                                      coup_hire_rate=1.0, coup_detection_rate=0.0,
+                                      coup_mercenary_cap=3, coup_success_base_rate=0.25,
+                                      mercenary_protection_factor=0.1)
+    state2 = phenomenon2.init_state(graph_protected)
+    state2[200]["mercenaries"] = [20, 21, 22]
+    phenomenon2.end_of_day(graph_protected, state2, day=1, rng=random.Random(0))
+    for day in range(2, 6):
+        phenomenon2.end_of_day(graph_protected, state2, day=day, rng=random.Random(day))
+        if phenomenon2._active_coup is None:
+            break
+    assert graph_protected.nodes[200].alive is True
+    assert graph_protected.nodes[100].alive is False  # the plotter was repelled and killed
 
 
 def test_hiring_is_capped():
@@ -563,6 +725,16 @@ def _run_all():
     test_hired_mercenary_marks_ex_soldier_as_unavailable_to_others()
     test_ex_soldier_becomes_available_again_once_employer_dies()
     test_living_mercenaries_reduce_an_attackers_success_chance()
+    test_governor_is_the_highest_degree_living_noble()
+    test_governor_succession_when_the_governor_dies()
+    test_no_governor_when_no_nobles_exist()
+    test_coup_does_not_begin_below_animosity_threshold()
+    test_coup_begins_once_animosity_crosses_threshold_and_the_roll_hits()
+    test_coup_hires_mercenaries_and_raises_suspicion()
+    test_coup_abandoned_if_the_plotter_dies_mid_plot()
+    test_high_suspicion_can_get_the_plot_discovered_before_it_strikes()
+    test_coup_succeeds_against_an_unprotected_governor()
+    test_governor_protection_mercenaries_reduce_coup_success_chance()
     test_haters_with_no_tie_to_each_other_do_not_band_together()
     test_haters_who_dislike_each_other_do_not_band_together()
     test_mutually_tied_haters_band_together_and_can_kill()

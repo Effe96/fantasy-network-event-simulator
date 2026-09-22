@@ -397,7 +397,48 @@ class ViolencePhenomenon:
     candidate within two hops, no hire. `apply_effect` then multiplies an attacker's
     success chance by `mercenary_protection_factor` once per *living*
     mercenary the victim currently employs (dead ones stop counting, and
-    free up that slot for a later hire, without any explicit cleanup)."""
+    free up that slot for a later hire, without any explicit cleanup).
+
+    Coup mechanic (added 2026-09-22, Nobles' last slice, per vision doc:
+    "Rising taxes raise noble animosity toward the governor; past a
+    threshold, nobles may hire mercenaries to move against the governor
+    and seize power themselves. The governing body's suspicion of an
+    in-progress coup grows with the number of mercenaries hired."). Taxes
+    doesn't exist yet, so the "rising taxes" driver is deferred -- built
+    on whatever noble-to-governor animosity the graph already carries or
+    accumulates dynamically, same deferral `_apply_noble_poor_skew` already
+    made for tax-driven growth. `graph.governor_id` (see `graph.py`) is
+    lazily picked/re-picked by `_ensure_governor` -- the highest-degree
+    living noble, since no real TownShape data models a governor at all;
+    36 of 39 other nobles already share a direct edge with that pick on
+    the reference town, so the "most connected" convention also happens to
+    maximize who can actually plot against them.
+
+    `_check_coup`, run once a day: only one coup is ever in progress at a
+    time (`_active_coup`, same "one active event" shape `RiotPhenomenon`
+    uses for `_active_riot`). With none active, the living noble most
+    hostile toward the governor -- if any clears `coup_animosity_threshold`
+    over an *existing* edge to them -- rolls `coup_start_rate` to begin
+    plotting. Once active, each day rolls `coup_hire_rate` to add one more
+    `_mercenary_candidates`-found mercenary (the exact same hire pool
+    `_check_mercenary_hiring` draws from -- an ex-soldier hired for a coup
+    isn't available for protection elsewhere, and vice versa, since both
+    read/write the same `state[id]["hired_by"]`), each hire raising
+    `suspicion`. Every day past the first hire, `coup_detection_rate *
+    suspicion` is the day's chance the plot is discovered outright -- more
+    mercenaries hired means more daily risk, not a hard cap, so even a
+    fully-staffed plot always has *some* chance of going undetected.
+    Reaching `coup_mercenary_cap` mercenaries (if not already caught)
+    triggers the attempt itself: `coup_success_base_rate * (1 +
+    len(mercenaries))`, then reduced by the governor's own *living*
+    protection mercenaries via the exact same `mercenary_protection_factor`
+    defense formula `apply_effect` uses -- the two mechanics pay off
+    together, a well-protected governor is genuinely harder to depose.
+    Success kills the governor and hands `graph.governor_id` to the
+    plotter; failure (whether by the attempt or by detection) kills the
+    plotter instead -- armed insurrection against the town's ruler is not
+    a survivable mistake in either direction, matching how severe the
+    vision doc's own framing ("seize power themselves") reads."""
 
     name = "violence"
 
@@ -418,6 +459,13 @@ class ViolencePhenomenon:
         mercenary_hire_rate: float = 0.05,
         mercenary_cap: int = 3,
         mercenary_protection_factor: float = 0.8,
+        coup_animosity_threshold: float = 0.5,
+        coup_start_rate: float = 0.05,
+        coup_hire_rate: float = 0.2,
+        coup_mercenary_cap: int = 3,
+        coup_suspicion_per_mercenary: float = 0.15,
+        coup_detection_rate: float = 0.1,
+        coup_success_base_rate: float = 0.25,
     ):
         self.base_rate = base_rate
         self.grief_shock = grief_shock
@@ -449,6 +497,17 @@ class ViolencePhenomenon:
         # docs/decisions.md's 2026-09-21 entry.
         self.group_action_rate = group_action_rate
         self._group_kills = 0
+        self.coup_animosity_threshold = coup_animosity_threshold
+        self.coup_start_rate = coup_start_rate
+        self.coup_hire_rate = coup_hire_rate
+        self.coup_mercenary_cap = coup_mercenary_cap
+        self.coup_suspicion_per_mercenary = coup_suspicion_per_mercenary
+        self.coup_detection_rate = coup_detection_rate
+        self.coup_success_base_rate = coup_success_base_rate
+        self._active_coup: Optional[Dict[str, Any]] = None
+        self._coups_attempted = 0
+        self._coups_succeeded = 0
+        self._coup_mercenaries_hired = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         # "mercenaries" (only meaningful for a noble/priest) and "hired_by"
@@ -529,7 +588,102 @@ class ViolencePhenomenon:
         return events
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
-        return self._check_group_violence(graph, state, day, rng) + self._check_mercenary_hiring(graph, state, day, rng)
+        return (
+            self._check_group_violence(graph, state, day, rng)
+            + self._check_mercenary_hiring(graph, state, day, rng)
+            + self._check_coup(graph, state, day, rng)
+        )
+
+    def _ensure_governor(self, graph, rng: random.Random) -> None:
+        if graph.governor_id is not None and graph.nodes[graph.governor_id].alive:
+            return
+        living_nobles = [n for n in graph.nodes.values() if n.alive and n.is_noble]
+        if not living_nobles:
+            graph.governor_id = None
+            return
+        top_degree = max(len(graph.neighbors(n.resident_id)) for n in living_nobles)
+        candidates = [n.resident_id for n in living_nobles if len(graph.neighbors(n.resident_id)) == top_degree]
+        graph.governor_id = rng.choice(candidates)
+
+    def _check_coup(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        self._ensure_governor(graph, rng)
+        if graph.governor_id is None:
+            return []
+
+        if self._active_coup is not None:
+            return self._advance_coup(graph, state, day, rng)
+
+        governor_id = graph.governor_id
+        worst_animosity = 0.0
+        plotter_id = None
+        for resident_id, node in graph.nodes.items():
+            if not node.alive or not node.is_noble or resident_id == governor_id:
+                continue
+            edge = graph.get_edge(resident_id, governor_id)
+            if edge is None:
+                continue
+            animosity = -edge.valence_from(resident_id)
+            if animosity > worst_animosity:
+                worst_animosity = animosity
+                plotter_id = resident_id
+        if plotter_id is None or worst_animosity < self.coup_animosity_threshold:
+            return []
+        if rng.random() >= self.coup_start_rate:
+            return []
+
+        self._active_coup = {"plotter": plotter_id, "mercenaries": [], "suspicion": 0.0}
+        return [Event(day, self.name, "coup_begins", plotter_id, governor_id,
+                      f"animosity {worst_animosity:.2f} toward the governor")]
+
+    def _advance_coup(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        coup = self._active_coup
+        plotter_id = coup["plotter"]
+        if not graph.nodes[plotter_id].alive:
+            self._active_coup = None
+            return [Event(day, self.name, "coup_abandoned", plotter_id, graph.governor_id, "plotter died")]
+
+        events: List[Event] = []
+        if rng.random() < self.coup_hire_rate:
+            candidates = self._mercenary_candidates(graph, state, plotter_id)
+            if candidates:
+                mercenary_id = rng.choice(candidates)
+                coup["mercenaries"].append(mercenary_id)
+                coup["suspicion"] += self.coup_suspicion_per_mercenary
+                state[mercenary_id]["hired_by"] = plotter_id
+                self._coup_mercenaries_hired += 1
+                events.append(Event(day, self.name, "coup_mercenary_hired", plotter_id, mercenary_id,
+                                     f"suspicion now {coup['suspicion']:.2f}"))
+
+        if coup["suspicion"] > 0 and rng.random() < self.coup_detection_rate * coup["suspicion"]:
+            self._active_coup = None
+            graph.nodes[plotter_id].alive = False
+            self._coups_attempted += 1
+            events.append(Event(day, self.name, "coup_discovered", plotter_id, graph.governor_id,
+                                 "plot uncovered before it could strike"))
+            return events
+
+        living_mercenaries = [m for m in coup["mercenaries"] if graph.nodes[m].alive]
+        if len(living_mercenaries) < self.coup_mercenary_cap:
+            return events
+
+        governor_id = graph.governor_id
+        success_chance = min(1.0, self.coup_success_base_rate * (1 + len(living_mercenaries)))
+        governor_protection = [m for m in state[governor_id]["mercenaries"] if graph.nodes[m].alive]
+        success_chance *= self.mercenary_protection_factor ** len(governor_protection)
+
+        self._active_coup = None
+        self._coups_attempted += 1
+        if rng.random() < success_chance:
+            graph.nodes[governor_id].alive = False
+            graph.governor_id = plotter_id
+            self._coups_succeeded += 1
+            events.append(Event(day, self.name, "coup_succeeds", plotter_id, governor_id,
+                                 f"seized power with {len(living_mercenaries)} mercenaries"))
+        else:
+            graph.nodes[plotter_id].alive = False
+            events.append(Event(day, self.name, "coup_fails", plotter_id, governor_id,
+                                 f"attempt with {len(living_mercenaries)} mercenaries repelled"))
+        return events
 
     def _check_mercenary_hiring(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         events: List[Event] = []
@@ -710,6 +864,9 @@ class ViolencePhenomenon:
             "group_kills": self._group_kills,
             "hired_assassinations": self._hired_assassinations,
             "mercenaries_hired": mercenaries_hired,
+            "coups_attempted": self._coups_attempted,
+            "coups_succeeded": self._coups_succeeded,
+            "coup_mercenaries_hired": self._coup_mercenaries_hired,
         }
 
 
