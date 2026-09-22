@@ -8,6 +8,84 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Noble/poor resentment shift was too strong, caught by user feedback and corrected
+
+**Decision:** `NOBLE_POOR_RESENTMENT_SHIFT` cut from 0.25 to 0.1.
+0.25 was never checked against `RiotPhenomenon`'s own `unrest_threshold`
+before shipping (the entry below only verified the skew's effect on raw
+noble-poor hostility, not on the riot trigger it feeds) — it pushed the
+reference town's civilian-authority hostility average from 0.251 (the
+historical baseline `unrest_threshold=0.15` was deliberately calibrated
+against, see the 2026-09-17 riot-threshold entry) to 0.332, an **80%**
+jump in the margin above threshold, on a town whose own `town_aggression`
+dial is 0.0 — not "a stressed out city" by the game's own measure.
+
+**Why raised:** user feedback, directly: "10 riots per year is a lot I
+believe, unless it is a stressed out city." A fair challenge — worth
+checking the actual town-aggression dial and the actual hostility math
+before either defending or changing the number, not just trusting the
+"expected, not a runaway" framing the original entry closed with.
+
+**What checking found, in order:**
+1. `graph.town_aggression` for the reference town is `0.0` — confirmed
+   not a stressed city by TownShape's own measure, so 0.25's effect
+   wasn't standing in for that.
+2. Static check: 0.25 raised avg civ-authority hostility 0.251→0.332;
+   0.1 raises it only to 0.278 (a ~1.26x margin-over-threshold increase
+   vs. 0.25's ~1.8x).
+3. **A real-run check contradicted the static one**, the same lesson as
+   [[feedback-verify-convergence-over-long-horizon]]: a 30-seed
+   isolated-`RiotPhenomenon` sweep (same method as the 2026-09-17
+   calibration, held graph fixed, varied only the engine's own RNG
+   seed) showed organic riot *count* doesn't scale up with the shift
+   the way the static hostility number suggested — if anything, a
+   *higher* shift produced *fewer* riot-having trials (0.25: 6/30,
+   avg 0.37/trial; 0.1: 7/30, avg 0.47/trial; 0.0 baseline: 10/30, avg
+   0.63/trial). Root cause: a higher shift doesn't just make riots more
+   likely to start, it makes each one recruit a *bigger* mob (131, 64,
+   57, 45 participants observed at 0.25 and 0.1, vs. the historical
+   organic baseline's 36-100) — a bigger riot takes longer to resolve,
+   and only one riot can be active at a time, so a more intense riot
+   *blocks* a second one from starting later in the year. Riot *count*
+   is a leaky proxy for "how stressed is this town" once mob size
+   varies — total riot deaths or days-with-an-active-riot would be
+   better metrics, not measured here.
+4. **The "10 riots" figure itself is not purely a Nobles effect.**
+   Splitting it by origin: the reference run had 4 organic (Nobles-
+   influenced) and 6 group-violence-escalated (a separate, already-
+   tuned mechanic from the 2026-09-21 session, averaging several
+   escalations/year on its own, independent of this change). Re-running
+   with the corrected 0.1 shift: still 10 total (3 organic, 7
+   escalated) on this exact seed — the *organic* contribution dropped
+   as intended, but total count didn't move, because the two mechanisms'
+   RNG-stream cascade (see the 2026-09-22 Priests entry on this same
+   property) redistributed which path produced the riot, not how many
+   total. Single-seed totals are noisy; a fair read needs the
+   multi-seed distribution, not one number.
+
+**Landed:** 0.1 is kept as the new default — defensible on both the
+static hostility-gap math (a real but moderate increase, not 1.8x) and
+the 30-seed dynamic check (doesn't push organic-riot-having-trials
+above the unskewed baseline). If total riot *count* specifically still
+reads as high, the more honest next lever is group violence's own
+escalation rate (a separate, pre-existing mechanic), not this one.
+
+**One more check, and the actual answer to "is 10 typical":** a 20-trial
+sweep of `[violence, riot]` together (same fixed import, varying only
+the engine seed, shift=0.1) gave riot counts
+`[12,1,0,1,5,2,3,2,1,0,0,1,0,0,0,0,0,0,0,0]` — **median 0**, mean 1.4.
+70% of trials had *zero* riots all year; the one outlier (12) is a real
+tail, not the norm. This is the actual point: **seed 5, the town/seed
+this whole project's dashboard has always used, is landing in an
+unusually riot-heavy year for this specific graph** — not because 0.1
+is still miscalibrated, but because any single seed is one draw from a
+distribution centered near zero with an occasional bad tail, and 5
+happens to be sampling from that tail this time. Reported to the user
+rather than tuning further against one seed's noise; whether to accept
+this as normal variance, pick a calmer reference seed for future
+dashboard refreshes, or push the tuning down further anyway is their
+call, not something the data alone resolves.
+
 ## 2026-09-22 — Nobles' first slice: poor residents start out resenting nobles, not neutral
 
 **Decision:** `graph.py` gained `_apply_noble_poor_skew`, called from both

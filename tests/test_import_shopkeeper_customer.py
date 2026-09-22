@@ -52,22 +52,28 @@ def test_time_and_services_scale_with_real_purchase_data():
 def test_noble_poor_skew_applies_to_shopkeeper_customer_edges_too():
     # a poor customer buying from a noble shopkeeper should carry the same
     # extra resentment shift the relationship-edge path applies -- checked
-    # statistically since the underlying draw still has its own variance
+    # statistically against an identical purchase from a non-noble
+    # shopkeeper, since the underlying draw still has its own variance
     noble_valences = []
+    peer_valences = []
     for seed in range(40):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = str(Path(tmp) / "town.db")
             make_test_db(
                 db_path,
-                residents=[(1, "poor", None), (2, "rich", 100, None, None, None, None, 1)],  # 2 is a noble
-                shop_relationships=[(1, 100, 8.0, 5, 1)],
+                residents=[
+                    (1, "poor", None),
+                    (2, "rich", 100, None, None, None, None, 1),  # 2 is a noble
+                    (3, "rich", 200),  # 3 is an ordinary rich shopkeeper, not a noble
+                ],
+                shop_relationships=[(1, 100, 8.0, 5, 1), (1, 200, 8.0, 5, 1)],
             )
             graph = import_snapshot(db_path, seed=seed)
             noble_valences.append(graph.get_edge(1, 2).valence_from(1))
-    # shopkeeper_customer's own baseline mean is 0.15 for a primary customer
-    # (is_primary=1 here) -- with the skew applied it should average well below that
+            peer_valences.append(graph.get_edge(1, 3).valence_from(1))
     avg_noble = sum(noble_valences) / len(noble_valences)
-    assert avg_noble < 0.0
+    avg_peer = sum(peer_valences) / len(peer_valences)
+    assert avg_noble < avg_peer
 
 
 def _run_all():

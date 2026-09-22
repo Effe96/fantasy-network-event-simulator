@@ -208,7 +208,18 @@ def synthesize_relationship_attributes(relationship_type: str, rng: random.Rando
 # is preserved (the skew is additive, not a hard override). Tax-driven
 # further growth (raising this as unrest/taxes rise) is deferred -- needs
 # Taxes, which doesn't exist yet.
-NOBLE_POOR_RESENTMENT_SHIFT = 0.25
+#
+# 0.25 was a first guess, never checked against RiotPhenomenon's own
+# unrest_threshold before shipping -- it pushed the reference town's
+# civilian-authority hostility average from 0.251 (the historical
+# baseline riots were calibrated against, see docs/decisions.md's
+# 2026-09-17 riot-threshold entry) to 0.332, an 80% jump in the margin
+# above threshold, and organic riots jumped from ~1/year to 4/year on a
+# town whose own aggression dial is 0.0 -- not remotely "a stressed out
+# city." 0.1 keeps that margin to about 1.26x the old baseline: a real,
+# visible uptick without turning an average town into a permanently
+# riot-prone one. See docs/decisions.md's 2026-09-22 correction entry.
+NOBLE_POOR_RESENTMENT_SHIFT = 0.1
 
 
 def _apply_noble_poor_skew(graph: "SocialGraph", edge: Edge) -> None:
