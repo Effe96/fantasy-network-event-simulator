@@ -8,6 +8,27 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Mercenary hiring can reach a friend of a friend, not just a direct tie
+
+**Decision:** `_mercenary_candidates` tries a noble/priest's direct
+neighbors first; only if none of them is an available `is_ex_soldier`
+does it widen to a neighbor-of-a-neighbor (2 hops).
+
+**Why:** user feedback, directly — hiring shouldn't be limited to
+someone the noble already personally knows; a connection of a
+connection ("my cousin's old army buddy") is realistic and doesn't
+violate the project's no-invented-edges rule, since it's still a real
+chain of *existing* ties, not a fabricated one to a stranger. Direct
+ties are tried first both because it's the more realistic order (ask
+someone you know before going through an intermediary) and because it
+keeps the common case cheap — most nobles already have a direct
+candidate (median noble/priest degree ~102, ~8% ex-soldier rate), so the
+wider scan only runs in the rarer case nobody direct is available.
+
+**Verified:** 3 new tests (2-hop hire when no direct candidate exists,
+direct preferred over 2-hop when both exist, no hire when the nearest
+ex-soldier is 3+ hops away). Full suite green.
+
 ## 2026-09-22 — Mercenary protection: ex-soldier trait vs. dedicated occupation
 
 **Question asked:** should hired mercenaries come from a new `is_ex_soldier`

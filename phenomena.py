@@ -389,11 +389,12 @@ class ViolencePhenomenon:
     for consistency). Past `mercenary_min_enemies`, a daily hire roll scales
     with *how far* past it they are (`mercenary_hire_rate * excess`, the
     same shape `RiotPhenomenon`'s own trigger uses) -- more targeted nobles
-    hire faster, not at a flat rate. A hire picks one *existing* neighbor
-    who is `is_ex_soldier` and not already protecting someone else (this
-    project never invents a graph edge, so a noble can only hire someone
-    they already know) -- no candidate, no hire, same as group violence
-    requiring an existing tie. `apply_effect` then multiplies an attacker's
+    hire faster, not at a flat rate. A hire (`_mercenary_candidates`) picks
+    one `is_ex_soldier` resident not already protecting someone else --
+    a direct neighbor if one is available, and only if none are does it
+    widen to a neighbor-of-a-neighbor (a real chain of existing ties, never
+    a fabricated edge to a stranger this project's edges don't allow). No
+    candidate within two hops, no hire. `apply_effect` then multiplies an attacker's
     success chance by `mercenary_protection_factor` once per *living*
     mercenary the victim currently employs (dead ones stop counting, and
     free up that slot for a later hire, without any explicit cleanup)."""
@@ -549,12 +550,7 @@ class ViolencePhenomenon:
                 continue
             if rng.random() >= self.mercenary_hire_rate * excess:
                 continue
-            candidates = [
-                neighbor_id for neighbor_id in graph.neighbors(resident_id)
-                if graph.nodes[neighbor_id].alive and graph.nodes[neighbor_id].is_ex_soldier
-                # available if never hired, or their old employer is dead/gone
-                and (state[neighbor_id]["hired_by"] is None or not graph.nodes[state[neighbor_id]["hired_by"]].alive)
-            ]
+            candidates = self._mercenary_candidates(graph, state, resident_id)
             if not candidates:
                 continue
             mercenary_id = rng.choice(candidates)
@@ -563,6 +559,37 @@ class ViolencePhenomenon:
             events.append(Event(day, self.name, "mercenary_hired", resident_id, mercenary_id,
                                  f"protection {len(living_hired) + 1}/{self.mercenary_cap}"))
         return events
+
+    def _mercenary_candidates(self, graph, state, resident_id: int) -> List[int]:
+        """A noble/priest hires someone they already have a real tie to --
+        directly, or a friend of a friend (a connection of a connection,
+        never a fabricated edge to a stranger). Direct ties are tried first
+        and returned alone if any exist -- reaching out to someone you
+        actually know comes before going through an intermediary, and it
+        keeps the common case (most nobles already have a direct candidate)
+        cheap, saving the wider 2-hop scan for the rarer case where nobody
+        direct is available."""
+
+        def available(candidate_id: int) -> bool:
+            if not (graph.nodes[candidate_id].alive and graph.nodes[candidate_id].is_ex_soldier):
+                return False
+            hired_by = state[candidate_id]["hired_by"]
+            return hired_by is None or not graph.nodes[hired_by].alive
+
+        direct = [n for n in graph.neighbors(resident_id) if available(n)]
+        if direct:
+            return direct
+
+        seen = {resident_id, *graph.neighbors(resident_id)}
+        two_hop = []
+        for neighbor_id in graph.neighbors(resident_id):
+            for candidate_id in graph.neighbors(neighbor_id):
+                if candidate_id in seen:
+                    continue
+                seen.add(candidate_id)
+                if available(candidate_id):
+                    two_hop.append(candidate_id)
+        return two_hop
 
     def _check_group_violence(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         # one pass over every live edge, same cost as the engine's own

@@ -289,6 +289,46 @@ def test_no_hire_without_an_ex_soldier_candidate_among_neighbors():
     assert state[100]["mercenaries"] == []
 
 
+def test_two_hop_candidate_hired_when_no_direct_ex_soldier_neighbor():
+    # 100 (noble) -- 1 (enemy, not ex-soldier) -- 10 (ex-soldier, a friend of
+    # 1's, not directly tied to 100 at all)
+    graph = _noble_with_enemies(num_enemies=5, ex_soldier_ids=())
+    graph.add_node(Node(resident_id=10, ses="poor", alive=True, is_ex_soldier=True))
+    graph.add_edge(Edge(1, 10, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, 0.5, 0.5))
+
+    phenomenon = ViolencePhenomenon(mercenary_min_enemies=0, mercenary_hire_rate=1.0)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert state[100]["mercenaries"] == [10]
+    assert state[10]["hired_by"] == 100
+
+
+def test_direct_candidate_preferred_over_two_hop_when_both_exist():
+    graph = _noble_with_enemies(num_enemies=5, ex_soldier_ids={2})  # 2 is a direct candidate
+    graph.add_node(Node(resident_id=10, ses="poor", alive=True, is_ex_soldier=True))  # only 2 hops away
+    graph.add_edge(Edge(1, 10, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, 0.5, 0.5))
+
+    phenomenon = ViolencePhenomenon(mercenary_min_enemies=0, mercenary_hire_rate=1.0)
+    state = phenomenon.init_state(graph)
+    for seed in range(20):
+        candidates = phenomenon._mercenary_candidates(graph, state, 100)
+        assert candidates == [2]  # the direct candidate, never the 2-hop one
+
+
+def test_no_hire_when_the_only_ex_soldier_is_more_than_two_hops_away():
+    graph = _noble_with_enemies(num_enemies=5, ex_soldier_ids=())
+    graph.add_node(Node(resident_id=10, ses="poor", alive=True))
+    graph.add_node(Node(resident_id=11, ses="poor", alive=True, is_ex_soldier=True))
+    graph.add_edge(Edge(1, 10, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, 0.5, 0.5))
+    graph.add_edge(Edge(10, 11, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, 0.5, 0.5))  # 3 hops from 100
+
+    phenomenon = ViolencePhenomenon(mercenary_min_enemies=0, mercenary_hire_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert events == []
+    assert state[100]["mercenaries"] == []
+
+
 def test_hiring_is_capped():
     graph = _noble_with_enemies(num_enemies=5, ex_soldier_ids={1, 2, 3, 4, 5})
     phenomenon = ViolencePhenomenon(mercenary_min_enemies=0, mercenary_hire_rate=1.0, mercenary_cap=2)
@@ -516,6 +556,9 @@ def _run_all():
     test_no_hire_below_min_enemies_even_with_a_candidate_present()
     test_hire_rate_scales_with_how_far_past_the_enemy_threshold()
     test_no_hire_without_an_ex_soldier_candidate_among_neighbors()
+    test_two_hop_candidate_hired_when_no_direct_ex_soldier_neighbor()
+    test_direct_candidate_preferred_over_two_hop_when_both_exist()
+    test_no_hire_when_the_only_ex_soldier_is_more_than_two_hops_away()
     test_hiring_is_capped()
     test_hired_mercenary_marks_ex_soldier_as_unavailable_to_others()
     test_ex_soldier_becomes_available_again_once_employer_dies()

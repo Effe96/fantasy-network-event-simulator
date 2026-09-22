@@ -151,13 +151,17 @@ landed. Scope recap:
   `town_db/military.py` and the reference town's own `military_service`
   table first: it only tracks *current* guards). `ViolencePhenomenon`'s
   `_check_mercenary_hiring` (`end_of_day`): a noble/priest with more
-  hostile neighbors than `mercenary_min_enemies` rolls to hire one
-  *existing* `is_ex_soldier` neighbor as protection, hire chance scaling
+  hostile neighbors than `mercenary_min_enemies` rolls to hire an
+  available `is_ex_soldier` resident as protection, hire chance scaling
   with how far past the threshold they are (same shape `RiotPhenomenon`'s
-  own trigger uses), capped at `mercenary_cap`. Each living mercenary
-  multiplies an attacker's success chance by `mercenary_protection_factor`
-  in `apply_effect`. Verified on the reference town (seed 5): 26
-  mercenaries hired across the year, no runaway. **Scoped to solo
+  own trigger uses), capped at `mercenary_cap`. **Not limited to a direct
+  tie** (2026-09-22, user feedback) — `_mercenary_candidates` tries direct
+  neighbors first and only widens to a friend-of-a-friend (2 hops) if none
+  is available, still never inventing a new edge to a stranger. Each
+  living mercenary multiplies an attacker's success chance by
+  `mercenary_protection_factor` in `apply_effect`. Verified on the
+  reference town (seed 5): 26 mercenaries hired across the year, no
+  runaway. **Scoped to solo
   violence only for this slice** — riot lethality (`RiotPhenomenon`'s
   `noble_lethality`) doesn't see this protection yet; a mob attack on a
   protected noble/priest is unaffected. Revisit if that reads as an
