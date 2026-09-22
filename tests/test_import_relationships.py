@@ -143,6 +143,37 @@ def test_occupation_and_is_noble_are_imported():
         assert graph.nodes[3].role == "civilian"
 
 
+def test_ex_soldier_only_ever_rolled_for_civilians():
+    # a noble, a guard, and a priest never get is_ex_soldier=True, no matter
+    # the seed -- only civilians are eligible at all
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "town.db")
+        make_test_db(
+            db_path,
+            residents=[
+                (1, "rich", None, None, None, None, None, 1),      # noble
+                (2, "poor", None, None, None, None, "guard", 0),
+                (3, "middling", None, None, None, None, "priest", 0),
+                (4, "poor", None, None, None, None, None, None),   # civilian, eligible
+            ],
+        )
+        for seed in range(50):
+            graph = import_snapshot(db_path, seed=seed)
+            assert graph.nodes[1].is_ex_soldier is False
+            assert graph.nodes[2].is_ex_soldier is False
+            assert graph.nodes[3].is_ex_soldier is False
+
+
+def test_ex_soldier_rate_is_roughly_the_configured_base_rate():
+    from graph import EX_SOLDIER_BASE_RATE
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "town.db")
+        make_test_db(db_path, residents=[(i, "poor", None) for i in range(1, 301)])
+        graph = import_snapshot(db_path, seed=1)
+        rate = sum(1 for n in graph.nodes.values() if n.is_ex_soldier) / len(graph.nodes)
+        assert abs(rate - EX_SOLDIER_BASE_RATE) < 0.05
+
+
 def test_siblings_have_more_similar_religiousness_than_unrelated_residents():
     # statistical: build many small towns of 2 siblings + 1 unrelated
     # resident, and check siblings' religiousness is closer to each other
@@ -262,6 +293,8 @@ def _run_all():
     test_gender_and_age_are_imported_against_town_reference_year()
     test_age_is_none_when_town_state_is_missing()
     test_occupation_and_is_noble_are_imported()
+    test_ex_soldier_only_ever_rolled_for_civilians()
+    test_ex_soldier_rate_is_roughly_the_configured_base_rate()
     test_siblings_have_more_similar_religiousness_than_unrelated_residents()
     test_family_grouping_does_not_extend_to_spouses()
     test_apply_noble_poor_skew_lowers_only_the_poor_persons_own_valence()

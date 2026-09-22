@@ -24,6 +24,12 @@ class Node:
     age: Optional[int] = None
     occupation: Optional[str] = None
     is_noble: bool = False
+    # a past military background, independent of (and layered on top of) their
+    # *current* job -- a farmhand or blacksmith can still be an ex-soldier.
+    # Only ever rolled for civilians at import (see _load_residents): a
+    # currently-serving guard isn't "ex" anything, and nobles/priests aren't
+    # the pool Nobles hires protection from, they're who it protects.
+    is_ex_soldier: bool = False
 
     @property
     def role(self) -> str:
@@ -165,6 +171,19 @@ def synthesize_traits(rng: random.Random, family_baseline: Optional[Dict[str, fl
     return traits
 
 
+# civilians only -- see Node.is_ex_soldier. No real TownShape data to derive
+# this from (checked town_db/military.py and the reference town's own
+# military_service table: it only tracks *current* guards, end_date is
+# always NULL, no retired-service records exist), so this is flat synthesis
+# like the personal traits above, not an import of real history.
+# 0.08 is a first guess sized against the reference town's noble/priest
+# degree (median ~102 neighbors) so a typical noble/priest has several
+# ex-soldier neighbors to hire from, not zero and not dozens -- tune if
+# mercenary hiring reads as too easy or too starved of candidates.
+EX_SOLDIER_BASE_RATE = 0.08
+_NON_CIVILIAN_OCCUPATIONS = {"guard", "priest", "acolyte"}
+
+
 def _family_groups(conn: sqlite3.Connection) -> Dict[int, int]:
     """Union-find over parent/sibling ties only -- the blood-relation subset
     of `relationships`, not spouse/coworker/etc -- so each resident maps to a
@@ -270,10 +289,12 @@ def _load_residents(
             family_baselines[family_root] = {
                 name: _clamp01(rng.gauss(0.5, 0.2)) for name in FAMILY_CORRELATED_TRAITS
             }
+        is_civilian = not is_noble and occupation not in _NON_CIVILIAN_OCCUPATIONS
+        is_ex_soldier = is_civilian and rng.random() < EX_SOLDIER_BASE_RATE
         graph.add_node(
             Node(
                 resident_id=resident_id, ses=ses, alive=True, gender=gender, age=age,
-                occupation=occupation, is_noble=bool(is_noble),
+                occupation=occupation, is_noble=bool(is_noble), is_ex_soldier=is_ex_soldier,
                 **synthesize_traits(rng, family_baselines[family_root]),
             )
         )

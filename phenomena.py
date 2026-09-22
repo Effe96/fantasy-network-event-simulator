@@ -376,7 +376,27 @@ class ViolencePhenomenon:
     `noble_hired_assassin_shock_factor` scales down both `grief_shock`
     (neighbors) and `discovery_shock` (a surviving victim) rather than
     zeroing them -- word still gets around, just less directly than if the
-    noble had been seen doing it themselves."""
+    noble had been seen doing it themselves.
+
+    Mercenary protection (added 2026-09-22, Nobles' third slice, per vision
+    doc: "Nobles (and priests) can hire mercenary protection, scaling with
+    how much animosity is directed at them, with a sensible cap. More hired
+    protection lowers an attacker's success chance."). A daily check in
+    `end_of_day` (`_check_mercenary_hiring`), same shape as group violence's
+    own town-wide scan: for every noble/priest under `mercenary_cap`, count
+    neighbors hostile enough to count as a genuine enemy
+    (`mercenary_enemy_threshold`, same cutoff `group_hate_threshold` uses,
+    for consistency). Past `mercenary_min_enemies`, a daily hire roll scales
+    with *how far* past it they are (`mercenary_hire_rate * excess`, the
+    same shape `RiotPhenomenon`'s own trigger uses) -- more targeted nobles
+    hire faster, not at a flat rate. A hire picks one *existing* neighbor
+    who is `is_ex_soldier` and not already protecting someone else (this
+    project never invents a graph edge, so a noble can only hire someone
+    they already know) -- no candidate, no hire, same as group violence
+    requiring an existing tie. `apply_effect` then multiplies an attacker's
+    success chance by `mercenary_protection_factor` once per *living*
+    mercenary the victim currently employs (dead ones stop counting, and
+    free up that slot for a later hire, without any explicit cleanup)."""
 
     name = "violence"
 
@@ -392,6 +412,11 @@ class ViolencePhenomenon:
         min_group_size: int = 2,
         group_action_rate: float = 0.1,
         noble_hired_assassin_shock_factor: float = 0.5,
+        mercenary_enemy_threshold: float = 0.7,
+        mercenary_min_enemies: int = 3,
+        mercenary_hire_rate: float = 0.05,
+        mercenary_cap: int = 3,
+        mercenary_protection_factor: float = 0.8,
     ):
         self.base_rate = base_rate
         self.grief_shock = grief_shock
@@ -400,6 +425,11 @@ class ViolencePhenomenon:
         self.riot_phenomenon = riot_phenomenon
         self.noble_hired_assassin_shock_factor = noble_hired_assassin_shock_factor
         self._hired_assassinations = 0
+        self.mercenary_enemy_threshold = mercenary_enemy_threshold
+        self.mercenary_min_enemies = mercenary_min_enemies
+        self.mercenary_hire_rate = mercenary_hire_rate
+        self.mercenary_cap = mercenary_cap
+        self.mercenary_protection_factor = mercenary_protection_factor
         self.group_hate_threshold = group_hate_threshold
         self.group_affinity_threshold = group_affinity_threshold
         self.min_group_size = min_group_size
@@ -420,7 +450,10 @@ class ViolencePhenomenon:
         self._group_kills = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
-        return {resident_id: {"alive": True} for resident_id in graph.nodes}
+        # "mercenaries" (only meaningful for a noble/priest) and "hired_by"
+        # (only meaningful for an ex-soldier) sit on every resident's state
+        # dict either way, same uniform shape "alive" already uses
+        return {resident_id: {"alive": True, "mercenaries": [], "hired_by": None} for resident_id in graph.nodes}
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         if not (state_a["alive"] and state_b["alive"]):
@@ -460,6 +493,8 @@ class ViolencePhenomenon:
         victim_vulnerability = SES_VULNERABILITY.get(graph.nodes[victim].ses, 1.0)
         attacker_vulnerability = SES_VULNERABILITY.get(graph.nodes[culprit].ses, 1.0)
         success_chance = min(1.0, self.success_base_rate * victim_vulnerability / attacker_vulnerability)
+        living_mercenaries = sum(1 for m in state[victim]["mercenaries"] if graph.nodes[m].alive)
+        success_chance *= self.mercenary_protection_factor ** living_mercenaries
 
         if rng.random() >= success_chance:
             shock = self.discovery_shock * shock_factor
@@ -493,7 +528,41 @@ class ViolencePhenomenon:
         return events
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
-        return self._check_group_violence(graph, state, day, rng)
+        return self._check_group_violence(graph, state, day, rng) + self._check_mercenary_hiring(graph, state, day, rng)
+
+    def _check_mercenary_hiring(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        events: List[Event] = []
+        for resident_id, node in graph.nodes.items():
+            if not node.alive or node.role not in ("noble", "priest"):
+                continue
+            hired = state[resident_id]["mercenaries"]
+            living_hired = [m for m in hired if graph.nodes[m].alive]
+            if len(living_hired) >= self.mercenary_cap:
+                continue
+            enemy_count = sum(
+                1 for neighbor_id in graph.neighbors(resident_id)
+                if graph.nodes[neighbor_id].alive
+                and -graph.get_edge(neighbor_id, resident_id).valence_from(neighbor_id) >= self.mercenary_enemy_threshold
+            )
+            excess = enemy_count - self.mercenary_min_enemies
+            if excess <= 0:
+                continue
+            if rng.random() >= self.mercenary_hire_rate * excess:
+                continue
+            candidates = [
+                neighbor_id for neighbor_id in graph.neighbors(resident_id)
+                if graph.nodes[neighbor_id].alive and graph.nodes[neighbor_id].is_ex_soldier
+                # available if never hired, or their old employer is dead/gone
+                and (state[neighbor_id]["hired_by"] is None or not graph.nodes[state[neighbor_id]["hired_by"]].alive)
+            ]
+            if not candidates:
+                continue
+            mercenary_id = rng.choice(candidates)
+            hired.append(mercenary_id)
+            state[mercenary_id]["hired_by"] = resident_id
+            events.append(Event(day, self.name, "mercenary_hired", resident_id, mercenary_id,
+                                 f"protection {len(living_hired) + 1}/{self.mercenary_cap}"))
+        return events
 
     def _check_group_violence(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         # one pass over every live edge, same cost as the engine's own
@@ -607,11 +676,13 @@ class ViolencePhenomenon:
 
     def summarize(self, state) -> Dict[str, int]:
         alive = sum(1 for resident_state in state.values() if resident_state["alive"])
+        mercenaries_hired = sum(len(resident_state["mercenaries"]) for resident_state in state.values())
         return {
             "alive": alive,
             "dead": len(state) - alive,
             "group_kills": self._group_kills,
             "hired_assassinations": self._hired_assassinations,
+            "mercenaries_hired": mercenaries_hired,
         }
 
 

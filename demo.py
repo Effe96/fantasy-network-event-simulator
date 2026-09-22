@@ -124,6 +124,7 @@ def _print_summary(result) -> None:
     print("violence:")
     print(f"  deaths: {violence_deaths}  (of which group violence: {last.get('group_kills', 0)},"
           f" hired assassinations: {last.get('hired_assassinations', 0)})")
+    print(f"  mercenaries hired for protection: {last.get('mercenaries_hired', 0)}")
     print("romance:")
     print(f"  married residents: {last.get('married_residents', 0)}  births: {last.get('births', 0)}")
     print("riots:")

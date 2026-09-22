@@ -8,6 +8,77 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Mercenary protection: ex-soldier trait vs. dedicated occupation
+
+**Question asked:** should hired mercenaries come from a new `is_ex_soldier`
+trait layered on residents who already have another job, or from a
+dedicated "mercenary" occupation?
+
+**Checked first:** whether TownShape already models this, before
+inventing anything. `town_db/military.py` exists and generates
+`military_service` records — but only for *current* `guard`/`soldier`
+occupations working at a garrison building, `end_date` always `None`. The
+reference town's own `military_service` table confirmed this: 42 rows,
+all `rank='guard'`, zero with `end_date` set. No real "retired veteran"
+data exists to import for this town.
+
+**Decision:** `is_ex_soldier`, a new `Node` trait, civilians only —
+not a dedicated occupation.
+
+**Why:**
+- No real data to source it from either way (checked above), so this is
+  synthesis regardless — the question is really "layer on top of real
+  occupation, or invent a whole new one."
+- A dedicated "mercenary" occupation would mean overwriting some
+  resident's real TownShape job with a fictional one, on top of the
+  workplace/shop/family relationships TownShape already built around
+  their *actual* occupation — internally inconsistent for no real
+  benefit. A trait layers cleanly on top instead, same shape `is_noble`
+  already uses.
+- A farmhand or blacksmith who used to serve is a bigger, more useful
+  candidate pool than a rare dedicated "mercenary" occupation would be:
+  nobles/priests can only hire someone they already have a real edge to
+  (this project never invents relationships — same rule Romance's
+  edge-only marriage mechanic follows), so the candidate pool needs to
+  be woven into the existing social fabric, not off in its own corner.
+
+**Rate:** `EX_SOLDIER_BASE_RATE = 0.08`, sized against the reference
+town's noble/priest degree (median ~102 neighbors) so a typical
+noble/priest has several ex-soldier neighbors, not zero and not dozens —
+a first guess, not derived from anything, tune if hiring reads as too
+easy or too starved of candidates.
+
+**Mechanic (also new, same slice):** `ViolencePhenomenon._check_mercenary_hiring`,
+run in `end_of_day` alongside group violence. A noble/priest with more
+hostile neighbors (at `group_hate_threshold`'s own 0.7 cutoff, for
+consistency) than `mercenary_min_enemies` (3) rolls to hire, chance
+scaling with how far past that they are — same shape `RiotPhenomenon`'s
+own `riot_base_rate * (avg_hostility - unrest_threshold)` trigger uses,
+not a flat rate once past threshold. Capped at `mercenary_cap` (3, "a
+sensible cap" per the vision doc's own wording). Each living mercenary
+multiplies an attacker's success chance by `mercenary_protection_factor`
+(0.8) in `apply_effect` — a dead mercenary stops counting and frees the
+slot with no explicit cleanup needed (filtered at read time). An
+ex-soldier already hired by a now-dead employer becomes hireable again
+the same way.
+
+**Scope cut:** protection only affects solo violence's success-chance
+formula this slice. `RiotPhenomenon`'s `noble_lethality` (a mob attacking
+a noble/priest during a riot) doesn't see this yet — the vision doc's
+own phrasing ("lowers an attacker's success chance") maps directly onto
+the solo-violence formula; extending it into riot's separate lethality
+math is a real design question of its own (per-mercenary discount to a
+different formula, whether group violence's own escalation-to-riot path
+should be affected too), deferred rather than bolted on quickly.
+
+**Verified:** full suite green (7 new tests: threshold gating, rate
+scaling with excess enemies, candidate requirement, cap enforcement,
+one-employer-at-a-time, re-hire after an employer's death, protection
+reducing an attacker's success chance). Real run on the reference town
+(seed 5): 26 mercenaries hired across the year, out of a 132-slot
+theoretical ceiling (44 nobles/priests × cap 3) — a real, bounded
+effect, not a runaway.
+
 ## 2026-09-22 — Nobles hire assassins: same success math, insulated consequences
 
 **Decision:** when `ViolencePhenomenon._pick_aggressor` picks a noble as

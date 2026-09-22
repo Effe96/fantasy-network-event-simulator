@@ -164,7 +164,7 @@ def test_summarize_counts_alive_and_dead():
     state = phenomenon.init_state(graph)
     state[1]["alive"] = False
     assert phenomenon.summarize(state) == {
-        "alive": 1, "dead": 1, "group_kills": 0, "hired_assassinations": 0,
+        "alive": 1, "dead": 1, "group_kills": 0, "hired_assassinations": 0, "mercenaries_hired": 0,
     }
 
 
@@ -236,6 +236,132 @@ def test_noble_culprit_failed_attempt_gets_reduced_discovery_shock():
     edge = graph.get_edge(1, 2)
     assert abs(edge.valence_from(2) - (0.2 - 0.15)) < 1e-9  # 0.3 discovery_shock halved to 0.15
     assert any(event.kind == "hired_assassin_failed" for event in events)
+
+
+def _noble_with_enemies(num_enemies, ex_soldier_ids=(), enemy_valence=-0.9):
+    """A noble (id 100) hated by `num_enemies` distinct civilians (ids 1..N),
+    each above the default mercenary_enemy_threshold. `ex_soldier_ids` marks
+    which of those same neighbors are also is_ex_soldier=True candidates."""
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=100, ses="rich", alive=True, is_noble=True))
+    for i in range(1, num_enemies + 1):
+        graph.add_node(Node(resident_id=i, ses="poor", alive=True, is_ex_soldier=i in ex_soldier_ids))
+        graph.add_edge(Edge(i, 100, "neighbor", "Equality Matching", 0.5, 0.5, 0.5,
+                             valence_a_to_b=enemy_valence, valence_b_to_a=0.0))
+    return graph
+
+
+def test_no_hire_below_min_enemies_even_with_a_candidate_present():
+    graph = _noble_with_enemies(num_enemies=3, ex_soldier_ids={1})  # 3 == min_enemies, not above it
+    phenomenon = ViolencePhenomenon(mercenary_min_enemies=3, mercenary_hire_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert events == []
+    assert state[100]["mercenaries"] == []
+
+
+def test_hire_rate_scales_with_how_far_past_the_enemy_threshold():
+    # mercenary_hire_rate * excess must be a real probability (<=1); pick
+    # values so the "just above threshold" case is far less likely to hire
+    # than the "way above threshold" case, over many days
+    def hires_within(num_enemies, days=30):
+        hires = 0
+        for seed in range(60):
+            graph = _noble_with_enemies(num_enemies, ex_soldier_ids={1})
+            phenomenon = ViolencePhenomenon(mercenary_min_enemies=3, mercenary_hire_rate=0.05)
+            state = phenomenon.init_state(graph)
+            for day in range(1, days + 1):
+                phenomenon.end_of_day(graph, state, day=day, rng=random.Random(seed * 1000 + day))
+                if state[100]["mercenaries"]:
+                    break
+            hires += bool(state[100]["mercenaries"])
+        return hires
+
+    assert hires_within(num_enemies=4) < hires_within(num_enemies=10)
+
+
+def test_no_hire_without_an_ex_soldier_candidate_among_neighbors():
+    graph = _noble_with_enemies(num_enemies=5, ex_soldier_ids=())  # nobody eligible
+    phenomenon = ViolencePhenomenon(mercenary_min_enemies=3, mercenary_hire_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert events == []
+    assert state[100]["mercenaries"] == []
+
+
+def test_hiring_is_capped():
+    graph = _noble_with_enemies(num_enemies=5, ex_soldier_ids={1, 2, 3, 4, 5})
+    phenomenon = ViolencePhenomenon(mercenary_min_enemies=0, mercenary_hire_rate=1.0, mercenary_cap=2)
+    state = phenomenon.init_state(graph)
+    for day in range(1, 10):
+        phenomenon.end_of_day(graph, state, day=day, rng=random.Random(day))
+    assert len(state[100]["mercenaries"]) == 2
+
+
+def test_hired_mercenary_marks_ex_soldier_as_unavailable_to_others():
+    graph = _noble_with_enemies(num_enemies=5, ex_soldier_ids={1})
+    graph.add_node(Node(resident_id=200, ses="rich", alive=True, is_noble=True))
+    graph.add_edge(Edge(1, 200, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, -0.9, 0.0))
+    # both 100 and 200 want to hire, only one ex-soldier (1) exists town-wide
+    phenomenon = ViolencePhenomenon(mercenary_min_enemies=0, mercenary_hire_rate=1.0)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert state[1]["hired_by"] in (100, 200)
+    only_one_hired = (state[100]["mercenaries"] == [1]) != (state[200]["mercenaries"] == [1])
+    assert only_one_hired
+
+
+def test_ex_soldier_becomes_available_again_once_employer_dies():
+    graph = _noble_with_enemies(num_enemies=5, ex_soldier_ids={1})
+    # a second noble, also with enemies and also tied to the same ex-soldier,
+    # present from the start (the engine never adds nodes mid-run -- Romance's
+    # own "not yet a tracked resident" note for newborns says the same)
+    graph.add_node(Node(resident_id=200, ses="rich", alive=True, is_noble=True))
+    graph.add_edge(Edge(1, 200, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, -0.9, 0.0))
+    graph.add_edge(Edge(2, 200, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, -0.9, 0.0))
+    graph.add_edge(Edge(3, 200, "coworker", "Authority Ranking", 0.5, 0.5, 0.5, -0.9, 0.0))
+
+    phenomenon = ViolencePhenomenon(mercenary_min_enemies=0, mercenary_hire_rate=1.0)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert state[1]["hired_by"] in (100, 200)
+    first_employer = state[1]["hired_by"]
+    other_noble = 200 if first_employer == 100 else 100
+
+    graph.nodes[first_employer].alive = False  # the employer dies
+    phenomenon.end_of_day(graph, state, day=2, rng=random.Random(1))
+    assert state[1]["hired_by"] == other_noble
+
+
+def test_living_mercenaries_reduce_an_attackers_success_chance():
+    trials = 200
+
+    def build(mercenary_alive):
+        graph = SocialGraph()
+        # matched SES so the plain success formula alone gives exactly
+        # success_base_rate, leaving only mercenary protection to vary
+        graph.add_node(Node(resident_id=1, ses="middling", alive=True))  # attacker
+        graph.add_node(Node(resident_id=100, ses="middling", alive=True, is_noble=True))  # protected victim
+        graph.add_node(Node(resident_id=5, ses="poor", alive=mercenary_alive))  # the hired mercenary
+        graph.add_edge(Edge(1, 100, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
+        phenomenon = ViolencePhenomenon(success_base_rate=1.0, mercenary_protection_factor=0.5)
+        phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 1
+        state = phenomenon.init_state(graph)
+        state[100]["mercenaries"] = [5]
+        return graph, phenomenon, state
+
+    def kill_rate(mercenary_alive):
+        kills = 0
+        for seed in range(trials):
+            graph, phenomenon, state = build(mercenary_alive)
+            phenomenon.apply_effect(graph, state, 1, 100, day=1, rng=random.Random(seed))
+            kills += not graph.nodes[100].alive
+        return kills / trials
+
+    # success_base_rate=1.0 -- a dead mercenary gives no protection, so this
+    # must stay a guaranteed kill; a living one (factor=0.5) must cut it down
+    assert kill_rate(mercenary_alive=False) == 1.0
+    assert kill_rate(mercenary_alive=True) < 1.0
 
 
 def _group_town(num_haters, victim_id=100, victim_ses="poor", hater_ses="poor", hate=-0.9, affinity=0.6):
@@ -387,6 +513,13 @@ def _run_all():
     test_noble_culprit_hires_an_assassin_with_reduced_grief_shock()
     test_non_noble_culprit_gets_full_grief_shock_not_the_hired_discount()
     test_noble_culprit_failed_attempt_gets_reduced_discovery_shock()
+    test_no_hire_below_min_enemies_even_with_a_candidate_present()
+    test_hire_rate_scales_with_how_far_past_the_enemy_threshold()
+    test_no_hire_without_an_ex_soldier_candidate_among_neighbors()
+    test_hiring_is_capped()
+    test_hired_mercenary_marks_ex_soldier_as_unavailable_to_others()
+    test_ex_soldier_becomes_available_again_once_employer_dies()
+    test_living_mercenaries_reduce_an_attackers_success_chance()
     test_haters_with_no_tie_to_each_other_do_not_band_together()
     test_haters_who_dislike_each_other_do_not_band_together()
     test_mutually_tied_haters_band_together_and_can_kill()

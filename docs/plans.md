@@ -6,12 +6,12 @@
 > feature backlog — still the source of truth for *scope* on each item
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
-> plan changes. Last updated 2026-09-22 (Nobles hire assassins landed —
-> second of Nobles' items done, two remain: mercenary hiring and the
-> coup mechanic, both still open. Priests: religious devotion +
-> skepticism, then corruption, both landed — one item remains,
-> disease-curer blame. Also landed: family-correlated religiousness/
-> skepticism (user request), and Nobles' starting resentment skew.).
+> plan changes. Last updated 2026-09-22 (Mercenary protection landed —
+> third of Nobles' items done, one remains: the coup mechanic, blocked
+> on a governor concept. Also landed the same day: Nobles hire assassins,
+> Priests' devotion/skepticism/corruption (one Priests item remains,
+> disease-curer blame), family-correlated religiousness/skepticism, and
+> Nobles' starting resentment skew.).
 
 ## Resume checklist
 
@@ -143,10 +143,25 @@ landed. Scope recap:
   **Tax-driven growth is still deferred** —
   needs Taxes, which doesn't exist yet (see Taxes, below). `docs/decisions.md`'s
   2026-09-22 entry.
-- Mercenary hiring, scaling with animosity directed at a noble, with a
-  cap — lowers an attacker's (or a riot's?) success chance against them.
-  Consider whether this should feed into `RiotPhenomenon`'s
-  `noble_lethality`/hatred-based targeting as a per-noble modifier.
+- ~~**Mercenary hiring, scaling with animosity directed at a noble, with
+  a cap — lowers an attacker's success chance against them.**~~ **Done
+  (2026-09-22).** Also covers priests, per the vision doc. New
+  `Node.is_ex_soldier` trait (`graph.py`, civilians only, ~8% synthetic
+  rate — no real TownShape data to derive this from, checked
+  `town_db/military.py` and the reference town's own `military_service`
+  table first: it only tracks *current* guards). `ViolencePhenomenon`'s
+  `_check_mercenary_hiring` (`end_of_day`): a noble/priest with more
+  hostile neighbors than `mercenary_min_enemies` rolls to hire one
+  *existing* `is_ex_soldier` neighbor as protection, hire chance scaling
+  with how far past the threshold they are (same shape `RiotPhenomenon`'s
+  own trigger uses), capped at `mercenary_cap`. Each living mercenary
+  multiplies an attacker's success chance by `mercenary_protection_factor`
+  in `apply_effect`. Verified on the reference town (seed 5): 26
+  mercenaries hired across the year, no runaway. **Scoped to solo
+  violence only for this slice** — riot lethality (`RiotPhenomenon`'s
+  `noble_lethality`) doesn't see this protection yet; a mob attack on a
+  protected noble/priest is unaffected. Revisit if that reads as an
+  inconsistency once Quarantine/riots get more attention.
 - ~~**Nobles hire assassins rather than committing manslaughter
   themselves**~~ **Done (2026-09-22).** `ViolencePhenomenon.apply_effect`:
   when `_pick_aggressor` picks a noble as culprit, the success-chance
