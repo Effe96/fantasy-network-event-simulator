@@ -126,11 +126,20 @@ landed. Scope recap:
   called from both edge-loading paths (`_load_relationships` and
   `_load_shopkeeper_customer`): where one edge endpoint is a noble and
   the other a poor resident, the poor party's own outgoing valence gets
-  a fixed extra negative shift (0.25) on top of the plain synthesis draw
+  a fixed extra negative shift (0.1) on top of the plain synthesis draw
   — additive, real variance survives. Verified on the reference town:
-  5,101 noble-poor edges, 77.9% now net hostile from the poor side (vs.
-  a neutral ~50/50 baseline); riots rose to 10/year, a real and expected
-  consequence, not a runaway. **Tax-driven growth is still deferred** —
+  5,101 noble-poor edges, 61.3% now net hostile from the poor side (vs.
+  a neutral ~50/50 baseline). The shift shipped at 0.25 and was corrected
+  to 0.1 the same day after user feedback — 0.25 had never been checked
+  against `RiotPhenomenon`'s `unrest_threshold`, and it raised the town's
+  civ-authority hostility average 0.251→0.332. **Don't credit this shift
+  for the town's riot count**: real `--seed 1..10` runs of the full
+  engine average ~8.4 riots/year regardless, and 80% of those are group
+  violence escalating into a riot, not organic Nobles-driven unrest (only
+  ~1.7/year is organic). See `docs/decisions.md`'s two 2026-09-22
+  entries (the shift correction, and the later seed/outlier
+  investigation that superseded an earlier flawed 20-seed sweep).
+  **Tax-driven growth is still deferred** —
   needs Taxes, which doesn't exist yet (see Taxes, below). `docs/decisions.md`'s
   2026-09-22 entry.
 - Mercenary hiring, scaling with animosity directed at a noble, with a

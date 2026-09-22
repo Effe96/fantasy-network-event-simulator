@@ -69,6 +69,10 @@ def main(argv=None) -> None:
     # effectively unreachable in a normal year, not just rare. Verified in
     # isolation (fresh RNG stream, no other phenomena running): 20/30
     # independent year-long trials produced at least one riot at these values.
+    # this threshold only governs the organic path, though -- most riots
+    # (~80% across real --seed 1..10 runs) are ViolencePhenomenon's group
+    # violence escalating directly into one instead. See docs/decisions.md's
+    # 2026-09-22 seed/outlier entry.
     guards = GuardPhenomenon()
     theft = TheftPhenomenon()
     ailments = CommonAilmentsPhenomenon()
