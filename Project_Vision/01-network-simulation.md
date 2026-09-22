@@ -9,12 +9,25 @@
 - **Node** — one resident: `resident_id`, `ses` (poor/rich, from the
   TownShape snapshot), `alive`, and four personal traits —
   `religiousness`, `cunning`, `skepticism`, `loyalty` (each 0..1,
-  independently synthesized at import via `synthesize_traits`, flat and
-  uncorrelated with `ses` for now). Not yet mutated by events. Violence
-  is the first consumer: a resident's own `loyalty` dampens their own
-  odds of being picked as the aggressor in `_pick_aggressor`, restraining
-  them even when equally hostile. `religiousness`/`cunning`/`skepticism`
-  have no consumer yet — they're in place for Priests/Criminals work.
+  synthesized at import via `synthesize_traits`, uncorrelated with `ses`).
+  Not yet mutated by events. Violence is the first consumer: a resident's
+  own `loyalty` dampens their own odds of being picked as the aggressor
+  in `_pick_aggressor`, restraining them even when equally hostile.
+  Guards' bribery consumes `cunning`; Criminals' theft consumes both
+  `cunning` and the sticky-flag pattern; Priests' `ReligionPhenomenon`
+  consumes `religiousness`/`skepticism`.
+  **Family correlation (2026-09-22, user request):** `religiousness`
+  and `skepticism` (not `cunning`/`loyalty`, which stay fully
+  independent) are now correlated within families — grouped by
+  `parent`/`sibling` ties only (not spouse/coworker) via
+  `_family_groups`, each family draws one shared center at the
+  population distribution, and each member's own value draws around
+  that center with a tighter spread. A real tendency, not a copy —
+  verified on the reference town: average within-family religiousness
+  gap 0.16 vs. 0.29 for a random pair. Full writeup:
+  `docs/decisions.md`'s 2026-09-22 entry (including the ripple effect
+  on Priests' heretic rate, 7.7%→11.1%, an expected consequence, not a
+  bug).
   Also carries `gender` and `age` (whole years, computed at import
   against `town_state.year_start`; `None` if either input is missing),
   used by romance/marriage eligibility below. Also carries `occupation`

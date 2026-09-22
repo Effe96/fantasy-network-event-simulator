@@ -140,12 +140,54 @@ def _clamp_signed(value: float) -> float:
 
 
 TRAIT_NAMES = ["religiousness", "cunning", "skepticism", "loyalty"]
+# family members are more likely to share a similar level of faith/skepticism
+# (raised in the same household, same religious practice) -- not assured, so
+# this isn't a copy, just a shared per-family center each member's own draw
+# lands near. cunning/loyalty stay fully independent -- nothing links them to
+# upbringing the way faith is.
+FAMILY_CORRELATED_TRAITS = ["religiousness", "skepticism"]
+# ponytail: single tunable knob for how tightly faith/skepticism run in
+# families. Individual draws use this stdev around the family's own center
+# (itself drawn with the population stdev, 0.2), which works out to a
+# within-family correlation of about 0.64 -- a real tendency, far from a
+# guarantee. Lower this to make families more alike, raise it to loosen the
+# tendency.
+FAMILY_TRAIT_STDEV = 0.15
 
 
-def synthesize_traits(rng: random.Random) -> Dict[str, float]:
-    # ponytail: flat, uncorrelated draw per resident; once occupations/roles
-    # exist (e.g. Priests), skew religiousness etc. by role instead
-    return {name: _clamp01(rng.gauss(0.5, 0.2)) for name in TRAIT_NAMES}
+def synthesize_traits(rng: random.Random, family_baseline: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    traits = {}
+    for name in TRAIT_NAMES:
+        if family_baseline is not None and name in FAMILY_CORRELATED_TRAITS:
+            traits[name] = _clamp01(rng.gauss(family_baseline[name], FAMILY_TRAIT_STDEV))
+        else:
+            traits[name] = _clamp01(rng.gauss(0.5, 0.2))
+    return traits
+
+
+def _family_groups(conn: sqlite3.Connection) -> Dict[int, int]:
+    """Union-find over parent/sibling ties only -- the blood-relation subset
+    of `relationships`, not spouse/coworker/etc -- so each resident maps to a
+    family root id. A resident with no parent/sibling row of their own is
+    simply absent from the map; callers treat that as "their own family"."""
+    rows = conn.execute(
+        "SELECT resident_a_id, resident_b_id FROM relationships WHERE relationship_type IN ('parent', 'sibling')"
+    ).fetchall()
+    parent: Dict[int, int] = {}
+
+    def find(x: int) -> int:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for resident_a_id, resident_b_id in rows:
+        root_a, root_b = find(resident_a_id), find(resident_b_id)
+        if root_a != root_b:
+            parent[root_a] = root_b
+
+    return {resident_id: find(resident_id) for resident_id in parent}
 
 
 def synthesize_relationship_attributes(relationship_type: str, rng: random.Random) -> Dict[str, float]:
@@ -178,12 +220,23 @@ def _load_residents(
         "SELECT id, ses, gender, birth_date, occupation, is_noble FROM residents WHERE death_date IS NULL"
         " ORDER BY id"
     ).fetchall()
+    family_of = _family_groups(conn)
+    # each family's shared center is drawn once, the first time any of its
+    # members is processed, keyed by family root id so every member of the
+    # same family reuses the same center
+    family_baselines: Dict[int, Dict[str, float]] = {}
     for resident_id, ses, gender, birth_date, occupation, is_noble in rows:
         age = _age_from_birth_date(birth_date, reference_year)
+        family_root = family_of.get(resident_id, resident_id)
+        if family_root not in family_baselines:
+            family_baselines[family_root] = {
+                name: _clamp01(rng.gauss(0.5, 0.2)) for name in FAMILY_CORRELATED_TRAITS
+            }
         graph.add_node(
             Node(
                 resident_id=resident_id, ses=ses, alive=True, gender=gender, age=age,
-                occupation=occupation, is_noble=bool(is_noble), **synthesize_traits(rng),
+                occupation=occupation, is_noble=bool(is_noble),
+                **synthesize_traits(rng, family_baselines[family_root]),
             )
         )
 

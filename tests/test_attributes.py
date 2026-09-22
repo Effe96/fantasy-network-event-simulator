@@ -57,6 +57,38 @@ def test_traits_are_deterministic_given_same_seed():
     assert synthesize_traits(random.Random(7)) == synthesize_traits(random.Random(7))
 
 
+def test_family_baseline_pulls_religiousness_and_skepticism_but_not_cunning_or_loyalty():
+    # a family center far from the population mean should pull the
+    # family-correlated traits toward it, while cunning/loyalty stay on
+    # their own population-wide draw regardless
+    baseline = {"religiousness": 0.95, "skepticism": 0.95}
+    rng = random.Random(3)
+    devout_family_draws = [synthesize_traits(rng, baseline) for _ in range(100)]
+    avg_religiousness = sum(t["religiousness"] for t in devout_family_draws) / 100
+    avg_skepticism = sum(t["skepticism"] for t in devout_family_draws) / 100
+    assert avg_religiousness > 0.7
+    assert avg_skepticism > 0.7
+
+    rng2 = random.Random(3)
+    population_draws = [synthesize_traits(rng2) for _ in range(100)]
+    avg_cunning_population = sum(t["cunning"] for t in population_draws) / 100
+    avg_cunning_family = sum(t["cunning"] for t in devout_family_draws) / 100
+    # cunning is untouched by the family baseline -- both should land near
+    # the same population mean (0.5), not near the family's 0.95 center
+    assert abs(avg_cunning_family - 0.5) < 0.15
+    assert abs(avg_cunning_population - 0.5) < 0.15
+
+
+def test_family_correlated_traits_are_not_identical_within_a_family():
+    # "more likely, not assured" -- individual draws around the same family
+    # center must still vary from one member to the next
+    baseline = {"religiousness": 0.5, "skepticism": 0.5}
+    rng = random.Random(5)
+    a = synthesize_traits(rng, baseline)
+    b = synthesize_traits(rng, baseline)
+    assert a["religiousness"] != b["religiousness"] or a["skepticism"] != b["skepticism"]
+
+
 def _run_all():
     test_synthesized_values_are_in_range()
     test_synthesis_is_deterministic_given_same_seed()
@@ -64,6 +96,8 @@ def _run_all():
     test_every_baseline_type_has_a_fiske_tag()
     test_traits_are_in_range_and_cover_every_name()
     test_traits_are_deterministic_given_same_seed()
+    test_family_baseline_pulls_religiousness_and_skepticism_but_not_cunning_or_loyalty()
+    test_family_correlated_traits_are_not_identical_within_a_family()
     print("OK")
 
 

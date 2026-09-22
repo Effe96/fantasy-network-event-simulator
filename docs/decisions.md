@@ -8,6 +8,41 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-22 — Family members are more likely to share faith/skepticism (not assured)
+
+**Decision:** `graph.py`'s trait synthesis gained a family-correlation
+step for `religiousness` and `skepticism` only (`cunning`/`loyalty` stay
+fully independent — nothing ties them to upbringing the way faith is).
+Each family (grouped by `parent`/`sibling` ties only, via union-find in
+a new `_family_groups` — spouse/coworker/etc. ties don't count as
+"family" for this) gets a shared center drawn once, at the population
+mean/stdev (`N(0.5, 0.2)`); each member's own trait is then drawn as
+`N(family_center, 0.15)` instead of straight from the population
+distribution. This is a real tendency, not a copy — the within-family
+stdev (0.15) is deliberately smaller than the population stdev (0.2) but
+still nonzero, so siblings usually land close but sometimes don't, which
+is what "more likely, not assured" (the request) actually asked for.
+Verified on the real reference town: average within-family
+religiousness gap 0.16 vs. 0.29 for a random pair — a real, moderate
+correlation (≈0.64 by the underlying math), not a token gesture.
+
+**Why now:** raised right after Priests' corruption slice landed,
+prompted by the same religiousness/skepticism traits ReligionPhenomenon
+just started consuming for the first time — a natural moment to notice
+the traits had no family structure at all.
+
+**Ripple effect, not a bug:** because family clustering pushes some
+families toward the extremes, the population-wide spread of
+skepticism/religiousness widened slightly (stdev ≈0.24 vs. the flat
+0.2 before), which raised the civilian heretic rate
+(`skepticism > heretic_skepticism_threshold`) from ~7.7% (140
+civilians) to ~11.1% (202 civilians) on the reference town.
+`heretic_skepticism_threshold` (0.8) was deliberately left unchanged
+rather than retuned to force the rate back down — 11% still reads as
+"a small minority," and the shift is an honest, explainable consequence
+of a real feature, not a miscalibration. `phenomena.py`'s
+`ReligionPhenomenon` docstring updated to the current figure.
+
 ## 2026-09-22 — Priests' corruption, reusing bribery's shape on the same edge/roll as devotion and friction
 
 **Decision:** `ReligionPhenomenon` gains a `corruption` event alongside

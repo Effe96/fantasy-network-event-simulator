@@ -143,6 +143,50 @@ def test_occupation_and_is_noble_are_imported():
         assert graph.nodes[3].role == "civilian"
 
 
+def test_siblings_have_more_similar_religiousness_than_unrelated_residents():
+    # statistical: build many small towns of 2 siblings + 1 unrelated
+    # resident, and check siblings' religiousness is closer to each other
+    # than to the unrelated resident, on average across seeds
+    sibling_gaps = []
+    unrelated_gaps = []
+    for seed in range(60):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = str(Path(tmp) / "town.db")
+            make_test_db(
+                db_path,
+                residents=[(1, "middling", None), (2, "middling", None), (3, "middling", None)],
+                relationships=[(1, 2, "sibling")],  # 3 is unrelated to both
+            )
+            graph = import_snapshot(db_path, seed=seed)
+            sibling_gaps.append(abs(graph.nodes[1].religiousness - graph.nodes[2].religiousness))
+            unrelated_gaps.append(abs(graph.nodes[1].religiousness - graph.nodes[3].religiousness))
+    avg_sibling_gap = sum(sibling_gaps) / len(sibling_gaps)
+    avg_unrelated_gap = sum(unrelated_gaps) / len(unrelated_gaps)
+    assert avg_sibling_gap < avg_unrelated_gap
+
+
+def test_family_grouping_does_not_extend_to_spouses():
+    # a spouse isn't a blood relation -- their religiousness should draw
+    # from the plain population baseline, not be pulled toward the other
+    # spouse's, unlike siblings
+    spouse_gaps = []
+    for seed in range(60):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = str(Path(tmp) / "town.db")
+            make_test_db(
+                db_path,
+                residents=[(1, "middling", None), (2, "middling", None)],
+                relationships=[(1, 2, "spouse")],
+            )
+            graph = import_snapshot(db_path, seed=seed)
+            spouse_gaps.append(abs(graph.nodes[1].religiousness - graph.nodes[2].religiousness))
+    avg_spouse_gap = sum(spouse_gaps) / len(spouse_gaps)
+    # two independent N(0.5, 0.2) draws have an expected |gap| around 0.22;
+    # a family-correlated pair (see the sibling test) averages well under
+    # half that -- this just confirms spouses land with the uncorrelated one
+    assert avg_spouse_gap > 0.15
+
+
 def _run_all():
     test_import_loads_all_residents()
     test_import_loads_relationship_edges_with_correct_types()
@@ -154,6 +198,8 @@ def _run_all():
     test_gender_and_age_are_imported_against_town_reference_year()
     test_age_is_none_when_town_state_is_missing()
     test_occupation_and_is_noble_are_imported()
+    test_siblings_have_more_similar_religiousness_than_unrelated_residents()
+    test_family_grouping_does_not_extend_to_spouses()
     print("OK")
 
 

@@ -1227,8 +1227,9 @@ class ReligionPhenomenon:
     their own religiousness -- a devotion event, the second concrete
     instance of the "favor" event type after bribery. A small,
     deliberately-chosen minority (skepticism above heretic_skepticism_
-    threshold -- ~8% of civilians at the trait's default distribution) feel
-    the opposite: their own affinity toward priests they know erodes
+    threshold -- ~11% of civilians on the reference town, since skepticism
+    now clusters somewhat by family, see graph.py's FAMILY_CORRELATED_TRAITS)
+    feel the opposite: their own affinity toward priests they know erodes
     instead, scaled by their own skepticism -- a "friction" event, the
     mirror case. Which one applies to a given civilian is decided once, in
     init_state (skepticism > threshold), not re-rolled daily -- same
