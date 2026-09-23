@@ -6,12 +6,11 @@
 > feature backlog — still the source of truth for *scope* on each item
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
-> plan changes. Last updated 2026-09-23 (Coup mechanic landed: all
-> four Nobles items are done. Death record (`graph.deaths`) added, which
-> unblocked Priests' disease-curer blame, now also done. Quarantine landed
-> the same day, with a slower epidemic (base_rate 0.5 -> 0.06). Next up
-> per the build order: population turnover (for multi-year runs), then
-> Taxes, then town-wide dials.).
+> plan changes. Last updated 2026-09-23: the pipeline was reassessed with
+> the user after the equilibrium principle, city-wide parameters and
+> everyday favors were added to Project_Vision. **The "Pipeline" section
+> below is the current order**; older per-topic sections further down
+> keep their detail.
 
 ## Resume checklist
 
@@ -28,6 +27,57 @@
    note here about it — see the visualize-every-change convention in
    memory, and verify by reading the live artifact rather than a
    possibly-outdated note like this one.
+
+## Pipeline (reassessed with the user, 2026-09-23) — current order
+
+Why this order: riots, executions and coups would otherwise be
+calibrated against a town that still drifts (hatred accumulating, faith
+creeping up, population shrinking) and need recalibrating later; and the
+city-wide parameters are what most later items should read from. So:
+foundations, then balance the everyday, then retune the extraordinary
+events, then let the town change. See Project_Vision's "Equilibrium",
+"Everyday favors" and "Town-wide dynamic parameters" sections.
+
+**Phase A: Foundations** (tools and structure, no behaviour change)
+1. **"Quiet town" drift check**: run several years with no epidemic,
+   report each key quantity's drift per year, flag anything outside
+   tolerance. Makes the equilibrium principle a repeatable test and
+   measures which imbalances are real before fixing any. **Next.**
+2. **City-wide parameters in one place** (aggression, strictness,
+   loyalty, religiosity, wealth, ...), read by every mechanic instead of
+   scattered constants; as a pure refactor, verifiable bit-for-bit.
+3. **Adding residents mid-run**: engine + every phenomenon can take on a
+   resident after day 1 (the blocker for births and arrivals).
+
+**Phase B: Balance the everyday** (equilibrium at the reference parameters)
+4. **Everyday favors**, the counterweight to hatred accumulating.
+5. **Faith balance**: everyday sickness deaths cost mourners faith too
+   (option 2 in Project_Vision's Equilibrium section).
+6. **Population turnover**: real births, arrivals, replacement guards
+   and clergy, children growing up; births + arrivals ~ deaths in a quiet
+   year.
+7. **One-way counters**, e.g. bodyguards dismissed when no longer needed.
+   -> Phase B is done when the drift check passes at reference parameters.
+
+**Phase C: Retune the extraordinary events** (against a stable town)
+8. **Executions** scaled by strictness and crime severity (needs step 2).
+9. **Smaller, rarer riots.**
+10. **Coup redesign** (bribing guards, allied nobles).
+
+**Phase D: A changing town**
+11. **Taxes**: first external event, acting on parameters and on
+    animosity toward the governor.
+12. **Parameters that change naturally** (e.g. epidemics wearing faith
+    down) and a way to trigger external events.
+13. **Economy & poverty**: income, beggars, hardship deaths (wealth).
+14. **Remaining role items**: guards' arrests and patron protection,
+    priests bribing guards, nobles bribing priests, noble head figures,
+    cross-class romance, riot aftermath, stress, multi-generational ties.
+
+**Phase E (future)**: towns interacting through each other's parameters.
+
+**Housekeeping as it comes up**: Criminals Report still on the previous
+town; refresh the dashboard after each behaviour change.
 
 ## Criminals — done (2026-09-21)
 
@@ -213,8 +263,9 @@ infections 65% -> 48% and plague deaths 147 -> 116 a year. Required slowing the 
 guesses: `docs/decisions.md`'s 2026-09-23 quarantine entry. Open: check
 quarantine's knock-on effect on mercenary hiring (same 0.7 hatred cutoff).
 
-## Next up (queued 2026-09-23, after taming the over-violent town)
+## Next up (queued 2026-09-23) — superseded by "Pipeline" above
 
+Kept for its detail; items 2-4 are now pipeline steps 9, 10 and 8.
 In the user's order of mention:
 1. ~~**Occasional epidemics**~~ **Done 2026-09-23**: ~1 outbreak every
    4 years, random day and patient zero (`outbreak_yearly_chance`).
