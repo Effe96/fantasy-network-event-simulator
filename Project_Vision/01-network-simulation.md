@@ -847,6 +847,32 @@ home districts; see `docs/decisions.md`'s 2026-09-23 quarantine entry.
 - Also raises animosity toward whichever class — priests or nobles —
   made the call.
 
+### Long runs: population turnover (new, user question 2026-09-23)
+
+A 20-year run is only meaningful if the town can renew itself. Today it
+can't: about 300-380 residents die each year on the ~1,900-resident
+reference town (plague, violence, riots, executions, ailments), but
+births are log-only and nobody arrives, so the town would be down to a
+few hundred people after ~5 years. Runtime itself is not the problem
+(~3 min per simulated year, so ~1 hour for 20 years).
+
+- **Births become real residents**: a new `Node` with traits drawn near
+  the parents' (the family-correlated religiousness/skepticism shape
+  already exists), `parent`/`sibling` ties to the family, and the
+  parents' home district. Needs a way for every phenomenon to take on a
+  resident added mid-run (each one's per-resident state is fixed on day
+  0 today; see People → Romance above).
+- **Replacement for the dead**: at least one source of new people, e.g.
+  arrivals from outside the town, and succession for roles that
+  matter: new clergy when priests die, new guards when guards die.
+  Children growing into adults (and into jobs) over the years.
+- **Yearly rhythm**: the epidemic starts only once, from a single
+  patient zero on day 1. Over many years it should be able to return,
+  e.g. a small yearly chance of a new outbreak, with immunity that
+  fades or with the population turning over.
+- Long runs are also where Taxes and coups really play out, so this
+  comes before Taxes in the build order.
+
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 
 - Candidate event types so far: killing, stealing, loving, bribing,

@@ -10,7 +10,8 @@
 > four Nobles items are done. Death record (`graph.deaths`) added, which
 > unblocked Priests' disease-curer blame, now also done. Quarantine landed
 > the same day, with a slower epidemic (base_rate 0.5 -> 0.06). Next up
-> per the build order: Taxes, then town-wide dials.).
+> per the build order: population turnover (for multi-year runs), then
+> Taxes, then town-wide dials.).
 
 ## Resume checklist
 
@@ -207,6 +208,27 @@ residents inside resent the sealing class. Required slowing the epidemic
 (base_rate 0.5 -> 0.06). Full reasoning, including three revised first
 guesses: `docs/decisions.md`'s 2026-09-23 quarantine entry. Open: check
 quarantine's knock-on effect on mercenary hiring (same 0.7 hatred cutoff).
+
+## Population turnover — needed before multi-year runs (added 2026-09-23)
+
+Asked how long a 20-year run would take: runtime is fine (~3 min per
+simulated year, ~1 hour for 20), but the town wouldn't survive it. About
+300-380 residents die a year on the reference town and none are ever
+added (births are log-only), so it would be nearly empty within ~5
+years, and every crowd-driven mechanic (riots, group violence,
+quarantine) would fade with it. Scope, per `Project_Vision`'s new "Long
+runs: population turnover" section:
+
+1. **Births as real residents**: new `Node`s with family-correlated
+   traits, family ties and the parents' home district. Blocker first:
+   every phenomenon's per-resident state is fixed on day 0, so the
+   engine needs a way to add a resident mid-run to all of them.
+2. **Replacement for the dead**: arrivals from outside, succession for
+   clergy and guards, children growing into adults and jobs.
+3. **Recurring epidemics**: the epidemic currently starts once, from one
+   patient zero on day 1; over many years it needs a chance to return.
+
+Comes before Taxes: taxes and coups really play out over years.
 
 ## Taxes
 
