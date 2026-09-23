@@ -88,7 +88,9 @@
 **Epidemic tiers (2026-09-23)**: severity now comes from `EPIDEMIC_TIERS`
 (influenza, measles, typhus/dysentery = default tier 3, bubonic, pneumonic),
 built from `medieval_diseases.md` with the rule that a very contagious
-disease isn't very deadly and vice versa. See `docs/decisions.md`.
+disease isn't very deadly and vice versa. Outbreaks are occasional (~1
+every 4 years), from a random resident on a random day. See
+`docs/decisions.md`.
 
 - States: susceptible → infected → (recovered | deceased). Transmission
   probability scales with `base_rate`, tie strength, and a per-

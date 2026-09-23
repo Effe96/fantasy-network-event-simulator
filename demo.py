@@ -9,6 +9,7 @@ from graph import import_snapshot
 from phenomena import (
     CommonAilmentsPhenomenon,
     DEFAULT_EPIDEMIC_TIER,
+    DEFAULT_OUTBREAK_YEARLY_CHANCE,
     EPIDEMIC_TIERS,
     ContagionPhenomenon,
     GuardPhenomenon,
@@ -38,6 +39,8 @@ def main(argv=None) -> None:
     parser.add_argument("--out", default="output")
     parser.add_argument("--epidemic-tier", type=int, default=DEFAULT_EPIDEMIC_TIER, choices=sorted(EPIDEMIC_TIERS),
                          help="epidemic severity tier (see EPIDEMIC_TIERS; 3 = average, the default)")
+    parser.add_argument("--outbreak-chance", type=float, default=DEFAULT_OUTBREAK_YEARLY_CHANCE,
+                         help="yearly chance an epidemic breaks out (random day, random patient zero)")
     parser.add_argument("--transmission-rate", type=float, default=None,
                          help="override the tier's per-edge daily transmission hazard")
     parser.add_argument("--infectious-days", type=int, default=None,
@@ -63,7 +66,7 @@ def main(argv=None) -> None:
     # violence's riot-escalation path calls straight into this instance)
     riot = RiotPhenomenon(unrest_threshold=0.15 / aggression_factor, riot_base_rate=0.03 * aggression_factor)
     violence = ViolencePhenomenon(base_rate=VIOLENCE_RATE_PER_DEGREE / average_degree * aggression_factor, riot_phenomenon=riot)
-    contagion = ContagionPhenomenon.from_tier(graph, args.epidemic_tier)
+    contagion = ContagionPhenomenon.from_tier(graph, args.epidemic_tier, outbreak_yearly_chance=args.outbreak_chance)
     for attribute, override in (("base_rate", args.transmission_rate), ("infectious_days", args.infectious_days),
                                 ("case_fatality_rate", args.fatality_rate)):
         if override is not None:
@@ -142,6 +145,7 @@ def _print_summary(result) -> None:
     violence_deaths = last.get("dead", 0) - disease_deaths - riot_deaths - executed_deaths - ailment_deaths
 
     print("contagion:")
+    print(f"  outbreaks: {last.get('outbreaks', 0)}")
     print(f"  peak simultaneous infected: {peak.get('infected', 0)} (day {peak['day']})")
     print(f"  final susceptible/infected/recovered/deceased: "
           f"{last.get('susceptible', 0)}/{last.get('infected', 0)}/{last.get('recovered', 0)}/{disease_deaths}")

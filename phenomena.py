@@ -53,6 +53,10 @@ EPIDEMIC_TIERS = {
     5: ("pneumonic plague", 0.97, 1.3, 4),
 }
 DEFAULT_EPIDEMIC_TIER = 3
+# Outbreaks are occasional (2026-09-23, user's choice: ~1 every 4 years),
+# starting on a random day with a random patient zero, instead of always
+# resident 1 on day 0 -- which fizzled in ~1 run in 8, always the same way.
+DEFAULT_OUTBREAK_YEARLY_CHANCE = 0.25
 
 # ties to people you live with -- quarantine shuts people indoors, so these
 # keep carrying disease inside a sealed district while the rest mostly stop
@@ -63,7 +67,9 @@ class ContagionPhenomenon:
     name = "contagion"
 
     @classmethod
-    def from_tier(cls, graph, tier: int = DEFAULT_EPIDEMIC_TIER, **kwargs) -> "ContagionPhenomenon":
+    def from_tier(cls, graph, tier: int = DEFAULT_EPIDEMIC_TIER,
+                  outbreak_yearly_chance: Optional[float] = DEFAULT_OUTBREAK_YEARLY_CHANCE,
+                  **kwargs) -> "ContagionPhenomenon":
         """Build the epidemic from an EPIDEMIC_TIERS row. R0 = infectious days
         * base_rate * (a resident's summed tie_strength * type weight), the
         doc's R0 = beta * c * D on this graph, so base_rate is solved from the
@@ -81,6 +87,7 @@ class ContagionPhenomenon:
             base_rate=r0 / (infectious_days * max(mean_tie_sum, 1e-9)),
             infectious_days=infectious_days,
             case_fatality_rate=fatality / mean_vulnerability,
+            outbreak_yearly_chance=outbreak_yearly_chance,
             **kwargs,
         )
 
@@ -95,8 +102,18 @@ class ContagionPhenomenon:
         quarantine_leak_factor: float = 0.02,
         quarantined_fatality_multiplier: float = 1.25,
         quarantine_indoor_factor: float = 0.2,
+        # None: the classic single epidemic, patient zero infected on day 0.
+        # A number: nobody starts infected; whenever no one is infected, an
+        # outbreak starts each day with the daily share of this yearly chance,
+        # from a random resident who hasn't had it (survivors stay immune).
+        outbreak_yearly_chance: Optional[float] = None,
     ):
         self.base_rate = base_rate
+        self.outbreak_yearly_chance = outbreak_yearly_chance
+        self._outbreak_daily_chance = (
+            1.0 - (1.0 - outbreak_yearly_chance) ** (1.0 / 365.0) if outbreak_yearly_chance is not None else 0.0
+        )
+        self._outbreaks = 0
         self.infectious_days = infectious_days
         self.patient_zero = patient_zero
         self.case_fatality_rate = case_fatality_rate
@@ -123,8 +140,10 @@ class ContagionPhenomenon:
         self._district = {resident_id: node.district_id for resident_id, node in graph.nodes.items()}
         self._sealed = graph.quarantined_districts
         state = {resident_id: {"status": "susceptible", "days_left": 0} for resident_id in graph.nodes}
-        patient_zero = self.patient_zero if self.patient_zero is not None else min(graph.nodes)
-        state[patient_zero] = {"status": "infected", "days_left": self.infectious_days}
+        if self.outbreak_yearly_chance is None or self.patient_zero is not None:
+            patient_zero = self.patient_zero if self.patient_zero is not None else min(graph.nodes)
+            state[patient_zero] = {"status": "infected", "days_left": self.infectious_days}
+            self._outbreaks += 1
         return state
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
@@ -175,12 +194,29 @@ class ContagionPhenomenon:
                     resident_state["status"] = "recovered"
                     graph.record_recovery(resident_id, day, "plague")
                     events.append(Event(day, self.name, "recovered", resident_id, resident_id, "recovered"))
+        events.extend(self._maybe_start_outbreak(graph, state, day, rng))
         return events
+
+    def _maybe_start_outbreak(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        if self.outbreak_yearly_chance is None:
+            return []
+        if any(resident_state["status"] == "infected" for resident_state in state.values()):
+            return []
+        if rng.random() >= self._outbreak_daily_chance:
+            return []
+        candidates = [rid for rid, rs in state.items() if rs["status"] == "susceptible" and graph.nodes[rid].alive]
+        if not candidates:
+            return []
+        patient_zero = rng.choice(candidates)
+        state[patient_zero] = {"status": "infected", "days_left": self.infectious_days}
+        self._outbreaks += 1
+        return [Event(day, self.name, "outbreak", patient_zero, patient_zero, "an epidemic breaks out")]
 
     def summarize(self, state) -> Dict[str, int]:
         counts = {"susceptible": 0, "infected": 0, "recovered": 0, "deceased": 0}
         for resident_state in state.values():
             counts[resident_state["status"]] += 1
+        counts["outbreaks"] = self._outbreaks
         return counts
 
 

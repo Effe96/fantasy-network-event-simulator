@@ -216,9 +216,10 @@ quarantine's knock-on effect on mercenary hiring (same 0.7 hatred cutoff).
 ## Next up (queued 2026-09-23, after taming the over-violent town)
 
 In the user's order of mention:
-1. **Occasional epidemics**: stop seeding a tier-3 outbreak on day 1 of
-   every run; a yearly chance of an outbreak instead. ~104 of the ~167
-   yearly deaths are this. Overlaps with population turnover item 3.
+1. ~~**Occasional epidemics**~~ **Done 2026-09-23**: ~1 outbreak every
+   4 years, random day and patient zero (`outbreak_yearly_chance`).
+   Reference seed moved 5 -> 3. Recurring waves over many years still
+   need population turnover to have new susceptibles.
 2. **Smaller, rarer riots**: the organic riot trigger (average civilian
    hostility toward guards and nobles) still starts ~0.8 riots a year
    of 70-109 people (4-6% of the town).

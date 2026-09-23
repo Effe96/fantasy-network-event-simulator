@@ -64,7 +64,7 @@ def test_summarize_counts_every_status():
         4: {"status": "deceased", "days_left": 0},
     }
     phenomenon = ContagionPhenomenon()
-    assert phenomenon.summarize(state) == {"susceptible": 1, "infected": 1, "recovered": 1, "deceased": 1}
+    assert phenomenon.summarize(state) == {"susceptible": 1, "infected": 1, "recovered": 1, "deceased": 1, "outbreaks": 0}
 
 
 def test_infection_is_not_infectious_until_the_next_day():
@@ -99,6 +99,34 @@ def test_dead_residents_do_not_recover():
     assert state[1]["status"] == "infected"  # frozen, not recovered
 
 
+def test_occasional_outbreak_mode_starts_with_nobody_infected():
+    graph = SocialGraph()
+    for resident_id in (1, 2, 3):
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True))
+    never = ContagionPhenomenon(outbreak_yearly_chance=0.0)
+    state = never.init_state(graph)
+    assert all(rs["status"] == "susceptible" for rs in state.values())
+    for day in range(1, 366):
+        never.end_of_day(graph, state, day, random.Random(day))
+    assert never.summarize(state)["outbreaks"] == 0
+
+
+def test_an_outbreak_starts_from_a_random_susceptible_resident():
+    graph = SocialGraph()
+    for resident_id in (1, 2, 3):
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True))
+    certain = ContagionPhenomenon(outbreak_yearly_chance=1.0, infectious_days=5)
+    state = certain.init_state(graph)
+    state[1] = {"status": "recovered", "days_left": 0}  # already had it: never picked
+    events = certain.end_of_day(graph, state, 1, random.Random(0))
+    infected = [rid for rid, rs in state.items() if rs["status"] == "infected"]
+    assert len(infected) == 1 and infected[0] in (2, 3)
+    assert [e.kind for e in events] == ["outbreak"]
+    # no second outbreak while the first is still going
+    certain.end_of_day(graph, state, 2, random.Random(1))
+    assert certain.summarize(state)["outbreaks"] == 1
+
+
 def _run_all():
     test_edge_probability_matches_worked_example()
     test_probability_is_zero_when_neither_endpoint_infected()
@@ -107,6 +135,8 @@ def _run_all():
     test_summarize_counts_every_status()
     test_infection_is_not_infectious_until_the_next_day()
     test_dead_residents_do_not_recover()
+    test_occasional_outbreak_mode_starts_with_nobody_infected()
+    test_an_outbreak_starts_from_a_random_susceptible_resident()
     print("OK")
 
 

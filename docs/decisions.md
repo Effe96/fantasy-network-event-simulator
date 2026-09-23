@@ -8,6 +8,34 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — Occasional epidemics, and reference seed 5 -> 3
+
+**Decision (user's choice: ~1 outbreak every 4 years):** with
+`ContagionPhenomenon(outbreak_yearly_chance=...)` nobody starts infected;
+whenever no one is infected, an outbreak starts each day with the daily
+share of the yearly chance, from a random living resident who hasn't had
+it (survivors stay immune, so a later wave finds fewer to infect).
+`from_tier` defaults it to `DEFAULT_OUTBREAK_YEARLY_CHANCE` 0.25;
+`demo.py --outbreak-chance`. Without it (hand-built tests), patient zero
+is still infected on day 0 as before.
+
+**Why:** the epidemic was seeded on day 1 of every run, always from
+resident 1, so every one-year run was an epidemic year (~104 of ~167
+yearly deaths). Resident 1 has 85 mostly weak ties (55 neighbours, 26
+shop customers, 3 housemates, 1 spouse): 2.0 expected infections at tier
+3, a 12.9% chance of infecting no one, which is how seed 5's epidemic
+fizzled once the RNG stream shifted.
+
+**Verified, seeds 1-10:** outbreaks began in 3 of 10 seed-years (seed 3
+on day 75, taking off with 119 deaths, plus a second on day 329; seed 6
+on day 340). Averages: murders 5.3, riots 1.1, riot deaths 9.5, guards
+dead 3.8, nobles 1.0, clergy 0, coups 0.2, executions 12.1, all deaths
+81 (4.3%); epidemic-free years 61-85 deaths (3.2-4.5%).
+
+**Reference seed is now 3** (was 5): the first seed whose year includes
+an outbreak that takes off, chosen once and kept, so the dashboard's
+epidemic, quarantine and blame sections have real data.
+
 ## 2026-09-23 — Taming an over-violent town: root causes and fixes
 
 **Problem (user):** the reference year's highlights were too extreme: 5
