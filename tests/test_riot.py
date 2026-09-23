@@ -256,6 +256,15 @@ def test_hatred_toward_sums_only_hostile_incoming_valence():
     assert abs(RiotPhenomenon._hatred_toward(graph, 200) - 0.9) < 1e-9
 
 
+def test_a_guard_in_the_mob_is_not_also_defending_against_it():
+    graph = _town(num_hostile_civilians=3, num_guards=2)
+    riot = RiotPhenomenon()
+    riot.init_state(graph)
+    riot._begin_riot(graph, day=1, participants=[1, 2, 101], avg_participant_hostility=0.9)
+    assert riot._active_riot["guards_remaining"] == [100]
+    assert riot._active_riot["initial_guard_count"] == 1
+
+
 def _run_all():
     test_no_riot_below_unrest_threshold()
     test_no_riot_when_too_few_join()
@@ -270,6 +279,7 @@ def _run_all():
     test_riot_bar_depletion_stops_the_riot()
     test_nobles_are_exposed_immediately_when_no_guards_exist()
     test_hatred_toward_sums_only_hostile_incoming_valence()
+    test_a_guard_in_the_mob_is_not_also_defending_against_it()
     print("OK")
 
 

@@ -1145,7 +1145,12 @@ class RiotPhenomenon:
         band was (organic riots use each participant's worst grievance toward an
         authority figure; group violence uses their hostility toward the shared
         target instead), since it feeds the mob's retreat threshold below."""
-        guards = [rid for rid, node in graph.nodes.items() if node.alive and node.role == "guard"]
+        # a guard inside the mob (group violence's bands can include one) is
+        # rioting, not defending -- listing them on both sides let one person
+        # be killed twice in the same riot, caught by the death record
+        rioting = set(participants)
+        guards = [rid for rid, node in graph.nodes.items()
+                  if node.alive and node.role == "guard" and rid not in rioting]
         # a more loyal garrison holds much longer than an unloyal one -- 0.5 is
         # the trait's own default mean, so an average-loyalty force reproduces
         # the plain retreat_threshold unchanged
