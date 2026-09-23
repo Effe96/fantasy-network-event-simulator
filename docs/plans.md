@@ -213,6 +213,21 @@ infections 65% -> 48% and plague deaths 147 -> 116 a year. Required slowing the 
 guesses: `docs/decisions.md`'s 2026-09-23 quarantine entry. Open: check
 quarantine's knock-on effect on mercenary hiring (same 0.7 hatred cutoff).
 
+## Next up (queued 2026-09-23, after taming the over-violent town)
+
+In the user's order of mention:
+1. **Occasional epidemics**: stop seeding a tier-3 outbreak on day 1 of
+   every run; a yearly chance of an outbreak instead. ~104 of the ~167
+   yearly deaths are this. Overlaps with population turnover item 3.
+2. **Smaller, rarer riots**: the organic riot trigger (average civilian
+   hostility toward guards and nobles) still starts ~0.8 riots a year
+   of 70-109 people (4-6% of the town).
+3. **Coup redesign**: bribing guards to stand aside, recruiting allied
+   nobles, a plotter's force that has to outweigh the governor's.
+4. **Executions by aggression and crime severity** (user): ~11 thieves
+   executed a year is high; the rate should depend on the town's
+   aggression and on how serious the crime was, not a flat chance.
+
 ## Population turnover — needed before multi-year runs (added 2026-09-23)
 
 Asked how long a 20-year run would take: runtime is fine (~3 min per

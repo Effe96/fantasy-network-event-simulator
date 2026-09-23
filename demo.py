@@ -22,6 +22,14 @@ from phenomena import (
 from engine import run_simulation
 
 
+# per-tie daily violence hazard, before dividing by average degree. Was 0.01
+# while any dislike could kill; with ViolencePhenomenon's hatred_floor only
+# real hatred counts, and 0.0018 aims at ~5 murders a year on the ~1,900-
+# resident reference town (user's target, 2026-09-23; medieval towns ran
+# ~20-100 per 100,000, this is a rougher fantasy town).
+VIOLENCE_RATE_PER_DEGREE = 0.0018
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description="Run the Fantasy Network Event Simulator over a TownShape snapshot.")
     parser.add_argument("--db", required=True, help="Path to a TownShape .db snapshot")
@@ -54,7 +62,7 @@ def main(argv=None) -> None:
     # constructed before violence so it can be wired into it below (group
     # violence's riot-escalation path calls straight into this instance)
     riot = RiotPhenomenon(unrest_threshold=0.15 / aggression_factor, riot_base_rate=0.03 * aggression_factor)
-    violence = ViolencePhenomenon(base_rate=0.01 / average_degree * aggression_factor, riot_phenomenon=riot)
+    violence = ViolencePhenomenon(base_rate=VIOLENCE_RATE_PER_DEGREE / average_degree * aggression_factor, riot_phenomenon=riot)
     contagion = ContagionPhenomenon.from_tier(graph, args.epidemic_tier)
     for attribute, override in (("base_rate", args.transmission_rate), ("infectious_days", args.infectious_days),
                                 ("case_fatality_rate", args.fatality_rate)):

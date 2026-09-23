@@ -34,7 +34,7 @@ def test_edge_probability_formula():
     edge = Edge(1, 2, "neighbor", "Equality Matching", time=0.4, intimacy=0.4, services=0.4,
                 valence_a_to_b=-0.4, valence_b_to_a=-0.4)
     graph.add_edge(edge)
-    phenomenon = ViolencePhenomenon(base_rate=0.1)
+    phenomenon = ViolencePhenomenon(base_rate=0.1, hatred_floor=0.0)  # the base formula, no floor
     state = phenomenon.init_state(graph)
     probability = phenomenon.edge_probability(edge, state[1], state[2], day=1)
     # tie_strength = mean(0.4, 0.4, 0.4, 0.4) = 0.4; probability = base_rate * hostility * tie_strength
@@ -45,7 +45,7 @@ def test_probability_driven_by_the_more_hostile_direction():
     # 1 despises 2 (-0.9), but 2 doesn't mind 1 at all (0.0) -- the pair's odds
     # should reflect 1's hostility, not an average that waters it down
     graph = _graph_with_valence(valence_a_to_b=-0.9, valence_b_to_a=0.0)
-    phenomenon = ViolencePhenomenon(base_rate=0.5)
+    phenomenon = ViolencePhenomenon(base_rate=0.5, hatred_floor=0.0)
     state = phenomenon.init_state(graph)
     edge = graph.get_edge(1, 2)
     probability = phenomenon.edge_probability(edge, state[1], state[2], day=1)
@@ -444,7 +444,7 @@ def test_coup_succeeds_against_an_unprotected_governor():
     graph = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12})
     phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0,
                                      coup_hire_rate=1.0, coup_detection_rate=0.0,
-                                     coup_mercenary_cap=3, coup_success_base_rate=1.0)
+                                     coup_mercenary_cap=3)
     state = phenomenon.init_state(graph)
     phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))  # begins
     for day in range(2, 6):
@@ -457,38 +457,53 @@ def test_coup_succeeds_against_an_unprotected_governor():
     assert any(event.kind == "coup_succeeds" for event in events)
 
 
-def test_governor_protection_mercenaries_reduce_coup_success_chance():
-    # unprotected: guaranteed success (base_rate*4 capped at 1.0, no defense)
-    graph_unprotected = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12})
+def _run_one_coup(graph, governor_mercenaries=(), seed=0):
     phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0,
-                                     coup_hire_rate=1.0, coup_detection_rate=0.0,
-                                     coup_mercenary_cap=3, coup_success_base_rate=0.25,
-                                     mercenary_protection_factor=0.1)
-    state = phenomenon.init_state(graph_unprotected)
-    phenomenon.end_of_day(graph_unprotected, state, day=1, rng=random.Random(0))
-    for day in range(2, 6):
-        phenomenon.end_of_day(graph_unprotected, state, day=day, rng=random.Random(day))
-        if phenomenon._active_coup is None:
+                                     coup_hire_rate=1.0, coup_detection_rate=0.0, coup_mercenary_cap=3)
+    state = phenomenon.init_state(graph)
+    state[200]["mercenaries"] = list(governor_mercenaries)
+    for day in range(1, 8):
+        phenomenon.end_of_day(graph, state, day=day, rng=random.Random(seed * 100 + day))
+        if phenomenon._coups_attempted:
             break
-    assert graph_unprotected.nodes[200].alive is False
+    return phenomenon
 
-    # heavily protected governor: same setup, but with 3 living protection
-    # mercenaries already in place -- success_chance *= 0.1**3, must survive
-    graph_protected = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12},
-                                             governor_mercenary_ids={20, 21, 22})
-    phenomenon2 = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0,
-                                      coup_hire_rate=1.0, coup_detection_rate=0.0,
-                                      coup_mercenary_cap=3, coup_success_base_rate=0.25,
-                                      mercenary_protection_factor=0.1)
-    state2 = phenomenon2.init_state(graph_protected)
-    state2[200]["mercenaries"] = [20, 21, 22]
-    phenomenon2.end_of_day(graph_protected, state2, day=1, rng=random.Random(0))
-    for day in range(2, 6):
-        phenomenon2.end_of_day(graph_protected, state2, day=day, rng=random.Random(day))
-        if phenomenon2._active_coup is None:
-            break
-    assert graph_protected.nodes[200].alive is True
-    assert graph_protected.nodes[100].alive is False  # the plotter was repelled and killed
+
+def test_governor_protection_mercenaries_reduce_coup_success_chance():
+    # unprotected (no bodyguards, no guards): 3 / (3 + 0) -- always succeeds
+    graph = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12})
+    assert _run_one_coup(graph)._coups_succeeded == 1
+
+    # 3 bodyguards: 3 / (3 + 3) -- about half the time, over many independent tries
+    wins = 0
+    for seed in range(200):
+        graph = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12},
+                                       governor_mercenary_ids={20, 21, 22})
+        wins += _run_one_coup(graph, governor_mercenaries=[20, 21, 22], seed=seed)._coups_succeeded
+    assert 60 < wins < 140
+
+
+def test_loyal_guards_defend_the_governor_against_a_coup():
+    wins = 0
+    for seed in range(200):
+        graph = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12})
+        for guard_id in range(500, 540):  # 40 fully loyal guards: 0.3 x 40 = 12 defense
+            graph.add_node(Node(resident_id=guard_id, ses="poor", alive=True, occupation="guard", loyalty=1.0))
+        wins += _run_one_coup(graph, seed=seed)._coups_succeeded
+    assert wins < 70  # 3 / (3 + 12) = 20% expected
+
+
+def test_no_new_plot_during_the_cooldown_after_a_coup():
+    graph = _governor_and_plotter(animosity=-0.9, plotter_ex_soldier_ids={10, 11, 12})
+    phenomenon = ViolencePhenomenon(coup_animosity_threshold=0.5, coup_start_rate=1.0, coup_hire_rate=1.0,
+                                     coup_detection_rate=0.0, coup_mercenary_cap=3, coup_cooldown_days=365)
+    state = phenomenon.init_state(graph)
+    for day in range(1, 8):
+        phenomenon.end_of_day(graph, state, day=day, rng=random.Random(day))
+    assert phenomenon._coups_attempted == 1
+    for day in range(8, 300):
+        phenomenon.end_of_day(graph, state, day=day, rng=random.Random(day))
+    assert phenomenon._coups_attempted == 1 and phenomenon._active_coup is None
 
 
 def test_hiring_is_capped():
@@ -650,10 +665,22 @@ def test_failed_group_attempt_drops_victims_valence_toward_every_band_member():
     assert any(event.kind == "group_failed_attempt" for event in events)
 
 
+def test_a_small_band_attacks_its_target_instead_of_rioting():
+    graph, victim_id = _group_town(num_haters=5)
+    riot = RiotPhenomenon(min_participants=3)
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, riot_phenomenon=riot,
+                                     group_action_rate=1.0)  # default escalation bar: 10
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert riot._riots == 0
+    assert phenomenon._group_kills == 1
+
+
 def test_large_enough_band_escalates_into_a_riot_instead_of_a_kill():
     graph, victim_id = _group_town(num_haters=5)
     riot = RiotPhenomenon(min_participants=3)
-    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, riot_phenomenon=riot, group_action_rate=1.0)
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, riot_phenomenon=riot, group_action_rate=1.0,
+                                     riot_escalation_min_band=5)
     state = phenomenon.init_state(graph)
     events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
 
@@ -701,6 +728,18 @@ def test_group_action_rate_gates_whether_a_qualifying_band_acts_today():
     assert phenomenon._group_kills == 0
 
 
+def test_mild_dislike_never_turns_deadly():
+    phenomenon = ViolencePhenomenon(base_rate=0.5, hatred_floor=0.6)
+    mild = _graph_with_valence(valence_a_to_b=-0.5, valence_b_to_a=0.0)
+    state = phenomenon.init_state(mild)
+    assert phenomenon.edge_probability(mild.get_edge(1, 2), state[1], state[2], day=1) == 0.0
+    hate = _graph_with_valence(valence_a_to_b=-0.9, valence_b_to_a=0.0)
+    state = phenomenon.init_state(hate)
+    edge = hate.get_edge(1, 2)
+    # (0.9 - 0.6) / (1 - 0.6) = 0.75 of the way to total hatred
+    assert abs(phenomenon.edge_probability(edge, state[1], state[2], day=1) - 0.5 * 0.75 * edge.tie_strength) < 1e-9
+
+
 def _run_all():
     test_positive_valence_edges_never_fire()
     test_edge_probability_formula()
@@ -735,11 +774,15 @@ def _run_all():
     test_high_suspicion_can_get_the_plot_discovered_before_it_strikes()
     test_coup_succeeds_against_an_unprotected_governor()
     test_governor_protection_mercenaries_reduce_coup_success_chance()
+    test_loyal_guards_defend_the_governor_against_a_coup()
+    test_no_new_plot_during_the_cooldown_after_a_coup()
+    test_mild_dislike_never_turns_deadly()
     test_haters_with_no_tie_to_each_other_do_not_band_together()
     test_haters_who_dislike_each_other_do_not_band_together()
     test_mutually_tied_haters_band_together_and_can_kill()
     test_group_success_chance_grows_with_band_size()
     test_failed_group_attempt_drops_victims_valence_toward_every_band_member()
+    test_a_small_band_attacks_its_target_instead_of_rioting()
     test_large_enough_band_escalates_into_a_riot_instead_of_a_kill()
     test_band_too_small_for_a_riot_still_just_kills_the_victim()
     test_large_band_without_a_riot_phenomenon_wired_in_still_just_kills()

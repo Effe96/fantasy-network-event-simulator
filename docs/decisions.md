@@ -8,6 +8,62 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — Taming an over-violent town: root causes and fixes
+
+**Problem (user):** the reference year's highlights were too extreme: 5
+governors, 5 of 14 nobles and 2 of 3 clergy dead, and the town shrinking
+1,889 -> 1,478. Over 5 seeds (tier 3, new town) the pattern held: ~411
+deaths a year (22%), of which ~140 murders (7,400 per 100,000; medieval
+towns ran ~20-100), ~77 riot deaths, 74% of guards and 60% of nobles dead
+each year.
+
+**Root causes found (measured, not guessed):**
+1. *Any dislike could kill.* Violence rolled on every tie with hostility
+   above 0, and 72% of expected attempts came from ties below 0.6. A
+   static estimate from the day-1 graph (~165 deaths/yr) matched the
+   observed ~140.
+2. *Tiny "riots".* Group violence turned any band of >=3 into a riot: 37
+   of 46 riots were 3-5 people, each killing ~1 guard and itself wiped out.
+3. *Group killings* were next once solo murder was fixed: any 2 friends
+   past 0.7 hatred of someone rolled 10% a day (~29 kills/yr).
+4. *Coups:* success was 0.25 x (1 + 3 mercenaries) = certain unless the
+   governor had bodyguards; a plot started within weeks of any noble
+   passing 0.5, with no cooldown.
+5. *Riots were massacres:* total deaths per riot-day ~ lethality x
+   sqrt(guards x rioters), ~11 guards and ~33 rioters a day for a 100-
+   person mob; guards broke on day 1; the mob only scattered after 30%+
+   losses.
+
+**Fixes (user chose scope and the ~5 murders/yr target):**
+- `ViolencePhenomenon.hatred_floor` 0.6: odds scale with hostility past
+  the floor; `demo.VIOLENCE_RATE_PER_DEGREE` 0.01 -> 0.0018.
+- `riot_escalation_min_band` 10: smaller bands attack their target.
+- `group_action_rate` 0.1 -> 0.005.
+- Coups: success = mercenaries / (mercenaries + governor's bodyguards +
+  `coup_guard_defense_share` 0.3 x summed loyalty of living guards);
+  `coup_cooldown_days` 365 after any plot resolves; `coup_start_rate`
+  0.05 -> 0.0005. `coup_success_base_rate` removed.
+- Riots: `guard_engagement_ratio` 0.25 (only a proportionate force
+  engages; on its own this did nothing for 70-110-person mobs, since that
+  is already the whole corps) and `noble_flee_chance` 0.8 (user's
+  choices); then lethality at a fifth (`guard_lethality` 0.04,
+  `rioter_lethality` 0.12, keeping the 1:3 ratio from the 2026-09-21 fix)
+  and `rioter_retreat_threshold` 0.3 -> 0.05, which is what actually
+  worked.
+
+**Verified (5 seeds per round, 4 rounds), start -> final:** murders ~140
+-> 3.6/yr (1 by a band); riots ~9 -> 0.8 (real crowds of 70-109, each
+scattering within 1-2 days, guards never breaking); riot deaths ~77 ->
+7.6; guards dead 23 -> 4.8 of 31; nobles 8.4 -> 1.6 of 14; clergy 1 ->
+0.4 of 3; coups: none started in 5 seeds; all deaths 411 -> 167 (8.9%).
+Of the 167, ~104 are the epidemic, seeded on day 1 every run; without it
+deaths would be ~3.3%, near the medieval norm.
+
+**Still open (queued with the user):** occasional instead of guaranteed
+epidemics; smaller, rarer riots (the trigger itself is untouched);
+executions (~11/yr) scaled by town aggression and crime severity; the
+fuller coup redesign.
+
 ## 2026-09-23 — New reference town, epidemic tiers, quarantine shuts people indoors, faith that moves both ways
 
 Four linked changes, decided with the user in one sitting and verified

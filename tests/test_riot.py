@@ -91,6 +91,8 @@ def test_nobles_are_exposed_once_guards_retreat():
         unrest_threshold=0.3, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3,
         guard_lethality=1000.0, retreat_threshold=0.3, noble_lethality=1000.0, death_cap=1.0,
         riot_bar_per_participant=10.0,  # generous bar so it doesn't cap out mid-test
+        noble_flee_chance=0.0,  # nobody gets away in this test
+        rioter_lethality=0.0,  # keep the noble's hater alive so the outcome doesn't hinge on the rng
     )
     # day 1: riot starts; day 2: guards take casualties and (with default 0.5
     # loyalty) retreat once 1 of 2 has died; day 3: the noble is exposed
@@ -194,7 +196,8 @@ def test_angrier_mobs_get_a_higher_rout_threshold():
     furious = _town(num_hostile_civilians=10, num_guards=50, hostility=-0.9)
 
     def make_phenomenon():
-        return RiotPhenomenon(unrest_threshold=0.05, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3)
+        return RiotPhenomenon(unrest_threshold=0.05, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3,
+                              rioter_retreat_threshold=0.3)  # the formula, not the tuned default
 
     calm_phenomenon = make_phenomenon()
     _run_days(calm_phenomenon, calm, days=1)
@@ -265,6 +268,32 @@ def test_a_guard_in_the_mob_is_not_also_defending_against_it():
     assert riot._active_riot["initial_guard_count"] == 1
 
 
+def test_nobles_who_flee_are_out_of_reach():
+    graph = _town(num_hostile_civilians=5, num_guards=2, num_nobles=1)
+    graph.add_edge(Edge(1, 200, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, 0.0))
+    phenomenon = RiotPhenomenon(
+        unrest_threshold=0.3, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3,
+        guard_lethality=1000.0, retreat_threshold=0.3, noble_lethality=1000.0, death_cap=1.0,
+        riot_bar_per_participant=10.0, noble_flee_chance=1.0, rioter_lethality=0.0,
+    )
+    events = _run_days(phenomenon, graph, days=3)
+    assert any(event.kind == "guards_retreat" for event in events)
+    assert phenomenon._noble_deaths == 0
+
+
+def test_only_a_proportionate_guard_force_engages():
+    # 3 rioters against 40 guards at 0.25 guards per rioter: 1 guard engages a
+    # day, so at most 1 guard can die per day however lethal the mob
+    graph = _town(num_hostile_civilians=3, num_guards=40, num_nobles=1)
+    phenomenon = RiotPhenomenon(
+        unrest_threshold=0.3, riot_base_rate=1000.0, join_rate=1000.0, min_participants=3,
+        guard_lethality=1000.0, rioter_lethality=0.0, death_cap=1.0, guard_engagement_ratio=0.25,
+        retreat_threshold=10.0,  # guards never break, so the fight keeps going
+    )
+    _run_days(phenomenon, graph, days=4)  # day 1 starts the riot, days 2-4 fight
+    assert phenomenon._guard_deaths == 3
+
+
 def _run_all():
     test_no_riot_below_unrest_threshold()
     test_no_riot_when_too_few_join()
@@ -280,6 +309,8 @@ def _run_all():
     test_nobles_are_exposed_immediately_when_no_guards_exist()
     test_hatred_toward_sums_only_hostile_incoming_valence()
     test_a_guard_in_the_mob_is_not_also_defending_against_it()
+    test_nobles_who_flee_are_out_of_reach()
+    test_only_a_proportionate_guard_force_engages()
     print("OK")
 
 

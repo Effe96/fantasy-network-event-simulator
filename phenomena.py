@@ -503,11 +503,10 @@ class ViolencePhenomenon:
     mercenaries hired means more daily risk, not a hard cap, so even a
     fully-staffed plot always has *some* chance of going undetected.
     Reaching `coup_mercenary_cap` mercenaries (if not already caught)
-    triggers the attempt itself: `coup_success_base_rate * (1 +
-    len(mercenaries))`, then reduced by the governor's own *living*
-    protection mercenaries via the exact same `mercenary_protection_factor`
-    defense formula `apply_effect` uses -- the two mechanics pay off
-    together, a well-protected governor is genuinely harder to depose.
+    triggers the attempt itself, force against force: mercenaries /
+    (mercenaries + the governor's living bodyguards +
+    coup_guard_defense_share * the summed loyalty of living guards). No new
+    plot starts for coup_cooldown_days after one resolves.
     Success kills the governor and hands `graph.governor_id` to the
     plotter; failure (whether by the attempt or by detection) kills the
     plotter instead -- armed insurrection against the town's ruler is not
@@ -526,7 +525,8 @@ class ViolencePhenomenon:
         group_hate_threshold: float = 0.7,
         group_affinity_threshold: float = 0.3,
         min_group_size: int = 2,
-        group_action_rate: float = 0.1,
+        # 0.1 gave ~29 group killings a year once solo murder was fixed
+        group_action_rate: float = 0.005,
         noble_hired_assassin_shock_factor: float = 0.5,
         mercenary_enemy_threshold: float = 0.7,
         mercenary_min_enemies: int = 3,
@@ -534,14 +534,31 @@ class ViolencePhenomenon:
         mercenary_cap: int = 3,
         mercenary_protection_factor: float = 0.8,
         coup_animosity_threshold: float = 0.5,
-        coup_start_rate: float = 0.05,
+        # 0.05 started a plot within weeks whenever any noble passed the
+        # animosity threshold, i.e. about once a year; ~1 per 5-10 years now
+        coup_start_rate: float = 0.0005,
         coup_hire_rate: float = 0.2,
         coup_mercenary_cap: int = 3,
         coup_suspicion_per_mercenary: float = 0.15,
         coup_detection_rate: float = 0.1,
-        coup_success_base_rate: float = 0.25,
+        # 2026-09-23 "too extreme" fixes (user request): 72% of murder
+        # attempts came from ties with only mild dislike (hostility < 0.6),
+        # so ~140 residents a year were murdered in a 1,889-person town
+        hatred_floor: float = 0.6,
+        # 37 of 46 riots over 5 seeds were 3-5 person bands escalated by
+        # group violence, each killing ~1 guard; only a real crowd riots now
+        riot_escalation_min_band: int = 10,
+        # a coup won with certainty at 3 mercenaries (0.25 x (1 + 3)); now
+        # force against force, and no new plot for a year after one resolves
+        coup_guard_defense_share: float = 0.3,
+        coup_cooldown_days: int = 365,
     ):
         self.base_rate = base_rate
+        self.hatred_floor = hatred_floor
+        self.riot_escalation_min_band = riot_escalation_min_band
+        self.coup_guard_defense_share = coup_guard_defense_share
+        self.coup_cooldown_days = coup_cooldown_days
+        self._coup_cooldown_until = 0
         self.grief_shock = grief_shock
         self.success_base_rate = success_base_rate
         self.discovery_shock = discovery_shock
@@ -577,7 +594,6 @@ class ViolencePhenomenon:
         self.coup_mercenary_cap = coup_mercenary_cap
         self.coup_suspicion_per_mercenary = coup_suspicion_per_mercenary
         self.coup_detection_rate = coup_detection_rate
-        self.coup_success_base_rate = coup_success_base_rate
         self._active_coup: Optional[Dict[str, Any]] = None
         self._coups_attempted = 0
         self._coups_succeeded = 0
@@ -595,9 +611,12 @@ class ViolencePhenomenon:
         # animosity is directed and need not be mutual; the more hostile side
         # is the one who might snap, so that's what drives the day's odds
         hostility = max(-edge.valence_a_to_b, -edge.valence_b_to_a, 0.0)
-        if hostility <= 0:
+        # only real hatred kills: the odds rise with how far hostility is
+        # past hatred_floor (0 at the floor, 1 at total hatred)
+        if hostility <= self.hatred_floor:
             return 0.0
-        return self.base_rate * hostility * edge.tie_strength
+        hatred = (hostility - self.hatred_floor) / (1.0 - self.hatred_floor)
+        return self.base_rate * hatred * edge.tie_strength
 
     def _pick_aggressor(self, graph, edge, a: int, b: int, rng: random.Random) -> int:
         # whoever wants to hurt the other more is more likely to be the one who
@@ -686,6 +705,8 @@ class ViolencePhenomenon:
 
         if self._active_coup is not None:
             return self._advance_coup(graph, state, day, rng)
+        if day < self._coup_cooldown_until:
+            return []
 
         governor_id = graph.governor_id
         worst_animosity = 0.0
@@ -734,6 +755,7 @@ class ViolencePhenomenon:
             self._coups_attempted += 1
             events.append(Event(day, self.name, "coup_discovered", plotter_id, graph.governor_id,
                                  "plot uncovered before it could strike"))
+            self._coup_cooldown_until = day + self.coup_cooldown_days
             return events
 
         living_mercenaries = [m for m in coup["mercenaries"] if graph.nodes[m].alive]
@@ -741,11 +763,16 @@ class ViolencePhenomenon:
             return events
 
         governor_id = graph.governor_id
-        success_chance = min(1.0, self.coup_success_base_rate * (1 + len(living_mercenaries)))
+        # force against force: the plotter's mercenaries against the
+        # governor's own bodyguards plus the share of the guard corps that
+        # stands by the governor, weighted by each guard's loyalty
         governor_protection = [m for m in state[governor_id]["mercenaries"] if graph.nodes[m].alive]
-        success_chance *= self.mercenary_protection_factor ** len(governor_protection)
+        loyal_guards = sum(node.loyalty for node in graph.nodes.values() if node.alive and node.role == "guard")
+        defense = len(governor_protection) + self.coup_guard_defense_share * loyal_guards
+        success_chance = len(living_mercenaries) / (len(living_mercenaries) + defense)
 
         self._active_coup = None
+        self._coup_cooldown_until = day + self.coup_cooldown_days
         self._coups_attempted += 1
         if rng.random() < success_chance:
             graph.record_death(governor_id, day, "coup", killed_by=plotter_id)
@@ -880,7 +907,7 @@ class ViolencePhenomenon:
         if (
             self.riot_phenomenon is not None
             and self.riot_phenomenon._active_riot is None
-            and len(band) >= self.riot_phenomenon.min_participants
+            and len(band) >= max(self.riot_phenomenon.min_participants, self.riot_escalation_min_band)
         ):
             avg_band_hostility = sum(-graph.get_edge(h, victim).valence_from(h) for h in band) / len(band)
             events = [
@@ -1065,13 +1092,23 @@ class RiotPhenomenon:
         riot_base_rate: float = 0.03,
         join_rate: float = 0.5,
         min_participants: int = 3,
-        guard_lethality: float = 0.2,
-        rioter_lethality: float = 0.6,
+        # a fifth of the original 0.2 / 0.6 (same 1:3 ratio): at full
+        # strength a 100-person riot killed ~11 guards and ~33 rioters in a
+        # single day, and guards broke on day 1 of every riot (2026-09-23)
+        guard_lethality: float = 0.04,
+        rioter_lethality: float = 0.12,
         noble_lethality: float = 0.1,
         retreat_threshold: float = 0.3,
-        rioter_retreat_threshold: float = 0.3,
+        # a mob scatters after ~5% losses (was 30%: a third of it had to die)
+        rioter_retreat_threshold: float = 0.05,
         riot_bar_per_participant: float = 0.1,
         death_cap: float = 0.9,
+        # 2026-09-23 (user request): the whole guard corps used to fight and
+        # roll deaths in every riot (~9 guards and ~5 nobles dead per riot).
+        # Now only this many guards per rioter engage each day, and when the
+        # guards break most nobles get away.
+        guard_engagement_ratio: float = 0.25,
+        noble_flee_chance: float = 0.8,
     ):
         self.unrest_threshold = unrest_threshold
         self.riot_base_rate = riot_base_rate
@@ -1103,6 +1140,8 @@ class RiotPhenomenon:
         # tune this if riots feel too bloody or fizzle out too fast
         self.riot_bar_per_participant = riot_bar_per_participant
         self.death_cap = death_cap
+        self.guard_engagement_ratio = guard_engagement_ratio
+        self.noble_flee_chance = noble_flee_chance
         # town-wide bookkeeping lives on self, not the per-resident state dict --
         # same reason ContagionPhenomenon keeps _pending_infections on self
         self._adjacency: List[Tuple[int, int]] = []
@@ -1250,13 +1289,17 @@ class RiotPhenomenon:
             # fix, see docs/decisions.md.
             still_standing_guards = [g for g in riot["guards_remaining"] if graph.nodes[g].alive]
             riot["guards_remaining"] = still_standing_guards
-            living_guard_count = len(still_standing_guards)
             living_participant_count = len(participants)
-            size_factor = math.sqrt(living_participant_count / max(1, living_guard_count))
+            # only a force proportionate to the mob engages today; the rest of
+            # the corps holds back and isn't at risk
+            engaged_count = min(len(still_standing_guards),
+                                max(1, math.ceil(self.guard_engagement_ratio * living_participant_count)))
+            engaged_guards = rng.sample(still_standing_guards, engaged_count) if still_standing_guards else []
+            size_factor = math.sqrt(living_participant_count / max(1, engaged_count))
             p_death_guard = min(self.death_cap, self.guard_lethality * size_factor)
             p_death_rioter = min(self.death_cap, self.rioter_lethality / size_factor)
 
-            for guard_id in list(still_standing_guards):
+            for guard_id in engaged_guards:
                 if rng.random() < p_death_guard:
                     graph.record_death(guard_id, day, "riot")
                     riot["guard_deaths"] += 1
@@ -1273,6 +1316,11 @@ class RiotPhenomenon:
 
             if not riot["guards_remaining"] or riot["guard_deaths"] / riot["initial_guard_count"] >= riot["guard_retreat_threshold"]:
                 riot["guards_retreated"] = True
+                # most nobles get away once the guards break; the rest are exposed
+                riot["fled_nobles"] = {
+                    rid for rid, node in graph.nodes.items()
+                    if node.alive and node.role == "noble" and rng.random() < self.noble_flee_chance
+                }
                 events.append(
                     Event(day, self.name, "guards_retreat", participants[0], participants[0], "guards break and flee")
                 )
@@ -1287,8 +1335,9 @@ class RiotPhenomenon:
             # nobles are shielded until the guards break -- then personal hatred,
             # not proximity to this riot, decides who among them gets targeted,
             # most-hated first, until the mob's bloodlust (riot_bar) is spent
+            fled = riot.get("fled_nobles", set())
             nobles = sorted(
-                (rid for rid, node in graph.nodes.items() if node.alive and node.role == "noble"),
+                (rid for rid, node in graph.nodes.items() if node.alive and node.role == "noble" and rid not in fled),
                 key=lambda rid: -self._hatred_toward(graph, rid),
             )
             if not nobles:
