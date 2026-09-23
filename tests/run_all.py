@@ -14,6 +14,7 @@ from tests import (
     test_guards,
     test_import_relationships,
     test_import_shopkeeper_customer,
+    test_newcomers,
     test_quarantine,
     test_religion,
     test_riot,
@@ -39,6 +40,7 @@ MODULES = [
     test_quarantine,
     test_drift_check,
     test_town_parameters,
+    test_newcomers,
     test_engine,
 ]
 

@@ -36,6 +36,14 @@ class Node:
     # snapshot has no buildings/districts (test fixtures).
     district_id: Optional[int] = None
     district_zone: Optional[str] = None
+    # TownShape identity fields (residents table), kept so a resident can be
+    # matched back to -- or later written back into -- the TownShape
+    # database, and so a newborn can inherit a household and home. None when
+    # the snapshot lacks the column (test fixtures).
+    household_id: Optional[int] = None
+    home_building_id: Optional[int] = None
+    workplace_building_id: Optional[int] = None
+    birth_date: Optional[str] = None
 
     @property
     def role(self) -> str:
@@ -143,6 +151,15 @@ class SocialGraph:
         # resident -> neighbor ids, built lazily in edge order (the same order
         # the old full-scan neighbors() returned) and dropped on add_edge
         self._adjacency: Optional[Dict[int, List[int]]] = None
+        # Residents added mid-run (births, arrivals) enter through the same
+        # code path as import (node_from_resident_row / edge_from_relationship),
+        # fed TownShape-shaped rows. These keep what that needs after import:
+        self.reference_year: Optional[int] = None  # for a newcomer's age
+        self.building_districts: Dict[int, Tuple[int, str]] = {}  # building -> (district, zone)
+        self.family_root: Dict[int, int] = {}  # resident -> family root (parent/sibling ties)
+        self.family_baselines: Dict[int, Dict[str, float]] = {}  # family root -> shared trait centres
+        # added but not yet registered with the phenomena; the engine drains it
+        self.newcomers: List[int] = []
 
     def record_recovery(self, resident_id: int, day: int, cause: str) -> None:
         # the counterpart of record_death, for anything that reacts to
@@ -155,6 +172,40 @@ class SocialGraph:
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.resident_id] = node
+
+    def next_resident_id(self) -> int:
+        """The id a resident created by the simulation should take: TownShape's
+        residents table assigns max(id) + 1 on insert, so ids created here line
+        up with what a later write-back would get (a write-back should still
+        map them defensively, see docs/townshape-integration.md)."""
+        return max(self.nodes, default=0) + 1
+
+    def add_resident(self, row: Dict[str, Any], relationships: List[Tuple[int, str]],
+                     rng: random.Random) -> int:
+        """Add a resident mid-run (a birth, an arrival), shaped like a
+        TownShape `residents` row (id optional: next_resident_id() if absent)
+        plus TownShape-typed relationships to residents already in the town,
+        e.g. [(mother_id, "parent"), (sibling_id, "sibling")]. Built exactly
+        like an imported resident; the engine then registers them with every
+        phenomenon at the end of the current phenomenon's day."""
+        row = dict(row)
+        resident_id = row.setdefault("id", self.next_resident_id())
+        if resident_id in self.nodes:
+            raise ValueError(f"resident {resident_id} already exists")
+        for other_id, relationship_type in relationships:
+            if relationship_type in ("parent", "sibling") and other_id in self.nodes:
+                self.family_root[resident_id] = self.family_root.get(other_id, other_id)
+                break
+        node = node_from_resident_row(self, row, rng)
+        location = self.building_districts.get(node.home_building_id)
+        if location is not None:
+            node.district_id, node.district_zone = location
+        self.add_node(node)
+        for other_id, relationship_type in relationships:
+            if other_id in self.nodes and relationship_type in RELATIONSHIP_TYPE_BASELINES:
+                self.add_edge(edge_from_relationship(self, resident_id, other_id, relationship_type, rng))
+        self.newcomers.append(resident_id)
+        return resident_id
 
     @staticmethod
     def _key(a: int, b: int) -> Tuple[int, int]:
@@ -359,28 +410,57 @@ def _load_residents(
         "SELECT id, ses, gender, birth_date, occupation, is_noble FROM residents WHERE death_date IS NULL"
         " ORDER BY id"
     ).fetchall()
-    family_of = _family_groups(conn)
-    # each family's shared center is drawn once, the first time any of its
-    # members is processed, keyed by family root id so every member of the
-    # same family reuses the same center
-    means = _trait_means(graph.params)
-    family_baselines: Dict[int, Dict[str, float]] = {}
+    graph.reference_year = reference_year
+    graph.family_root = _family_groups(conn)
     for resident_id, ses, gender, birth_date, occupation, is_noble in rows:
-        age = _age_from_birth_date(birth_date, reference_year)
-        family_root = family_of.get(resident_id, resident_id)
-        if family_root not in family_baselines:
-            family_baselines[family_root] = {
-                name: _clamp01(rng.gauss(means.get(name, DEFAULT_TRAIT_MEAN), 0.2)) for name in FAMILY_CORRELATED_TRAITS
-            }
-        is_civilian = not is_noble and occupation not in _NON_CIVILIAN_OCCUPATIONS
-        is_ex_soldier = is_civilian and rng.random() < EX_SOLDIER_BASE_RATE
-        graph.add_node(
-            Node(
-                resident_id=resident_id, ses=ses, alive=True, gender=gender, age=age,
-                occupation=occupation, is_noble=bool(is_noble), is_ex_soldier=is_ex_soldier,
-                **synthesize_traits(rng, family_baselines[family_root], means),
-            )
-        )
+        graph.add_node(node_from_resident_row(graph, {
+            "id": resident_id, "ses": ses, "gender": gender, "birth_date": birth_date,
+            "occupation": occupation, "is_noble": is_noble,
+        }, rng))
+
+
+def node_from_resident_row(graph: "SocialGraph", row: Dict[str, Any], rng: random.Random) -> Node:
+    """One resident, from a TownShape `residents`-shaped row: used by import
+    and by SocialGraph.add_resident, so a newcomer is built exactly like a
+    resident present from day 1. Each family's shared trait centre is drawn
+    the first time any member is built (graph.family_baselines, keyed by
+    graph.family_root), so every member -- including a later newborn --
+    lands near the same one."""
+    resident_id = row["id"]
+    means = _trait_means(graph.params)
+    family_root = graph.family_root.get(resident_id, resident_id)
+    if family_root not in graph.family_baselines:
+        graph.family_baselines[family_root] = {
+            name: _clamp01(rng.gauss(means.get(name, DEFAULT_TRAIT_MEAN), 0.2)) for name in FAMILY_CORRELATED_TRAITS
+        }
+    occupation, is_noble = row.get("occupation"), bool(row.get("is_noble"))
+    is_civilian = not is_noble and occupation not in _NON_CIVILIAN_OCCUPATIONS
+    is_ex_soldier = is_civilian and rng.random() < EX_SOLDIER_BASE_RATE
+    return Node(
+        resident_id=resident_id, ses=row.get("ses"), alive=True, gender=row.get("gender"),
+        age=_age_from_birth_date(row.get("birth_date"), graph.reference_year),
+        occupation=occupation, is_noble=is_noble, is_ex_soldier=is_ex_soldier,
+        household_id=row.get("household_id"), home_building_id=row.get("home_building_id"),
+        workplace_building_id=row.get("workplace_building_id"), birth_date=row.get("birth_date"),
+        **synthesize_traits(rng, graph.family_baselines[family_root], means),
+    )
+
+
+def edge_from_relationship(graph: "SocialGraph", resident_a_id: int, resident_b_id: int,
+                           relationship_type: str, rng: random.Random) -> Edge:
+    """One tie of a TownShape relationship type, with synthesized strength
+    and feelings (and the noble/poor resentment skew): used by import and by
+    SocialGraph.add_resident."""
+    attrs = synthesize_relationship_attributes(relationship_type, rng)
+    edge = Edge(
+        resident_a=resident_a_id,
+        resident_b=resident_b_id,
+        source_type=relationship_type,
+        fiske_type=FISKE_TAGS[relationship_type],
+        **attrs,
+    )
+    _apply_noble_poor_skew(graph, edge)
+    return edge
 
 
 def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
@@ -394,16 +474,7 @@ def _load_relationships(conn: sqlite3.Connection, graph: SocialGraph, rng: rando
         # skip dangling edges: either endpoint may be absent (dead, or a data gap)
         if resident_a_id not in graph.nodes or resident_b_id not in graph.nodes:
             continue
-        attrs = synthesize_relationship_attributes(relationship_type, rng)
-        edge = Edge(
-            resident_a=resident_a_id,
-            resident_b=resident_b_id,
-            source_type=relationship_type,
-            fiske_type=FISKE_TAGS[relationship_type],
-            **attrs,
-        )
-        _apply_noble_poor_skew(graph, edge)
-        graph.add_edge(edge)
+        graph.add_edge(edge_from_relationship(graph, resident_a_id, resident_b_id, relationship_type, rng))
 
 
 def _load_town_state(conn: sqlite3.Connection, graph: SocialGraph) -> Optional[int]:
@@ -431,18 +502,32 @@ def _load_districts(conn: sqlite3.Connection, graph: SocialGraph) -> None:
     # district_id None rather than fail the import. Draws no randomness, so
     # adding it left every seed's import unchanged.
     try:
-        rows = conn.execute(
-            "SELECT r.id, d.id, d.zone_type FROM residents r"
-            " JOIN buildings b ON b.id = r.home_building_id"
-            " JOIN districts d ON d.id = b.district_id"
+        buildings = conn.execute(
+            "SELECT b.id, d.id, d.zone_type FROM buildings b JOIN districts d ON d.id = b.district_id"
         ).fetchall()
     except sqlite3.OperationalError:
         return
-    for resident_id, district_id, zone_type in rows:
+    graph.building_districts = {building_id: (district_id, zone) for building_id, district_id, zone in buildings}
+    for node in graph.nodes.values():
+        location = graph.building_districts.get(node.home_building_id)
+        if location is not None:
+            node.district_id, node.district_zone = location
+
+
+def _load_resident_identity(conn: sqlite3.Connection, graph: SocialGraph) -> None:
+    # TownShape identity fields (household, home, workplace, birth date);
+    # test fixtures lack some columns, so this is best-effort. No randomness.
+    try:
+        rows = conn.execute(
+            "SELECT id, household_id, home_building_id, workplace_building_id, birth_date FROM residents"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return
+    for resident_id, household_id, home_building_id, workplace_building_id, birth_date in rows:
         node = graph.nodes.get(resident_id)
         if node is not None:
-            node.district_id = district_id
-            node.district_zone = zone_type
+            node.household_id, node.home_building_id = household_id, home_building_id
+            node.workplace_building_id, node.birth_date = workplace_building_id, birth_date
 
 
 def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
@@ -504,6 +589,7 @@ def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float
         _load_residents(conn, graph, rng, reference_year)
         _load_relationships(conn, graph, rng)
         _load_shopkeeper_customer(conn, graph, rng)
+        _load_resident_identity(conn, graph)
         _load_districts(conn, graph)
     finally:
         conn.close()

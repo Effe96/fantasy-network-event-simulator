@@ -8,6 +8,31 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — Residents added mid-run, shaped for TownShape (pipeline step 3)
+
+**Decision:** a newcomer enters through the same code path as import, fed
+a TownShape `residents`-shaped row and TownShape relationship types:
+`node_from_resident_row` / `edge_from_relationship` (import now uses them),
+`graph.add_resident(row, relationships, rng)`, a per-phenomenon
+`add_resident` hook, and engine registration at the end of the phenomenon
+that created the newcomer (their ties join the speed-up's fixed tie order).
+Nodes carry TownShape identity (`household_id`, `home_building_id`,
+`workplace_building_id`, `birth_date`); the graph keeps family trait
+centres, building->district map and reference year so a newborn is built
+exactly like a day-1 resident (e.g. inheriting the family's faith).
+
+**Why shaped for TownShape (user request):** TownShape already advances its
+population yearly (`advance_town`: births, deaths, households, jobs, then
+destructive relationship re-derivation), with `residents.id` = our
+`resident_id` and ids assigned max + 1. Making the sim's entry point
+TownShape-shaped means TownShape births (integration option A) and
+sim-created residents (option B) feed the same function. Full write-up and
+the integration options: `docs/townshape-integration.md`.
+
+**Verified:** seeds 3 and 1 byte-identical with nobody added (the import
+restructure preserves every random draw's order); new
+`tests/test_newcomers.py`.
+
 ## 2026-09-23 — City-wide parameters in one place (pipeline step 2)
 
 **Decision:** `graph.TownParameters`, stored as `graph.params`: `aggression`

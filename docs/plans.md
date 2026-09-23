@@ -49,12 +49,18 @@ events, then let the town change. See Project_Vision's "Equilibrium",
    `import_snapshot(overrides=...)`, demo flags; aggression and
    strictness read while running. Byte-identical at the defaults. Wealth
    waits for Economy & poverty. **Next: step 3.**
-3. **Adding residents mid-run**: engine + every phenomenon can take on a
-   resident after day 1 (the blocker for births and arrivals).
+3. ~~**Adding residents mid-run**~~ **Done 2026-09-23**: `graph.add_resident`
+   (TownShape-shaped rows, same path as import), each phenomenon's
+   `add_resident`, engine registration. Byte-identical with nobody added.
+   See `docs/townshape-integration.md` for how TownShape builds and
+   advances its population and the integration options. **Decision needed
+   before step 4:** build population turnover through TownShape's
+   `advance_town` (option A, recommended target) or inside the sim first
+   (option B).
 
 **Phase B: Balance the everyday** (equilibrium at the reference parameters;
 reordered 2026-09-23 after the drift check)
-4. **Population turnover**: real births, arrivals, replacement guards,
+4. **Population turnover** (see the step-3 decision above): real births, arrivals, replacement guards,
    clergy and nobles, new marriages, children growing up; births +
    arrivals ~ deaths in a quiet year. Explains four of the five drifts
    (population, guards -4 to -17%/yr, nobles, marriages).

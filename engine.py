@@ -49,6 +49,8 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                                 queued.add(later)
                                 heapq.heappush(heap, later)
             result.events.extend(phenomenon.end_of_day(graph, state, day, rng))
+            if graph.newcomers:
+                _register_newcomers(graph, phenomena, states, edge_order, position)
 
         summary = {"day": day}
         for phenomenon in phenomena:
@@ -63,6 +65,23 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
             on_day_end(day, graph, states)
 
     return result
+
+
+def _register_newcomers(graph, phenomena, states, edge_order, position) -> None:
+    """Residents added mid-run (graph.add_resident) join every phenomenon's
+    state, and their new ties join the fixed tie order, at the end of the
+    phenomenon that created them -- so later phenomena that same day, and
+    every phenomenon from the next day, see them."""
+    while graph.newcomers:
+        resident_id = graph.newcomers.pop(0)
+        for phenomenon in phenomena:
+            if not hasattr(phenomenon, "add_resident"):
+                raise TypeError(f"{type(phenomenon).__name__} can't take a resident added mid-run")
+            phenomenon.add_resident(graph, states[phenomenon.name], resident_id)
+    # new ties are only ever appended to graph.edges, so they extend the order
+    for key in list(graph.edges)[len(edge_order):]:
+        position[key] = len(edge_order)
+        edge_order.append(key)
 
 
 def _roll_edge(graph, phenomenon, state, edge, day, rng, result) -> bool:

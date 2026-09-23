@@ -24,6 +24,9 @@ class Phenomenon(Protocol):
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]: ...
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]: ...
     def summarize(self, state) -> Dict[str, int]: ...
+    # a resident added mid-run (graph.add_resident): build their state exactly
+    # as init_state would have, and update any caches built from ties
+    def add_resident(self, graph, state, resident_id: int) -> None: ...
 
 
 # type_weight is higher for household-equivalent ties than for incidental ones (design doc §7)
@@ -145,6 +148,10 @@ class ContagionPhenomenon:
             state[patient_zero] = {"status": "infected", "days_left": self.infectious_days}
             self._outbreaks += 1
         return state
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        self._district[resident_id] = graph.nodes[resident_id].district_id
+        state[resident_id] = {"status": "susceptible", "days_left": 0}
 
     def candidate_edges(self, graph, state):
         # transmission needs an infected endpoint; new infections only take
@@ -313,14 +320,18 @@ class CommonAilmentsPhenomenon:
         self._diarrhea_deaths = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
+        return {resident_id: self._resident_state(node) for resident_id, node in graph.nodes.items()}
+
+    @staticmethod
+    def _resident_state(node) -> Dict[str, Any]:
         return {
-            resident_id: {
-                "ses": node.ses,
-                "flu": {"status": "healthy", "days_left": 0},
-                "diarrhea": {"status": "healthy", "days_left": 0},
-            }
-            for resident_id, node in graph.nodes.items()
+            "ses": node.ses,
+            "flu": {"status": "healthy", "days_left": 0},
+            "diarrhea": {"status": "healthy", "days_left": 0},
         }
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = self._resident_state(graph.nodes[resident_id])
 
     def _flu_season_factor(self, day: int) -> float:
         # day-of-year (1-indexed) so multi-year runs re-enter winter every year;
@@ -654,6 +665,9 @@ class ViolencePhenomenon:
         # (only meaningful for an ex-soldier) sit on every resident's state
         # dict either way, same uniform shape "alive" already uses
         return {resident_id: {"alive": True, "mercenaries": [], "hired_by": None} for resident_id in graph.nodes}
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = {"alive": True, "mercenaries": [], "hired_by": None}
 
     def candidate_edges(self, graph, state):
         # ties already past the hatred floor; grief during this pass can push
@@ -1067,6 +1081,15 @@ class RomancePhenomenon:
                 state[edge.resident_b]["married"] = True
         return state
 
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        node = graph.nodes[resident_id]
+        married = any(graph.get_edge(resident_id, other).source_type == "spouse"
+                      for other in graph.neighbors(resident_id))
+        state[resident_id] = {"married": married, "gender": node.gender, "age": node.age}
+        for other in graph.neighbors(resident_id):
+            if married and graph.get_edge(resident_id, other).source_type == "spouse":
+                state[other]["married"] = True
+
     @staticmethod
     def _is_adult(person_state) -> bool:
         return person_state["age"] is not None and person_state["age"] >= ADULT_MIN_AGE
@@ -1242,6 +1265,16 @@ class RiotPhenomenon:
         # edge regardless of what edge_probability does with it -- this dict's
         # values are never read, only its keys need to exist
         return {resident_id: None for resident_id in graph.nodes}
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = None
+        role = graph.nodes[resident_id].role
+        for other in graph.neighbors(resident_id):
+            other_role = graph.nodes[other].role
+            if role == "civilian" and other_role in AUTHORITY_ROLES:
+                self._adjacency.append((resident_id, other))
+            elif other_role == "civilian" and role in AUTHORITY_ROLES:
+                self._adjacency.append((other, resident_id))
 
     def candidate_edges(self, graph, state):
         return []  # riots never fire through the per-edge path
@@ -1502,6 +1535,11 @@ class GuardPhenomenon:
             for resident_id, node in graph.nodes.items()
         }
 
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        node = graph.nodes[resident_id]
+        state[resident_id] = {"role": node.role, "cunning": node.cunning, "ses": node.ses, "loyalty": node.loyalty}
+        self._guard_ties = None  # rebuilt with the newcomer's ties on the next pass
+
     def candidate_edges(self, graph, state):
         # civilian-guard ties; roles never change, so built once
         if self._guard_ties is None:
@@ -1643,6 +1681,13 @@ class TheftPhenomenon:
             resident_id: {"role": node.role, "ses": node.ses, "cunning": node.cunning, "is_thief": False}
             for resident_id, node in graph.nodes.items()
         }
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        node = graph.nodes[resident_id]
+        state[resident_id] = {"role": node.role, "ses": node.ses, "cunning": node.cunning, "is_thief": False}
+        if node.role == "guard":  # a new guard changes the corps' average loyalty
+            loyalties = [n.loyalty for n in graph.nodes.values() if n.role == "guard" and n.alive]
+            self._avg_guard_loyalty = sum(loyalties) / len(loyalties)
 
     def candidate_edges(self, graph, state):
         # ties touching a thief; thieves are only made in end_of_day, and an
@@ -1846,21 +1891,33 @@ class ReligionPhenomenon:
         self._baseline_religiousness = {
             resident_id: node.religiousness for resident_id, node in graph.nodes.items() if node.role == "civilian"
         }
-        state = {}
-        for resident_id, node in graph.nodes.items():
-            is_heretic = node.role == "civilian" and node.skepticism > self.heretic_skepticism_threshold
-            if is_heretic:
-                self._heretics += 1
-            state[resident_id] = {
-                "role": node.role,
-                "religiousness": node.religiousness,
-                "skepticism": node.skepticism,
-                "is_heretic": is_heretic,
-                "ses": node.ses,
-                "cunning": node.cunning,
-                "loyalty": node.loyalty,
-            }
-        return state
+        return {resident_id: self._resident_state(node) for resident_id, node in graph.nodes.items()}
+
+    def _resident_state(self, node) -> Dict[str, Any]:
+        is_heretic = node.role == "civilian" and node.skepticism > self.heretic_skepticism_threshold
+        if is_heretic:
+            self._heretics += 1
+        return {
+            "role": node.role,
+            "religiousness": node.religiousness,
+            "skepticism": node.skepticism,
+            "is_heretic": is_heretic,
+            "ses": node.ses,
+            "cunning": node.cunning,
+            "loyalty": node.loyalty,
+        }
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        node = graph.nodes[resident_id]
+        state[resident_id] = self._resident_state(node)
+        if node.role == "civilian":
+            self._baseline_religiousness[resident_id] = node.religiousness
+        for other in graph.neighbors(resident_id):
+            other_role = graph.nodes[other].role
+            if node.role == "civilian" and other_role == "priest":
+                self._priest_ties.setdefault(resident_id, []).append(other)
+            elif other_role == "civilian" and node.role == "priest":
+                self._priest_ties.setdefault(other, []).append(resident_id)
 
     def _faith_probability(self, civilian_state) -> float:
         if civilian_state["is_heretic"]:
@@ -2079,6 +2136,16 @@ class QuarantinePhenomenon:
             if graph.nodes[a].role in ("noble", "priest"):
                 self._authority_ties[b].append(a)
         return {resident_id: {} for resident_id in graph.nodes}
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = {}
+        self._authority_ties[resident_id] = []
+        is_authority = graph.nodes[resident_id].role in ("noble", "priest")
+        for other in graph.neighbors(resident_id):
+            if graph.nodes[other].role in ("noble", "priest"):
+                self._authority_ties[resident_id].append(other)
+            if is_authority:
+                self._authority_ties[other].append(resident_id)
 
     def candidate_edges(self, graph, state):
         return []  # quarantine acts only in end_of_day
