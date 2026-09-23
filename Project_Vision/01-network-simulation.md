@@ -861,7 +861,8 @@ can't: about 300-380 residents die each year on the ~1,900-resident
 reference town (plague, violence, riots, executions, ailments), but
 births are log-only and nobody arrives, so the town would be down to a
 few hundred people after ~5 years. Runtime itself is not the problem
-(~3 min per simulated year, so ~1 hour for 20 years).
+(~35 s per simulated year since the 2026-09-23 speed-up, so ~12 min for
+20 years).
 
 - **Births become real residents**: a new `Node` with traits drawn near
   the parents' (the family-correlated religiousness/skepticism shape

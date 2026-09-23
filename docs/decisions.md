@@ -8,6 +8,39 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — 5x faster, with bit-for-bit identical results
+
+**Problem (user):** a one-year run took ~3 min. Profile of 30 days: 14.5 s
+in the engine's own loop (all ~68,000 ties x 9 phenomena x every day,
+18M iterations), ~8 s in edge_probability calls that almost all return
+0, 2.8 s in `graph.neighbors()` (468 calls, each scanning every tie).
+
+**Decision:** a phenomenon may define `candidate_edges(graph, state)`:
+the ties whose probability can be non-zero at the start of its pass. The
+engine visits only those, **in the original tie order**. Because the
+RNG is drawn only when probability > 0, visiting the same ties in the
+same order reproduces a full scan exactly. Violence is the one
+phenomenon whose own effects can make a *later* tie eligible mid-pass
+(grief pushing a mourner past the hatred floor); it reports those via
+`drain_new_candidates()`, and the engine queues them (a heap on tie
+position) if they are still ahead. Candidates: epidemic and flu, ties
+of the currently infected/sick (new cases are staged to end of day);
+violence, ties past the hatred floor; romance, spouse ties plus ties
+past the love threshold on both sides; guards, civilian-guard ties;
+theft, ties touching a thief; religion, civilian-priest ties; riot and
+quarantine, none. Also `graph.neighbors()` now uses an adjacency index
+built in the same order (rebuilt on `add_edge`), and the daily group-
+violence scan reads valences directly.
+
+**Why not vectorise (NumPy) or change the RNG:** either would shift every
+seed's outcomes and throw away run-for-run reproducibility of all the
+calibration done so far. PyPy (no code change) remains an option if
+long runs need more.
+
+**Verified:** seeds 3 and 1, full year: summary.csv, deaths.csv and
+events.json byte-identical to runs made before the change; ~3 min ->
+~34 s per year. Full test suite green.
+
 ## 2026-09-23 — Occasional epidemics, and reference seed 5 -> 3
 
 **Decision (user's choice: ~1 outbreak every 4 years):** with

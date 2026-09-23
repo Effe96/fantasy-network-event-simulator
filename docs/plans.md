@@ -231,8 +231,9 @@ In the user's order of mention:
 
 ## Population turnover — needed before multi-year runs (added 2026-09-23)
 
-Asked how long a 20-year run would take: runtime is fine (~3 min per
-simulated year, ~1 hour for 20), but the town wouldn't survive it. About
+Asked how long a 20-year run would take: runtime is fine (~35 s per
+simulated year since the 2026-09-23 speed-up, so ~12 min for 20), but
+the town wouldn't survive it. About
 300-380 residents die a year on the reference town and none are ever
 added (births are log-only), so it would be nearly empty within ~5
 years, and every crowd-driven mechanic (riots, group violence,

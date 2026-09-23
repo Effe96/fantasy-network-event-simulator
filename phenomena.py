@@ -146,6 +146,11 @@ class ContagionPhenomenon:
             self._outbreaks += 1
         return state
 
+    def candidate_edges(self, graph, state):
+        # transmission needs an infected endpoint; new infections only take
+        # effect in end_of_day, so this set can't grow during the pass
+        return graph.edge_keys_of(rid for rid, rs in state.items() if rs["status"] == "infected")
+
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         statuses = {state_a["status"], state_b["status"]}
         if statuses != {"infected", "susceptible"}:
@@ -324,6 +329,11 @@ class CommonAilmentsPhenomenon:
         if day_of_year <= 91 or day_of_year >= 274:
             return self.flu_winter_multiplier
         return 1.0
+
+    def candidate_edges(self, graph, state):
+        # only flu spreads over ties, from someone currently sick (staged like
+        # the epidemic, so the set can't grow during the pass)
+        return graph.edge_keys_of(rid for rid, rs in state.items() if rs["flu"]["status"] == "sick")
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         # diarrhea never fires through the per-edge path -- only flu is contagious.
@@ -590,6 +600,7 @@ class ViolencePhenomenon:
         coup_cooldown_days: int = 365,
     ):
         self.base_rate = base_rate
+        self._new_candidates: List[Tuple[int, int]] = []
         self.hatred_floor = hatred_floor
         self.riot_escalation_min_band = riot_escalation_min_band
         self.coup_guard_defense_share = coup_guard_defense_share
@@ -640,6 +651,18 @@ class ViolencePhenomenon:
         # (only meaningful for an ex-soldier) sit on every resident's state
         # dict either way, same uniform shape "alive" already uses
         return {resident_id: {"alive": True, "mercenaries": [], "hired_by": None} for resident_id in graph.nodes}
+
+    def candidate_edges(self, graph, state):
+        # ties already past the hatred floor; grief during this pass can push
+        # more past it, reported through drain_new_candidates
+        self._new_candidates = []
+        floor = self.hatred_floor
+        return [key for key, edge in graph.edges.items()
+                if -edge.valence_a_to_b > floor or -edge.valence_b_to_a > floor]
+
+    def drain_new_candidates(self):
+        keys, self._new_candidates = self._new_candidates, []
+        return keys
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         if not (state_a["alive"] and state_b["alive"]):
@@ -712,6 +735,7 @@ class ViolencePhenomenon:
             shock = self.grief_shock * edge_to_victim.tie_strength * shock_factor
             new_valence = max(-1.0, edge_to_culprit.valence_from(neighbor_id) - shock)
             edge_to_culprit.set_valence_from(neighbor_id, new_valence)
+            self._new_candidates.append(graph._key(neighbor_id, culprit))
             events.append(Event(day, self.name, "grief_shock", neighbor_id, culprit, f"valence -{shock:.3f}"))
 
         return events
@@ -887,13 +911,14 @@ class ViolencePhenomenon:
         # per-edge solo-violence pass -- there's no cheaper way to find "who
         # is hated by several different people at once" without scanning
         hostile_toward: Dict[int, List[int]] = {}
+        nodes, threshold = graph.nodes, self.group_hate_threshold
         for edge in graph.edges.values():
             a, b = edge.resident_a, edge.resident_b
-            if not (graph.nodes[a].alive and graph.nodes[b].alive):
-                continue
-            if -edge.valence_from(a) >= self.group_hate_threshold:
+            # direct attribute reads, not valence_from(): same values, ~1/3 the
+            # cost on a scan of every tie every day
+            if -edge.valence_a_to_b >= threshold and nodes[a].alive and nodes[b].alive:
                 hostile_toward.setdefault(b, []).append(a)
-            if -edge.valence_from(b) >= self.group_hate_threshold:
+            if -edge.valence_b_to_a >= threshold and nodes[a].alive and nodes[b].alive:
                 hostile_toward.setdefault(a, []).append(b)
 
         candidates = sorted(
@@ -1053,6 +1078,15 @@ class RomancePhenomenon:
             and state_a["gender"] != state_b["gender"]
         )
 
+    def candidate_edges(self, graph, state):
+        # spouse ties (births) and non-family ties already past the love
+        # threshold on both sides; a marriage only ever removes eligibility
+        threshold = self.love_threshold
+        return [key for key, edge in graph.edges.items()
+                if edge.source_type == "spouse"
+                or (edge.source_type not in ("parent", "sibling")
+                    and edge.valence_a_to_b > threshold and edge.valence_b_to_a > threshold)]
+
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         if edge.source_type == "spouse":
             if not self._is_opposite_gender_pair(state_a, state_b):
@@ -1201,6 +1235,9 @@ class RiotPhenomenon:
         # edge regardless of what edge_probability does with it -- this dict's
         # values are never read, only its keys need to exist
         return {resident_id: None for resident_id in graph.nodes}
+
+    def candidate_edges(self, graph, state):
+        return []  # riots never fire through the per-edge path
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         return 0.0  # riots never fire through the per-edge path -- see end_of_day
@@ -1447,6 +1484,7 @@ class GuardPhenomenon:
         self._bribes = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
+        self._guard_ties = None  # rebuilt by candidate_edges on the first pass
         # edge_probability has no graph access, only edge + per-resident state,
         # so the static fields it needs are copied in here -- same reason
         # RomancePhenomenon copies gender/age instead of looking them up live
@@ -1454,6 +1492,13 @@ class GuardPhenomenon:
             resident_id: {"role": node.role, "cunning": node.cunning, "ses": node.ses, "loyalty": node.loyalty}
             for resident_id, node in graph.nodes.items()
         }
+
+    def candidate_edges(self, graph, state):
+        # civilian-guard ties; roles never change, so built once
+        if self._guard_ties is None:
+            self._guard_ties = [key for key, edge in graph.edges.items()
+                                if {state[edge.resident_a]["role"], state[edge.resident_b]["role"]} == {"civilian", "guard"}]
+        return self._guard_ties
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         roles = {state_a["role"], state_b["role"]}
@@ -1587,6 +1632,11 @@ class TheftPhenomenon:
             resident_id: {"role": node.role, "ses": node.ses, "cunning": node.cunning, "is_thief": False}
             for resident_id, node in graph.nodes.items()
         }
+
+    def candidate_edges(self, graph, state):
+        # ties touching a thief; thieves are only made in end_of_day, and an
+        # arrest mid-pass only removes one
+        return graph.edge_keys_of(rid for rid, rs in state.items() if rs["is_thief"])
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         if state_a["is_thief"] == state_b["is_thief"]:
@@ -1811,6 +1861,10 @@ class ReligionPhenomenon:
         priest_restraint = 1.0 - priest_state["loyalty"]
         return self.corruption_base_rate * civilian_state["cunning"] * wealth_factor * priest_restraint
 
+    def candidate_edges(self, graph, state):
+        # civilian-priest ties; roles never change
+        return [graph._key(civilian, priest) for civilian, priests in self._priest_ties.items() for priest in priests]
+
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         roles = {state_a["role"], state_b["role"]}
         if roles != {"civilian", "priest"}:
@@ -2014,6 +2068,9 @@ class QuarantinePhenomenon:
             if graph.nodes[a].role in ("noble", "priest"):
                 self._authority_ties[b].append(a)
         return {resident_id: {} for resident_id in graph.nodes}
+
+    def candidate_edges(self, graph, state):
+        return []  # quarantine acts only in end_of_day
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         return 0.0

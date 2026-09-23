@@ -113,6 +113,9 @@ class SocialGraph:
         # district_id -> "priest" or "noble" (who sealed it). Mutated in place,
         # never reassigned: ContagionPhenomenon holds a reference to it.
         self.quarantined_districts: Dict[int, str] = {}
+        # resident -> neighbor ids, built lazily in edge order (the same order
+        # the old full-scan neighbors() returned) and dropped on add_edge
+        self._adjacency: Optional[Dict[int, List[int]]] = None
 
     def record_recovery(self, resident_id: int, day: int, cause: str) -> None:
         # the counterpart of record_death, for anything that reacts to
@@ -136,18 +139,27 @@ class SocialGraph:
         if existing is not None and existing.tie_strength >= edge.tie_strength:
             return
         self.edges[key] = edge
+        self._adjacency = None
 
     def get_edge(self, a: int, b: int) -> Optional[Edge]:
         return self.edges.get(self._key(a, b))
 
     def neighbors(self, resident_id: int) -> List[int]:
-        result = []
-        for a, b in self.edges:
-            if a == resident_id:
-                result.append(b)
-            elif b == resident_id:
-                result.append(a)
-        return result
+        if self._adjacency is None:
+            adjacency: Dict[int, List[int]] = {}
+            for a, b in self.edges:
+                adjacency.setdefault(a, []).append(b)
+                adjacency.setdefault(b, []).append(a)
+            self._adjacency = adjacency
+        return list(self._adjacency.get(resident_id, ()))
+
+    def edge_keys_of(self, resident_ids) -> List[Tuple[int, int]]:
+        """Keys of every tie touching any of these residents, deduplicated."""
+        keys = set()
+        for resident_id in resident_ids:
+            for other in self.neighbors(resident_id):
+                keys.add(self._key(resident_id, other))
+        return list(keys)
 
 
 RELATIONSHIP_TYPE_BASELINES = {
