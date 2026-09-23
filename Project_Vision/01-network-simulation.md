@@ -933,7 +933,7 @@ a single ordinary year, is a calibration bug.
 
 - **Rule for every mechanic**: give each push a counterweight, calibrated
   so the imported levels are the steady state.
-- **The "quiet town" check** (proposed, not built): run several years with
+- **The "quiet town" check** (built 2026-09-23, `drift_check.py`): run several years with
   no epidemic (cheap now, ~35 s a year) and measure each key aggregate's
   drift per year: population, average feelings, hatred counts,
   religiousness, thieves, bodyguards, and so on. Flag anything moving
@@ -957,12 +957,16 @@ a single ordinary year, is a calibration bug.
     mirroring everyday recoveries (recommended: keeps the user's
     severity scaling, drift ~0); (3) only surviving the epidemic moves
     faith (reverses part of the user's earlier request).
-  - *Feelings drift toward hatred* (suspected, main suspect): grief,
-    caught thefts, blame and quarantine anger push ties toward hatred;
-    only a few specific events (devotion, bribes) push toward liking, and
-    nothing relaxes ties back toward normal. Over years this would slowly
-    raise violence and riots. The everyday favor dynamic (next section)
-    is the natural counterweight.
+  - *Feelings drift toward hatred*: suspected, **measured and ruled out**
+    by the drift check (2026-09-23, `drift_check.py`, seeds 1-3 x 3 quiet
+    years): mean feeling flat at ~0.02, share of ties past hatred 0.6
+    only +0.0007 a year. The pushes toward hatred are already roughly
+    offset, so everyday favors (next section) are a feature, not a
+    needed counterweight.
+  - *Measured by the drift check*: population -3 to -4%/yr, guards -4
+    to -17%/yr (never replaced), nobles 0 to -5%/yr, married residents
+    -3 to -5%/yr, religiousness +0.013/yr; and thieves and bodyguards
+    start below their natural levels on import and settle during year 1.
   - *One-way counters*: bodyguards are never dismissed; some flags are set
     once and never revisited.
 
