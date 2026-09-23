@@ -874,12 +874,87 @@ few hundred people after ~5 years. Runtime itself is not the problem
   arrivals from outside the town, and succession for roles that
   matter: new clergy when priests die, new guards when guards die.
   Children growing into adults (and into jobs) over the years.
-- **Yearly rhythm**: the epidemic starts only once, from a single
-  patient zero on day 1. Over many years it should be able to return,
-  e.g. a small yearly chance of a new outbreak, with immunity that
-  fades or with the population turning over.
+- **Yearly rhythm**: ~~the epidemic starts only once, from a single
+  patient zero on day 1~~ **done 2026-09-23**: outbreaks now break out
+  about once every 4 years, on a random day, from a random resident.
+  Over many years later waves also need new susceptible people (births,
+  arrivals) or fading immunity, or they'll find almost no one to infect.
 - Long runs are also where Taxes and coups really play out, so this
   comes before Taxes in the build order.
+
+### Equilibrium: a long-lived town shouldn't drift (user principle, 2026-09-23)
+
+The towns we simulate have "existed" for decades to centuries, and we want
+them realistic. So the imported snapshot should already be at
+equilibrium: every everyday process that pushes something one way needs
+a counterweight that roughly cancels it at the town's existing levels,
+and a quiet year should end statistically where it started. Small daily
+changes should average out to very small changes over years.
+
+Extraordinary events (an epidemic, a coup, a riot) are different: they're
+shocks that can move the town a lot, after which it either settles back
+or settles at a new level for a clear reason. What must not happen is
+steady drift with no event behind it, because a town that drifts like
+that couldn't have existed in its current state for decades. Anything
+with the capacity to grow indefinitely, and that grows noticeably within
+a single ordinary year, is a calibration bug.
+
+- **Rule for every mechanic**: give each push a counterweight, calibrated
+  so the imported levels are the steady state.
+- **The "quiet town" check** (proposed, not built): run several years with
+  no epidemic (cheap now, ~35 s a year) and measure each key aggregate's
+  drift per year: population, average feelings, hatred counts,
+  religiousness, thieves, bodyguards, and so on. Flag anything moving
+  more than a small tolerance. Makes this principle a repeatable test.
+- **Known or suspected imbalances** (as of 2026-09-23; only the first two
+  measured):
+  - *Population*: people die and nobody is born or arrives. See "Long
+    runs: population turnover" above.
+  - *Religiousness creeps up* (measured): seed 1, 3 years, no epidemic:
+    average civilian religiousness 0.499 -> 0.514 -> 0.540, ~+0.014 a
+    year. Cause: ~2,400 flu/diarrhea recoveries a year each add
+    0.05 x severity (~+0.0155 per civilian per year), while blame (the
+    only thing lowering faith) fires only during outbreaks, which
+    ordinary illness never reaches (~40 deaths a year cost no one any
+    faith). The 10%/year fade only caps it: the balance point sits ~0.16
+    above the starting level, reached over a decade or two; epidemic
+    years (about -0.01) don't offset it at one per ~4 years. Options,
+    least to most change: (1) a stronger fade (e.g. 50%/year: balance
+    point ~+0.03, but a plague's mark also fades within a year or two);
+    (2) everyday sickness deaths cost mourners a little faith too,
+    mirroring everyday recoveries (recommended: keeps the user's
+    severity scaling, drift ~0); (3) only surviving the epidemic moves
+    faith (reverses part of the user's earlier request).
+  - *Feelings drift toward hatred* (suspected, main suspect): grief,
+    caught thefts, blame and quarantine anger push ties toward hatred;
+    only a few specific events (devotion, bribes) push toward liking, and
+    nothing relaxes ties back toward normal. Over years this would slowly
+    raise violence and riots. The everyday favor dynamic (next section)
+    is the natural counterweight.
+  - *One-way counters*: bodyguards are never dismissed; some flags are set
+    once and never revisited.
+
+### Everyday favors: a basic likability dynamic (new, user idea 2026-09-23)
+
+A very basic "favor" dynamic: someone does something nice, generally
+speaking, for someone else, and the recipient's affinity toward them
+rises. Favors come in varying strengths, from a small kindness (help
+carrying a load, a shared meal) to a large one (nursing someone through
+an illness, a loan in hard times). This is the concrete everyday form of
+the generic **favor** event in the taxonomy below: bribery and devotion
+are specific, role-bound kinds of favor, while this is the ordinary,
+anyone-to-anyone kind.
+
+- Why it matters: it's the missing counterweight to everything that
+  pushes feelings toward hatred (see Equilibrium, above), so that
+  ordinary life keeps relationships roughly stable instead of letting
+  grudges accumulate forever.
+- Open design points: who does favors for whom (likely people who already
+  like each other, more often across closer ties such as family and
+  neighbours); how strength is distributed (many small, few large); whether
+  it's only the recipient's feelings that move (the existing favor
+  convention) or the giver's warm up too; and calibrating it so that, at
+  the town's imported feelings, favors and wrongdoings balance out.
 
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 
@@ -888,8 +963,9 @@ few hundred people after ~5 years. Runtime itself is not the problem
   several more are implicit above (arresting, quarantining, raising
   taxes, attempting a coup). **Open: agree the full list before
   implementing further phenomena.**
-  - **favor** and **wrongdoing** (added this session, not yet
-    implemented as their own phenomenon): the two generic, symmetric
+  - **favor** and **wrongdoing** (not yet implemented as their own
+    phenomenon; see "Everyday favors" above for the first concrete
+    proposal, 2026-09-23): the two generic, symmetric
     building-block events underneath most of the more specific ones
     above. A favor raises affinity (valence, in the beneficiary's
     outgoing direction toward whoever did it) — a bribe, a kindness, a
