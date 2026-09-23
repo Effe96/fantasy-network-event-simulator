@@ -13,7 +13,8 @@ class Node:
     alive: bool = True
     # personal traits, each 0..1, independent of ses; shape event odds
     # (bribability, crime success, riot participation, ...) as those
-    # phenomena get built. Not yet mutated by events themselves.
+    # phenomena get built. Only religiousness is mutated by events so far
+    # (recovering from a sickness raises it, see ReligionPhenomenon).
     religiousness: float = 0.5
     cunning: float = 0.5
     skepticism: float = 0.5
@@ -108,9 +109,15 @@ class SocialGraph:
         # what" is one lookup for anything that needs it (e.g. blaming a
         # priest for an illness death).
         self.deaths: List[Dict[str, Any]] = []
+        self.recoveries: List[Dict[str, Any]] = []
         # district_id -> "priest" or "noble" (who sealed it). Mutated in place,
         # never reassigned: ContagionPhenomenon holds a reference to it.
         self.quarantined_districts: Dict[int, str] = {}
+
+    def record_recovery(self, resident_id: int, day: int, cause: str) -> None:
+        # the counterpart of record_death, for anything that reacts to
+        # someone getting better (priests' curer gratitude)
+        self.recoveries.append({"resident_id": resident_id, "day": day, "cause": cause})
 
     def record_death(self, resident_id: int, day: int, cause: str, killed_by: Optional[int] = None) -> None:
         self.nodes[resident_id].alive = False

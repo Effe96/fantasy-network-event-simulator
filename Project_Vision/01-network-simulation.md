@@ -85,6 +85,11 @@
 
 ### Contagion (SIR + death)
 
+**Epidemic tiers (2026-09-23)**: severity now comes from `EPIDEMIC_TIERS`
+(influenza, measles, typhus/dysentery = default tier 3, bubonic, pneumonic),
+built from `medieval_diseases.md` with the rule that a very contagious
+disease isn't very deadly and vice versa. See `docs/decisions.md`.
+
 - States: susceptible → infected → (recovered | deceased). Transmission
   probability scales with `base_rate`, tie strength, and a per-
   relationship-type weight (household ties spread it faster than

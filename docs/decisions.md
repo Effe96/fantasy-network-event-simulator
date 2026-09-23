@@ -8,6 +8,71 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — New reference town, epidemic tiers, quarantine shuts people indoors, faith that moves both ways
+
+Four linked changes, decided with the user in one sitting and verified
+together (5 seeds, full engine, new reference town).
+
+**New reference town.** 28 of the old town's 40 nobles lived in poor
+districts. The cause was in TownShape: rich households were housed after
+drifting poor ones filled the rich district, and nobles were then drawn
+from rich adults anywhere. Fixed in TownShape (`f348561`, committed
+locally, not pushed: rich households first, nobles from the rich district
+first). Regenerating with today's TownShape also picks up its
+population fix: the old parameters (target 8,000) now give 4,701
+residents instead of 1,911. The user chose to keep the size: target
+2,800 gives **1,889 residents**, 14 nobles (all in the rich district;
+TownShape's own 1-per-200 ratio, the old 40 came from the population
+bug), 3 clergy, 31 guards, 26 inhabited districts. The old town is kept
+as `../TownShape/demo_riverport_town_pre-housing-fix.db`. Every earlier
+calibration in this file was measured on the old town.
+
+**Epidemic tiers** (user request, from `medieval_diseases.md`):
+`EPIDEMIC_TIERS`, 1 influenza / 2 measles / **3 typhus-dysentery
+(default)** / 4 bubonic / 5 pneumonic, each (town-average fatality, R0,
+infectious days) at the doc's midpoints. Smallpox, high on both
+fatality and contagion, is left out, per the user's rule that a very
+contagious disease shouldn't be very deadly and vice versa.
+`ContagionPhenomenon.from_tier` solves the per-edge rate from R0 = days
+x rate x a resident's mean weighted tie sum (5.28 on the new town), and
+sets base fatality so the town average matches after SES scaling.
+`demo.py --epidemic-tier` (default 3); the old flags still override.
+Why: the old epidemic was R0 ~2.2-2.6 at ~6% fatality, a deadlier
+flu. Tier 3 is R0 2.0, 12% fatality, 12 infectious days: a
+months-long wave. On the new town it infected 59-70% and killed 120-169
+a year with quarantine off, in the 4 of 5 seeds where it took off.
+Seed 2 always fizzles: patient zero (resident 1, 85 mostly weak ties)
+infects no one before recovering. That's the single-patient-zero
+extinction chance, not a rate problem (same at rates 0.06-0.08);
+recurring outbreaks, planned under population turnover, will cover it.
+
+**Quarantine shuts people indoors** (user's choice). On the new town,
+the boundary-only quarantine sealed on day 23-54, after the epidemic had
+reached 24-26 of 26 districts; ~90% of later infections happen inside a
+district, so it slowed nothing and its 1.5x inside death rate added ~21
+deaths a year. Now, inside a sealed district, non-household ties carry
+disease at `quarantine_indoor_factor` 0.2 (spouse/parent/sibling/
+unit_mate untouched), and the inside death multiplier is 1.25.
+Result, tier 3, 4 seeds that took off, off vs on: plague deaths 147.5 vs
+**116**, infected 65% vs **48%**, all deaths 408 vs 393, riots 8.75 vs
+8.75, civilian ties hating nobles ~67 vs ~76. Seals rose to 9-11 a year
+(from 6-7 on the old town) because the wave now lasts months.
+
+**Faith moves both ways** (user request, then revised by the user). A
+recovering civilian's religiousness rises by
+`recovery_religiousness_gain` 0.05 and their valence toward priests they
+know by `recovery_respect_gain` 0.05, both scaled by
+`RECOVERY_SEVERITY` (plague 1.0, diarrhea 0.3, flu 0.1). The first
+version (valence only, scaled by religiousness, heretics excluded) was
+replaced before commit. Religiousness is the first trait events mutate;
+new `graph.recoveries` record. To stop a one-way ratchet (at +0.05 alone
+the average rose 0.50 -> 0.56 in one plague year): blamed mourners lose
+`blame_religiousness_loss` 0.05 x tie strength per death, and every
+civilian's religiousness fades 10%/year of the gap back toward where it
+started. With tier 3 the average ends a plague year at ~0.49 (from
+0.50), and a plague-free year at ~0.51. Blame now reads each civilian's
+priest ties from a list built once, not `graph.neighbors`.
+
 ## 2026-09-23 — Quarantine: sealed home districts, and a slower epidemic to make it matter
 
 **Decision:** new `QuarantinePhenomenon` seals TownShape home districts

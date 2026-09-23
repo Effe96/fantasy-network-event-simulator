@@ -203,8 +203,12 @@ landed. Scope recap:
 
 `QuarantinePhenomenon` seals TownShape home districts on plague deaths
 (2 in 14 days, 4 in poor districts); nobles take charge once one of their
-own dies. Sealed boundaries leak at 2%, sick residents inside die at 1.5×,
-residents inside resent the sealing class. Required slowing the epidemic
+own dies. Sealed boundaries leak at 2%; inside, people keep indoors
+(non-household ties at 20%) and the sick die at 1.25×; residents inside
+resent the sealing class. Re-tuned the same day on a regenerated reference
+town (1,889 residents, nobles in the rich district) with epidemic tiers
+from `medieval_diseases.md` (tier 3 default): quarantine cuts tier-3
+infections 65% -> 48% and plague deaths 147 -> 116 a year. Required slowing the epidemic
 (base_rate 0.5 -> 0.06). Full reasoning, including three revised first
 guesses: `docs/decisions.md`'s 2026-09-23 quarantine entry. Open: check
 quarantine's knock-on effect on mercenary hiring (same 0.7 hatred cutoff).

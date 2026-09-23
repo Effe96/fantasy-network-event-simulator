@@ -8,6 +8,8 @@ from pathlib import Path
 from graph import import_snapshot
 from phenomena import (
     CommonAilmentsPhenomenon,
+    DEFAULT_EPIDEMIC_TIER,
+    EPIDEMIC_TIERS,
     ContagionPhenomenon,
     GuardPhenomenon,
     QuarantinePhenomenon,
@@ -26,12 +28,14 @@ def main(argv=None) -> None:
     parser.add_argument("--days", type=int, default=365)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", default="output")
-    parser.add_argument("--transmission-rate", type=float, default=0.06,
-                         help="per-edge daily transmission hazard before tie strength/type scaling")
-    parser.add_argument("--infectious-days", type=int, default=7,
-                         help="days an infected resident stays infectious before recovering or dying")
-    parser.add_argument("--fatality-rate", type=float, default=0.03,
-                         help="chance an infected resident dies instead of recovering (SES-weighted)")
+    parser.add_argument("--epidemic-tier", type=int, default=DEFAULT_EPIDEMIC_TIER, choices=sorted(EPIDEMIC_TIERS),
+                         help="epidemic severity tier (see EPIDEMIC_TIERS; 3 = average, the default)")
+    parser.add_argument("--transmission-rate", type=float, default=None,
+                         help="override the tier's per-edge daily transmission hazard")
+    parser.add_argument("--infectious-days", type=int, default=None,
+                         help="override the tier's infectious days")
+    parser.add_argument("--fatality-rate", type=float, default=None,
+                         help="override the tier's base fatality (before SES scaling)")
     args = parser.parse_args(argv)
 
     graph = import_snapshot(args.db, args.seed)
@@ -51,11 +55,11 @@ def main(argv=None) -> None:
     # violence's riot-escalation path calls straight into this instance)
     riot = RiotPhenomenon(unrest_threshold=0.15 / aggression_factor, riot_base_rate=0.03 * aggression_factor)
     violence = ViolencePhenomenon(base_rate=0.01 / average_degree * aggression_factor, riot_phenomenon=riot)
-    contagion = ContagionPhenomenon(
-        base_rate=args.transmission_rate,
-        infectious_days=args.infectious_days,
-        case_fatality_rate=args.fatality_rate,
-    )
+    contagion = ContagionPhenomenon.from_tier(graph, args.epidemic_tier)
+    for attribute, override in (("base_rate", args.transmission_rate), ("infectious_days", args.infectious_days),
+                                ("case_fatality_rate", args.fatality_rate)):
+        if override is not None:
+            setattr(contagion, attribute, override)
     # unlike violence, no degree-normalization needed here: on a real town most
     # residents are already married at import (see romance's design note), so
     # the eligible unmarried-and-connected pool is small on its own
@@ -164,7 +168,7 @@ def _print_summary(result) -> None:
     print("religion:")
     print(f"  devotions: {last.get('devotions', 0)}  frictions: {last.get('frictions', 0)}"
           f"  corruptions: {last.get('corruptions', 0)}  heretics: {last.get('heretics', 0)}"
-          f"  blames: {last.get('blames', 0)}")
+          f"  blames: {last.get('blames', 0)}  gratitudes: {last.get('gratitudes', 0)}")
     print("population:")
     print(f"  alive: {last.get('alive', 0)}  dead: {last.get('dead', 0)} "
           f"(violence {violence_deaths} + disease {disease_deaths} + riots {riot_deaths}"

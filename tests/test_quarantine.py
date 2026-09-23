@@ -33,11 +33,11 @@ def _kill(graph, resident_ids, day, cause="plague"):
 
 # --- Contagion side: the effects ---
 
-def test_sealed_boundary_leaks_at_a_tiny_rate_but_inside_ties_are_untouched():
+def test_sealed_boundary_leaks_at_a_tiny_rate_but_household_ties_inside_are_untouched():
     graph = SocialGraph()
     for resident_id, district in [(1, 1), (2, 1), (3, 2)]:
         graph.add_node(_node(resident_id, district))
-    inside, crossing = _edge(1, 2), _edge(1, 3)
+    inside, crossing = _edge(1, 2, source_type="spouse"), _edge(1, 3)  # household ties stay open inside
     graph.add_edge(inside)
     graph.add_edge(crossing)
     contagion = ContagionPhenomenon(base_rate=0.5, quarantine_leak_factor=0.02)
@@ -183,8 +183,45 @@ def test_noble_seal_puts_most_of_the_anger_on_the_governor():
     assert abs(graph.get_edge(22, 201).valence_from(22) - -0.025) < 1e-9
 
 
+def test_sealed_district_residents_keep_indoors_except_with_their_household():
+    graph = SocialGraph()
+    for resident_id in (1, 2, 3):
+        graph.add_node(_node(resident_id, 1))
+    household, neighbor = _edge(1, 2, source_type="spouse"), _edge(1, 3, source_type="neighbor")
+    graph.add_edge(household)
+    graph.add_edge(neighbor)
+    contagion = ContagionPhenomenon(base_rate=0.5, quarantine_indoor_factor=0.2)
+    contagion.init_state(graph)
+    infected, susceptible = {"status": "infected"}, {"status": "susceptible"}
+    open_household = contagion.edge_probability(household, infected, susceptible, 1)
+    open_neighbor = contagion.edge_probability(neighbor, infected, susceptible, 1)
+    graph.quarantined_districts[1] = "priest"
+    assert contagion.edge_probability(household, infected, susceptible, 1) == open_household
+    assert abs(contagion.edge_probability(neighbor, infected, susceptible, 1) - open_neighbor * 0.2) < 1e-12
+
+
+def test_epidemic_tiers_hit_their_r0_and_town_average_fatality():
+    from phenomena import EPIDEMIC_TIERS, SES_VULNERABILITY, CONTAGION_TYPE_WEIGHTS
+    graph = SocialGraph()
+    for resident_id, ses in [(1, "poor"), (2, "poor"), (3, "rich")]:
+        graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True))
+    graph.add_edge(_edge(1, 2, source_type="spouse"))
+    graph.add_edge(_edge(2, 3, source_type="neighbor"))
+    for tier, (_, fatality, r0, days) in EPIDEMIC_TIERS.items():
+        contagion = ContagionPhenomenon.from_tier(graph, tier)
+        tie_sums = {1: 0.0, 2: 0.0, 3: 0.0}
+        for (a, b), edge in graph.edges.items():
+            w = edge.tie_strength * CONTAGION_TYPE_WEIGHTS[edge.source_type]
+            tie_sums[a] += w
+            tie_sums[b] += w
+        mean_r0 = contagion.base_rate * days * sum(tie_sums.values()) / 3
+        mean_cfr = sum(contagion.case_fatality_rate * SES_VULNERABILITY[graph.nodes[r].ses] for r in (1, 2, 3)) / 3
+        assert abs(mean_r0 - r0) < 1e-9 and abs(mean_cfr - fatality) < 1e-9
+        assert contagion.infectious_days == days
+
+
 def _run_all():
-    test_sealed_boundary_leaks_at_a_tiny_rate_but_inside_ties_are_untouched()
+    test_sealed_boundary_leaks_at_a_tiny_rate_but_household_ties_inside_are_untouched()
     test_sick_residents_sealed_inside_die_more_often()
     test_priests_seal_after_three_deaths_but_poor_districts_need_six()
     test_flu_deaths_never_trigger_a_quarantine()
@@ -194,6 +231,8 @@ def _run_all():
     test_quarantine_lifts_after_a_quiet_stretch()
     test_priest_seal_angers_residents_inside_toward_priests_they_know()
     test_noble_seal_puts_most_of_the_anger_on_the_governor()
+    test_sealed_district_residents_keep_indoors_except_with_their_household()
+    test_epidemic_tiers_hit_their_r0_and_town_average_fatality()
     print("OK")
 
 

@@ -201,6 +201,70 @@ def test_non_sickness_deaths_are_not_blamed_on_priests():
     assert graph.get_edge(1, 2).valence_from(1) == 0.0
 
 
+def test_recovering_makes_a_civilian_more_religious_and_fonder_of_priests():
+    graph = _civilian_priest_graph(religiousness=0.5, skepticism=0.2)
+    phenomenon = ReligionPhenomenon(recovery_religiousness_gain=0.05, recovery_respect_gain=0.05,
+                                     religiousness_fade_per_year=0.0)
+    state = phenomenon.init_state(graph)
+    graph.record_recovery(1, day=5, cause="plague")
+    events = phenomenon.end_of_day(graph, state, day=5, rng=random.Random(0))
+    assert abs(graph.nodes[1].religiousness - 0.55) < 1e-9
+    assert abs(state[1]["religiousness"] - 0.55) < 1e-9
+    assert abs(graph.get_edge(1, 2).valence_from(1) - 0.05) < 1e-9
+    assert graph.get_edge(1, 2).valence_from(2) == 0.0  # the priest's own feelings don't move
+    assert [e.kind for e in events] == ["gratitude"]
+    phenomenon.end_of_day(graph, state, day=6, rng=random.Random(0))  # never counted twice
+    assert abs(graph.nodes[1].religiousness - 0.55) < 1e-9
+
+
+def test_worse_diseases_move_survivors_further():
+    def after(cause):
+        graph = _civilian_priest_graph(religiousness=0.5, skepticism=0.2)
+        phenomenon = ReligionPhenomenon(recovery_religiousness_gain=0.05, recovery_respect_gain=0.05)
+        state = phenomenon.init_state(graph)
+        graph.record_recovery(1, day=5, cause=cause)
+        phenomenon.end_of_day(graph, state, day=5, rng=random.Random(0))
+        return graph.nodes[1].religiousness, graph.get_edge(1, 2).valence_from(1)
+
+    plague, diarrhea, flu = after("plague"), after("diarrhea"), after("flu")
+    assert plague[0] > diarrhea[0] > flu[0] > 0.5
+    assert plague[1] > diarrhea[1] > flu[1] > 0.0
+
+
+def test_contagion_records_a_recovery():
+    from phenomena import ContagionPhenomenon
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="middling", alive=True))
+    contagion = ContagionPhenomenon(infectious_days=1, patient_zero=1, case_fatality_rate=0.0)
+    state = contagion.init_state(graph)
+    contagion.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert graph.recoveries == [{"resident_id": 1, "day": 1, "cause": "plague"}]
+
+
+def test_religiousness_fades_back_toward_where_it_started():
+    graph = _civilian_priest_graph(religiousness=0.5, skepticism=0.2)
+    phenomenon = ReligionPhenomenon(religiousness_fade_per_year=0.1)
+    state = phenomenon.init_state(graph)
+    graph.nodes[1].religiousness = 0.7  # e.g. after surviving the plague
+    for day in range(1, 366):
+        phenomenon.end_of_day(graph, state, day=day, rng=random.Random(0))
+    # a tenth of the 0.2 gap closes in a year
+    assert abs(graph.nodes[1].religiousness - 0.68) < 1e-6
+    assert state[1]["religiousness"] == graph.nodes[1].religiousness
+
+
+def test_losing_someone_in_an_outbreak_lowers_faith():
+    graph = _mourner_graph()
+    before = graph.nodes[1].religiousness
+    phenomenon = ReligionPhenomenon(blame_outbreak_threshold=1, blame_religiousness_loss=0.05,
+                                     religiousness_fade_per_year=0.0)
+    state = phenomenon.init_state(graph)
+    graph.record_death(3, day=5, cause="plague")
+    phenomenon.end_of_day(graph, state, day=5, rng=random.Random(0))
+    expected = before - 0.05 * graph.get_edge(1, 3).tie_strength
+    assert abs(graph.nodes[1].religiousness - expected) < 1e-9
+
+
 def _run_all():
     test_only_fires_between_a_civilian_and_a_priest()
     test_more_religious_civilians_show_devotion_more_readily()
@@ -217,6 +281,11 @@ def _run_all():
     test_sickness_death_during_an_outbreak_makes_mourners_blame_priests()
     test_no_blame_below_the_outbreak_threshold()
     test_non_sickness_deaths_are_not_blamed_on_priests()
+    test_recovering_makes_a_civilian_more_religious_and_fonder_of_priests()
+    test_worse_diseases_move_survivors_further()
+    test_contagion_records_a_recovery()
+    test_religiousness_fades_back_toward_where_it_started()
+    test_losing_someone_in_an_outbreak_lowers_faith()
     print("OK")
 
 

@@ -39,33 +39,76 @@ CONTAGION_TYPE_WEIGHTS = {
 }
 
 
+# Epidemic tiers (2026-09-23, user request), from medieval_diseases.md's
+# summary table, midpoints of its ranges. The user's rule, and the doc's
+# point 3: a highly contagious disease shouldn't be very deadly and vice
+# versa (smallpox, high on both, is deliberately left out). Each tier:
+# (modelled on, town-average fatality, R0, infectious days). Tier 3 is the
+# default for simulations unless asked otherwise.
+EPIDEMIC_TIERS = {
+    1: ("influenza", 0.015, 2.25, 7),
+    2: ("measles", 0.05, 15.0, 8),
+    3: ("typhus / epidemic dysentery", 0.12, 2.0, 12),
+    4: ("bubonic plague", 0.45, 1.75, 10),
+    5: ("pneumonic plague", 0.97, 1.3, 4),
+}
+DEFAULT_EPIDEMIC_TIER = 3
+
+# ties to people you live with -- quarantine shuts people indoors, so these
+# keep carrying disease inside a sealed district while the rest mostly stop
+HOUSEHOLD_TIE_TYPES = {"spouse", "parent", "sibling", "unit_mate"}
+
+
 class ContagionPhenomenon:
     name = "contagion"
 
+    @classmethod
+    def from_tier(cls, graph, tier: int = DEFAULT_EPIDEMIC_TIER, **kwargs) -> "ContagionPhenomenon":
+        """Build the epidemic from an EPIDEMIC_TIERS row. R0 = infectious days
+        * base_rate * (a resident's summed tie_strength * type weight), the
+        doc's R0 = beta * c * D on this graph, so base_rate is solved from the
+        town's own mean tie sum. case_fatality_rate is set so the town-wide
+        average matches the tier once SES_VULNERABILITY scales it per person."""
+        _, fatality, r0, infectious_days = EPIDEMIC_TIERS[tier]
+        tie_sum = {resident_id: 0.0 for resident_id in graph.nodes}
+        for (a, b), edge in graph.edges.items():
+            weighted = edge.tie_strength * CONTAGION_TYPE_WEIGHTS.get(edge.source_type, 0.2)
+            tie_sum[a] += weighted
+            tie_sum[b] += weighted
+        mean_tie_sum = sum(tie_sum.values()) / max(1, len(tie_sum))
+        mean_vulnerability = sum(SES_VULNERABILITY.get(n.ses, 1.0) for n in graph.nodes.values()) / max(1, len(graph.nodes))
+        return cls(
+            base_rate=r0 / (infectious_days * max(mean_tie_sum, 1e-9)),
+            infectious_days=infectious_days,
+            case_fatality_rate=fatality / mean_vulnerability,
+            **kwargs,
+        )
+
     def __init__(
         self,
-        # 0.06, not the original 0.5: at 0.5 the epidemic infected every
-        # district by day 5, before the first death, leaving quarantine
-        # nothing to protect. 0.05 took off in 5/5 epidemic-only seeds but
-        # fizzled in 2/5 full-engine runs; 0.06 takes off in all of them
-        # (~70% infected over weeks). See docs/decisions.md 2026-09-23.
+        # plain defaults for tests and hand-built graphs; real runs use
+        # from_tier, which derives these from EPIDEMIC_TIERS and the town
         base_rate: float = 0.06,
         infectious_days: int = 7,
         patient_zero: Optional[int] = None,
         case_fatality_rate: float = 0.03,
         quarantine_leak_factor: float = 0.02,
-        quarantined_fatality_multiplier: float = 1.5,
+        quarantined_fatality_multiplier: float = 1.25,
+        quarantine_indoor_factor: float = 0.2,
     ):
         self.base_rate = base_rate
         self.infectious_days = infectious_days
         self.patient_zero = patient_zero
         self.case_fatality_rate = case_fatality_rate
-        # QuarantinePhenomenon's two effects on the epidemic: a tie crossing a
+        # QuarantinePhenomenon's effects on the epidemic: a tie crossing a
         # sealed district's boundary still carries disease, at this fraction
-        # of the normal rate (rare, never impossible -- user request); and a
-        # sick resident sealed inside dies at this multiple of the usual rate.
+        # of the normal rate (rare, never impossible -- user request); inside
+        # a sealed district people keep indoors, so non-household ties carry
+        # it at quarantine_indoor_factor (household ties are untouched); and
+        # a sick resident sealed inside dies at this multiple of the usual rate.
         self.quarantine_leak_factor = quarantine_leak_factor
         self.quarantined_fatality_multiplier = quarantined_fatality_multiplier
+        self.quarantine_indoor_factor = quarantine_indoor_factor
         # set in init_state: each resident's district, and a reference to
         # graph.quarantined_districts (edge_probability gets no graph)
         self._district: Dict[int, Optional[int]] = {}
@@ -95,6 +138,8 @@ class ContagionPhenomenon:
             district_b = self._district.get(edge.resident_b)
             if district_a != district_b and (district_a in self._sealed or district_b in self._sealed):
                 probability *= self.quarantine_leak_factor
+            elif district_a == district_b and district_a in self._sealed and edge.source_type not in HOUSEHOLD_TIE_TYPES:
+                probability *= self.quarantine_indoor_factor
         return probability
 
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
@@ -128,6 +173,7 @@ class ContagionPhenomenon:
                     events.append(Event(day, self.name, "died", resident_id, resident_id, "died from infection"))
                 else:
                     resident_state["status"] = "recovered"
+                    graph.record_recovery(resident_id, day, "plague")
                     events.append(Event(day, self.name, "recovered", resident_id, resident_id, "recovered"))
         return events
 
@@ -297,6 +343,7 @@ class CommonAilmentsPhenomenon:
             else:
                 ailment_state["status"] = "immune"
                 ailment_state["days_left"] = immunity_days
+                graph.record_recovery(resident_id, day, ailment)
                 events.append(
                     Event(day, self.name, f"{ailment}_recovered", resident_id, resident_id, f"recovered from {ailment}")
                 )
@@ -1292,6 +1339,9 @@ class RiotPhenomenon:
 BRIBE_WEALTH_FACTOR = {"poor": 0.5, "middling": 1.0, "rich": 2.0}
 # graph.deaths causes that count as "disease" for priests' curer blame
 SICKNESS_CAUSES = {"plague", "flu", "diarrhea"}
+# how much surviving each sickness moves a resident toward faith and the
+# clergy (user's ordering: very bad diseases most, diarrhea less, flu much less)
+RECOVERY_SEVERITY = {"plague": 1.0, "diarrhea": 0.3, "flu": 0.1}
 
 
 class GuardPhenomenon:
@@ -1571,7 +1621,24 @@ class ReligionPhenomenon:
     above routine illness: on the reference town flu+diarrhea never exceed
     7 deaths in any 30-day window, while the epidemic kills 112 in a week.
     Deaths from before the outbreak crossed the threshold aren't blamed
-    retroactively."""
+    retroactively.
+
+    Recovery (added 2026-09-23, user request) is blame's mirror, reading
+    graph.recoveries: a civilian who recovers from any sickness becomes a
+    bit more religious (their own religiousness trait rises by
+    recovery_religiousness_gain) and respects the clergy they know a bit
+    more (their own valence toward each priest rises by
+    recovery_respect_gain). Both scale by RECOVERY_SEVERITY -- surviving
+    the plague counts fully, diarrhea much less, flu least. Heretics too:
+    a brush with death softens even a skeptic, though their
+    skepticism-based friction is unchanged. Not gated on an outbreak.
+
+    Faith also comes back down (user's choice, both): a mourner blamed
+    during an outbreak loses blame_religiousness_loss * tie_strength of
+    religiousness per sickness death they lose someone to, and every
+    civilian's religiousness fades toward where it started by
+    religiousness_fade_per_year of the gap each year, so a plague year
+    leaves a mark that wears off over several years."""
 
     name = "religion"
 
@@ -1591,6 +1658,10 @@ class ReligionPhenomenon:
         # of 15 mourners rioted against 3 of the 4 priests. 0.05 leaves no
         # priest-targeted mobs; riots/group kills unchanged over 5 seeds.
         blame_shock: float = 0.05,
+        recovery_religiousness_gain: float = 0.05,
+        recovery_respect_gain: float = 0.05,
+        blame_religiousness_loss: float = 0.05,
+        religiousness_fade_per_year: float = 0.1,
     ):
         self.devotion_base_rate = devotion_base_rate
         self.devotion_affinity_gain = devotion_affinity_gain
@@ -1608,8 +1679,27 @@ class ReligionPhenomenon:
         self.blame_shock = blame_shock
         self._deaths_seen = 0  # index into graph.deaths already processed
         self._blames = 0
+        self.recovery_religiousness_gain = recovery_religiousness_gain
+        self.recovery_respect_gain = recovery_respect_gain
+        self.blame_religiousness_loss = blame_religiousness_loss
+        # daily share of the gap closed, so the yearly total is the knob
+        self._fade_per_day = 1.0 - (1.0 - religiousness_fade_per_year) ** (1.0 / 365.0)
+        self._baseline_religiousness: Dict[int, float] = {}
+        self._recoveries_seen = 0  # index into graph.recoveries already processed
+        self._gratitudes = 0
+        # civilian -> priests they have a tie to, built once in init_state:
+        # graph.neighbors scans every edge, far too slow per recovery
+        self._priest_ties: Dict[int, List[int]] = {}
 
     def init_state(self, graph) -> Dict[int, Any]:
+        self._priest_ties = {}
+        for a, b in graph.edges:
+            for civilian, other in ((a, b), (b, a)):
+                if graph.nodes[civilian].role == "civilian" and graph.nodes[other].role == "priest":
+                    self._priest_ties.setdefault(civilian, []).append(other)
+        self._baseline_religiousness = {
+            resident_id: node.religiousness for resident_id, node in graph.nodes.items() if node.role == "civilian"
+        }
         state = {}
         for resident_id, node in graph.nodes.items():
             is_heretic = node.role == "civilian" and node.skepticism > self.heretic_skepticism_threshold
@@ -1684,6 +1774,43 @@ class ReligionPhenomenon:
         ]
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        self._fade_religiousness(graph, state)
+        return self._gratitude(graph, state, day) + self._blame(graph, state, day)
+
+    def _set_religiousness(self, graph, state, resident_id: int, value: float) -> None:
+        graph.nodes[resident_id].religiousness = min(1.0, max(0.0, value))
+        state[resident_id]["religiousness"] = graph.nodes[resident_id].religiousness  # devotion odds read this copy
+
+    def _fade_religiousness(self, graph, state) -> None:
+        for resident_id, baseline in self._baseline_religiousness.items():
+            current = graph.nodes[resident_id].religiousness
+            if current != baseline and graph.nodes[resident_id].alive:
+                self._set_religiousness(graph, state, resident_id, current + (baseline - current) * self._fade_per_day)
+
+    def _gratitude(self, graph, state, day: int) -> List[Event]:
+        new_recoveries = graph.recoveries[self._recoveries_seen:]
+        self._recoveries_seen = len(graph.recoveries)
+        events = []
+        for recovery in new_recoveries:
+            civilian_id = recovery["resident_id"]
+            civilian_state = state[civilian_id]
+            if civilian_state["role"] != "civilian" or not graph.nodes[civilian_id].alive:
+                continue
+            severity = RECOVERY_SEVERITY.get(recovery["cause"], 0.0)
+            self._set_religiousness(graph, state, civilian_id,
+                                    graph.nodes[civilian_id].religiousness + self.recovery_religiousness_gain * severity)
+            gain = self.recovery_respect_gain * severity
+            for priest_id in self._priest_ties.get(civilian_id, []):
+                if not graph.nodes[priest_id].alive:
+                    continue
+                edge = graph.get_edge(civilian_id, priest_id)
+                edge.set_valence_from(civilian_id, min(1.0, edge.valence_from(civilian_id) + gain))
+                self._gratitudes += 1
+                events.append(Event(day, self.name, "gratitude", civilian_id, priest_id,
+                                    f"recovered from {recovery['cause']} -- civilian's affinity +{gain:.3f}"))
+        return events
+
+    def _blame(self, graph, state, day: int) -> List[Event]:
         new_deaths = graph.deaths[self._deaths_seen:]
         self._deaths_seen = len(graph.deaths)
         new_sickness = [d for d in new_deaths if d["cause"] in SICKNESS_CAUSES]
@@ -1703,13 +1830,15 @@ class ReligionPhenomenon:
             deceased = death["resident_id"]
             for mourner in graph.neighbors(deceased):
                 if graph.nodes[mourner].alive and state[mourner]["role"] == "civilian":
-                    shock = self.blame_shock * graph.get_edge(mourner, deceased).tie_strength
-                    blame_by_civilian[mourner] = blame_by_civilian.get(mourner, 0.0) + shock
+                    tie_strength = graph.get_edge(mourner, deceased).tie_strength
+                    blame_by_civilian[mourner] = blame_by_civilian.get(mourner, 0.0) + self.blame_shock * tie_strength
+                    self._set_religiousness(graph, state, mourner, graph.nodes[mourner].religiousness
+                                            - self.blame_religiousness_loss * tie_strength)
 
         events = []
         for civilian_id, shock in blame_by_civilian.items():
-            for priest_id in graph.neighbors(civilian_id):
-                if not graph.nodes[priest_id].alive or state[priest_id]["role"] != "priest":
+            for priest_id in self._priest_ties.get(civilian_id, []):
+                if not graph.nodes[priest_id].alive:
                     continue
                 edge = graph.get_edge(civilian_id, priest_id)
                 edge.set_valence_from(civilian_id, max(-1.0, edge.valence_from(civilian_id) - shock))
@@ -1725,6 +1854,7 @@ class ReligionPhenomenon:
             "corruptions": self._corruptions,
             "heretics": self._heretics,
             "blames": self._blames,
+            "gratitudes": self._gratitudes,
         }
 
 
