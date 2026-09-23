@@ -521,6 +521,38 @@ implemented yet — unless marked otherwise.
     is actually punished regardless of the culprit's class — feeds the
     "nobles almost never get caught" asymmetry already implied under
     Criminals/Nobles below.
+- **Tunable city-wide parameters (user, 2026-09-23)**: the user considers
+  these important, especially for a future where towns interact.
+  Parameters like how loyal, aggressive, strict or rich a town is, which
+  can change over time, either from an external event we decide or
+  naturally, so that the town's equilibrium and dynamics change with
+  them. Proposed shape (discussed, not built):
+  - **One set of town parameters in one place** (loyalty, aggression,
+    strictness/justice harshness, wealth, religiosity, corruption, ...),
+    read by every mechanic instead of each holding its own constants.
+    Today only aggression is a real dial (TownShape's own); TownShape's
+    `rich_proportion` and `magic_prevalence` could seed others.
+    Strictness is what "executions scaled by aggression and crime
+    severity" (docs/plans.md) needs.
+  - **Two ways to change**: external events we trigger (a harsh
+    magistrate arrives: strictness up; a war: aggression and taxes up),
+    applied at once or ramped in; and natural drift from inside the
+    town (repeated epidemics wearing religiosity down; a run of
+    executions breeding fear and loyalty), the feedback loop described
+    above.
+  - **Dial vs aggregate, reconciled**: the parameter sets the
+    distribution residents' traits are drawn from and responds to
+    events; the live value is what residents actually are (e.g. the
+    average religiousness). Both views in docs/plans.md hold at once.
+  - **Parameters define the equilibrium** (see "Equilibrium", below): at
+    fixed parameter values a quiet year shouldn't change the town;
+    changing a parameter moves the equilibrium and the town shifts toward
+    the new balance over time, which is the legitimate way for a town to
+    change. Calibration then means "stationary at these values", checked
+    at several values, not one.
+  - **The interface between towns**: trade could raise wealth, war raise
+    aggression and taxes, refugees lower loyalty; each town stays its own
+    simulation and they touch only through each other's parameters.
 - **Taxes**: an external stressor (disease, war) prompts the governing
   body to raise taxes; taxes raise animosity toward whoever governs.
   Overlaps with the Nobles section's coup mechanic below — same

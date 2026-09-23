@@ -260,6 +260,15 @@ that mechanic needs.
 
 ## Town-wide dials: religiosity & loyalty as emergent aggregates
 
+**User, 2026-09-23:** tunable city-wide parameters (loyal, aggressive,
+strict, rich, ...) matter a lot, especially for future interaction
+between towns, and they should change over time (external events we
+trigger, or naturally), moving the town's equilibrium with them. See
+`Project_Vision`'s "Town-wide dynamic parameters" for the proposed shape:
+one parameter set read by every mechanic, dial and aggregate reconciled,
+parameters defining the equilibrium, parameters as the interface between
+towns.
+
 Per the vision doc's own framing, these should likely be *aggregates of
 individual traits* (a town-wide religiosity number derived from residents'
 own `religiousness`) rather than separately hand-set dials, with real
