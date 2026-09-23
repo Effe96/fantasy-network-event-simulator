@@ -8,6 +8,7 @@ from tests import (
     test_ailments,
     test_attributes,
     test_contagion,
+    test_drift_check,
     test_engine,
     test_graph,
     test_guards,
@@ -35,6 +36,7 @@ MODULES = [
     test_theft,
     test_religion,
     test_quarantine,
+    test_drift_check,
     test_engine,
 ]
 

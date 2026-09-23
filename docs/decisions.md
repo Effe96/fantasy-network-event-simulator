@@ -8,6 +8,36 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — Quiet-town drift check: what actually drifts
+
+**Tool:** `drift_check.py` (pipeline step 1). Runs `demo.build_phenomena`
+with epidemics off for N years, snapshots the town at day 1 and each year
+end through a new read-only `run_simulation(on_day_end=...)` hook, and
+flags stocks drifting more than 2%/yr (0.01/yr for 0..1 averages),
+judged *after year 1* so settling-in is separated from steady drift.
+Feelings are measured as shares of living ties: raw tie counts fall ~2x
+as fast as population, since both ends must be alive. `demo.main`'s
+phenomenon construction moved into `build_phenomena()` so the check runs
+the exact demo configuration (seed-3 year verified byte-identical).
+
+**Findings, seeds 1-3 x 3 quiet years:**
+- *In balance:* mean feeling ~0.02 flat; share of ties past hatred 0.6
+  +0.0007/yr (3.6% -> 3.8% over 3 years); warm-tie share likewise; clergy
+  3/3. **The suspected drift toward hatred is not real**: the pushes
+  toward hatred are already roughly offset.
+- *Steady drift:* population -3 to -4%/yr (no births or arrivals);
+  **guards -4 to -17%/yr** (die in riots and illness, never replaced);
+  nobles 0 to -5%/yr; married residents -3 to -5%/yr; religiousness
+  +0.013/yr (everyday recoveries, see Project_Vision's Equilibrium).
+- *Not at equilibrium on import:* thieves start at 0 and settle ~20-35
+  within the first year; bodyguards 2-3 -> 9-18 in year 1, then flat.
+
+**Consequences for the pipeline:** population turnover explains four of
+the five drifts and must include replacing guards/nobles and new
+marriages; a new item seeds thieves and bodyguards at their natural
+levels at import; everyday favors are no longer needed as a counterweight
+(still wanted as a feature) and move after the balancing work.
+
 ## 2026-09-23 — 5x faster, with bit-for-bit identical results
 
 **Problem (user):** a one-year run took ~3 min. Profile of 30 days: 14.5 s

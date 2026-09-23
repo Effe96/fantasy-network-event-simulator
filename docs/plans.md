@@ -39,24 +39,31 @@ events, then let the town change. See Project_Vision's "Equilibrium",
 "Everyday favors" and "Town-wide dynamic parameters" sections.
 
 **Phase A: Foundations** (tools and structure, no behaviour change)
-1. **"Quiet town" drift check**: run several years with no epidemic,
-   report each key quantity's drift per year, flag anything outside
-   tolerance. Makes the equilibrium principle a repeatable test and
-   measures which imbalances are real before fixing any. **Next.**
+1. ~~**"Quiet town" drift check**~~ **Done 2026-09-23**: `drift_check.py`.
+   Findings (docs/decisions.md): feelings are already in balance;
+   population, guards, nobles, marriages and religiousness drift; thieves
+   and bodyguards aren't at their natural levels on import. Re-run it
+   after every Phase B step. **Next: step 2.**
 2. **City-wide parameters in one place** (aggression, strictness,
    loyalty, religiosity, wealth, ...), read by every mechanic instead of
    scattered constants; as a pure refactor, verifiable bit-for-bit.
 3. **Adding residents mid-run**: engine + every phenomenon can take on a
    resident after day 1 (the blocker for births and arrivals).
 
-**Phase B: Balance the everyday** (equilibrium at the reference parameters)
-4. **Everyday favors**, the counterweight to hatred accumulating.
+**Phase B: Balance the everyday** (equilibrium at the reference parameters;
+reordered 2026-09-23 after the drift check)
+4. **Population turnover**: real births, arrivals, replacement guards,
+   clergy and nobles, new marriages, children growing up; births +
+   arrivals ~ deaths in a quiet year. Explains four of the five drifts
+   (population, guards -4 to -17%/yr, nobles, marriages).
 5. **Faith balance**: everyday sickness deaths cost mourners faith too
-   (option 2 in Project_Vision's Equilibrium section).
-6. **Population turnover**: real births, arrivals, replacement guards
-   and clergy, children growing up; births + arrivals ~ deaths in a quiet
-   year.
-7. **One-way counters**, e.g. bodyguards dismissed when no longer needed.
+   (option 2 in Project_Vision's Equilibrium section). Religiousness
+   +0.013/yr measured.
+6. **Start at natural levels**: seed thieves (~20-35) and bodyguards at
+   import instead of from zero, so year 1 isn't spent settling in.
+7. **Everyday favors**: no longer needed as a counterweight (feelings
+   measured in balance), still wanted as a feature; calibrate so it
+   doesn't unbalance feelings.
    -> Phase B is done when the drift check passes at reference parameters.
 
 **Phase C: Retune the extraordinary events** (against a stable town)

@@ -31,25 +31,12 @@ from engine import run_simulation
 VIOLENCE_RATE_PER_DEGREE = 0.0018
 
 
-def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description="Run the Fantasy Network Event Simulator over a TownShape snapshot.")
-    parser.add_argument("--db", required=True, help="Path to a TownShape .db snapshot")
-    parser.add_argument("--days", type=int, default=365)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--out", default="output")
-    parser.add_argument("--epidemic-tier", type=int, default=DEFAULT_EPIDEMIC_TIER, choices=sorted(EPIDEMIC_TIERS),
-                         help="epidemic severity tier (see EPIDEMIC_TIERS; 3 = average, the default)")
-    parser.add_argument("--outbreak-chance", type=float, default=DEFAULT_OUTBREAK_YEARLY_CHANCE,
-                         help="yearly chance an epidemic breaks out (random day, random patient zero)")
-    parser.add_argument("--transmission-rate", type=float, default=None,
-                         help="override the tier's per-edge daily transmission hazard")
-    parser.add_argument("--infectious-days", type=int, default=None,
-                         help="override the tier's infectious days")
-    parser.add_argument("--fatality-rate", type=float, default=None,
-                         help="override the tier's base fatality (before SES scaling)")
-    args = parser.parse_args(argv)
-
-    graph = import_snapshot(args.db, args.seed)
+def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
+                    outbreak_chance: float = DEFAULT_OUTBREAK_YEARLY_CHANCE,
+                    transmission_rate=None, infectious_days=None, fatality_rate=None):
+    """The standard phenomenon set, in engine order, calibrated to this town.
+    Shared by main() and diagnostics (drift_check.py) so they run exactly
+    the same configuration."""
     # ponytail: base_rate is a per-edge daily probability (see design doc §8's worked
     # example, which implicitly assumes a person has a handful of ties). It was never
     # scaled by graph density, so on a real town where the average resident has ~63
@@ -66,9 +53,9 @@ def main(argv=None) -> None:
     # violence's riot-escalation path calls straight into this instance)
     riot = RiotPhenomenon(unrest_threshold=0.15 / aggression_factor, riot_base_rate=0.03 * aggression_factor)
     violence = ViolencePhenomenon(base_rate=VIOLENCE_RATE_PER_DEGREE / average_degree * aggression_factor, riot_phenomenon=riot)
-    contagion = ContagionPhenomenon.from_tier(graph, args.epidemic_tier, outbreak_yearly_chance=args.outbreak_chance)
-    for attribute, override in (("base_rate", args.transmission_rate), ("infectious_days", args.infectious_days),
-                                ("case_fatality_rate", args.fatality_rate)):
+    contagion = ContagionPhenomenon.from_tier(graph, epidemic_tier, outbreak_yearly_chance=outbreak_chance)
+    for attribute, override in (("base_rate", transmission_rate), ("infectious_days", infectious_days),
+                                ("case_fatality_rate", fatality_rate)):
         if override is not None:
             setattr(contagion, attribute, override)
     # unlike violence, no degree-normalization needed here: on a real town most
@@ -97,6 +84,30 @@ def main(argv=None) -> None:
     # and contagion reads the sealed districts back from the next day on
     quarantine = QuarantinePhenomenon()
     phenomena = [contagion, quarantine, violence, romance, riot, guards, theft, ailments, religion]
+    return phenomena
+
+
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description="Run the Fantasy Network Event Simulator over a TownShape snapshot.")
+    parser.add_argument("--db", required=True, help="Path to a TownShape .db snapshot")
+    parser.add_argument("--days", type=int, default=365)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--out", default="output")
+    parser.add_argument("--epidemic-tier", type=int, default=DEFAULT_EPIDEMIC_TIER, choices=sorted(EPIDEMIC_TIERS),
+                         help="epidemic severity tier (see EPIDEMIC_TIERS; 3 = average, the default)")
+    parser.add_argument("--outbreak-chance", type=float, default=DEFAULT_OUTBREAK_YEARLY_CHANCE,
+                         help="yearly chance an epidemic breaks out (random day, random patient zero)")
+    parser.add_argument("--transmission-rate", type=float, default=None,
+                         help="override the tier's per-edge daily transmission hazard")
+    parser.add_argument("--infectious-days", type=int, default=None,
+                         help="override the tier's infectious days")
+    parser.add_argument("--fatality-rate", type=float, default=None,
+                         help="override the tier's base fatality (before SES scaling)")
+    args = parser.parse_args(argv)
+
+    graph = import_snapshot(args.db, args.seed)
+    phenomena = build_phenomena(graph, args.epidemic_tier, args.outbreak_chance,
+                                args.transmission_rate, args.infectious_days, args.fatality_rate)
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)

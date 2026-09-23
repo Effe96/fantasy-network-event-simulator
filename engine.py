@@ -1,7 +1,7 @@
 import heapq
 import random
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Callable, Dict, List, Optional
 
 from phenomena import Event, Phenomenon
 
@@ -12,7 +12,9 @@ class SimulationResult:
     events: List[Event] = field(default_factory=list)
 
 
-def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int) -> SimulationResult:
+def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
+                   on_day_end: Optional[Callable[[int, object, Dict], None]] = None) -> SimulationResult:
+    # on_day_end(day, graph, states): read-only hook for diagnostics (drift_check.py)
     rng = random.Random(seed)
     states = {phenomenon.name: phenomenon.init_state(graph) for phenomenon in phenomena}
     result = SimulationResult()
@@ -57,6 +59,8 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int) -> 
         summary["alive"] = alive_count
         summary["dead"] = len(graph.nodes) - alive_count
         result.daily_summaries.append(summary)
+        if on_day_end is not None:
+            on_day_end(day, graph, states)
 
     return result
 
