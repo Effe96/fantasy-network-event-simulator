@@ -12,6 +12,24 @@
 > below is the current order**; older per-topic sections further down
 > keep their detail.
 
+## Open decision for the next session (raise this first)
+
+**How to build population turnover (pipeline step 4)**, deferred by the
+user on 2026-09-23 to the next session. Options, with trade-offs, in
+`docs/townshape-integration.md` part 4:
+- **A. Coupled yearly loop with TownShape** (recommended target):
+  TownShape's `advance_town` owns births, households, jobs; the sim owns
+  daily social life; deaths written back, births merged in. Needs
+  TownShape-side changes (who owns which cause of death, persisting
+  sim-only traits/feelings), an `update_resident` hook, and a relationship
+  merge.
+- **B. Births and arrivals inside the sim first**, as a stopgap A later
+  replaces: fastest route to a stable population, duplicates TownShape's
+  birth/household logic.
+- (C, a full merge into TownShape, is the heaviest option.)
+Both A and B feed the same entry point built in step 3
+(`graph.add_resident`). Nothing in step 4 starts until this is decided.
+
 ## Resume checklist
 
 1. `py -3 tests/run_all.py` — should print `ALL OK`. If not, something's
