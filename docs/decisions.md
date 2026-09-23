@@ -8,6 +8,36 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — City-wide parameters in one place (pipeline step 2)
+
+**Decision:** `graph.TownParameters`, stored as `graph.params`: `aggression`
+(TownShape's own dial, read at import as before), `loyalty` and
+`religiosity` (the averages residents' traits are drawn around at import,
+0.5 by default) and `strictness` (scales the execution chance of a caught
+thief; 1x at the default 0.5). `import_snapshot(..., overrides={...})`
+sets any of them before residents are drawn (unknown names are
+rejected); `demo.py` gains `--aggression/--loyalty/--religiosity/
+--strictness`. Replaces `graph.town_aggression`.
+
+**Read while running, not baked in:** violence and riot now apply
+`params.aggression_factor()` at use (violence's base rate and riot's
+unrest threshold / start rate are stored as their aggression-0 values),
+and theft applies `params.strictness_factor()` at the execution roll, so
+an event that changes a parameter mid-run takes effect at once (pipeline
+step 12). Loyalty and religiosity only matter at import for now; shifting
+them later means shifting real residents, which is step 12's job.
+
+**Why these four:** the ones the user named that something already reads
+(or, for strictness, that the queued executions work needs). Wealth waits
+for Economy & poverty; TownShape's `rich_proportion` is its natural
+source.
+
+**Verified:** at the defaults every factor is exactly 1.0, so seeds 3 and
+1 reproduce byte-identical summary/deaths/events for a full year. New
+`tests/test_town_parameters.py`: trait averages follow overrides, unknown
+names are rejected, raising aggression mid-run triples violence odds at
+once, strictness 0 means no executions.
+
 ## 2026-09-23 — Quiet-town drift check: what actually drifts
 
 **Tool:** `drift_check.py` (pipeline step 1). Runs `demo.build_phenomena`

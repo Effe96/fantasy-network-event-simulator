@@ -84,18 +84,45 @@ class Edge:
             raise ValueError(f"{resident_id} is not part of this edge")
 
 
+DEFAULT_TRAIT_MEAN = 0.5
+DEFAULT_STRICTNESS = 0.5
+
+
+@dataclass
+class TownParameters:
+    """City-wide parameters (pipeline step 2, 2026-09-23): the dials that set
+    a town's character and so its equilibrium, in one place instead of
+    constants scattered across phenomena. The defaults reproduce the town's
+    behaviour before this existed exactly.
+
+    aggression and strictness are read while the town runs, so changing them
+    mid-run takes effect at once; loyalty and religiosity are the averages
+    residents' traits are drawn around at import."""
+    # TownShape's own 0..1 generation dial: 1x violence/riot odds at 0, 3x at 1
+    aggression: float = 0.0
+    loyalty: float = DEFAULT_TRAIT_MEAN
+    religiosity: float = DEFAULT_TRAIT_MEAN
+    # how harshly crime is punished; scales the chance a caught thief is
+    # executed, 1x at the default
+    strictness: float = DEFAULT_STRICTNESS
+
+    def aggression_factor(self) -> float:
+        return 1.0 + 2.0 * self.aggression
+
+    def strictness_factor(self) -> float:
+        return self.strictness / DEFAULT_STRICTNESS
+
+
 class SocialGraph:
     def __init__(self) -> None:
         self.nodes: Dict[int, Node] = {}
         self.edges: Dict[Tuple[int, int], Edge] = {}
-        # TownShape's own town-wide generation dial (0..1, defaults to 0.0
-        # meaning "no extra volatility" -- not "no violence at all"). Read
-        # at import; a "guardrail" multiplier for phenomena to apply, not a
-        # phenomenon itself.
-        self.town_aggression: float = 0.0
+        # city-wide parameters; aggression is read from TownShape's own
+        # town_state at import (0.0, "no extra volatility", when absent)
+        self.params = TownParameters()
         # No real TownShape data for this (checked town_state's own columns
         # and the wider source -- no governor/mayor/ruler concept exists to
-        # import). A single town-wide fact, same shape as town_aggression,
+        # import). A single town-wide fact, same shape as params.aggression,
         # rather than a Node field almost everyone would carry as False.
         # Left unset at import; ViolencePhenomenon's coup mechanic picks (and
         # re-picks, on succession) the town's most powerful living noble the
@@ -208,14 +235,22 @@ FAMILY_CORRELATED_TRAITS = ["religiousness", "skepticism"]
 FAMILY_TRAIT_STDEV = 0.15
 
 
-def synthesize_traits(rng: random.Random, family_baseline: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+def synthesize_traits(rng: random.Random, family_baseline: Optional[Dict[str, float]] = None,
+                      means: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    # means: per-trait population average (TownParameters' loyalty and
+    # religiosity); DEFAULT_TRAIT_MEAN for any trait not given
+    means = means or {}
     traits = {}
     for name in TRAIT_NAMES:
         if family_baseline is not None and name in FAMILY_CORRELATED_TRAITS:
             traits[name] = _clamp01(rng.gauss(family_baseline[name], FAMILY_TRAIT_STDEV))
         else:
-            traits[name] = _clamp01(rng.gauss(0.5, 0.2))
+            traits[name] = _clamp01(rng.gauss(means.get(name, DEFAULT_TRAIT_MEAN), 0.2))
     return traits
+
+
+def _trait_means(params: TownParameters) -> Dict[str, float]:
+    return {"loyalty": params.loyalty, "religiousness": params.religiosity}
 
 
 # civilians only -- see Node.is_ex_soldier. No real TownShape data to derive
@@ -328,13 +363,14 @@ def _load_residents(
     # each family's shared center is drawn once, the first time any of its
     # members is processed, keyed by family root id so every member of the
     # same family reuses the same center
+    means = _trait_means(graph.params)
     family_baselines: Dict[int, Dict[str, float]] = {}
     for resident_id, ses, gender, birth_date, occupation, is_noble in rows:
         age = _age_from_birth_date(birth_date, reference_year)
         family_root = family_of.get(resident_id, resident_id)
         if family_root not in family_baselines:
             family_baselines[family_root] = {
-                name: _clamp01(rng.gauss(0.5, 0.2)) for name in FAMILY_CORRELATED_TRAITS
+                name: _clamp01(rng.gauss(means.get(name, DEFAULT_TRAIT_MEAN), 0.2)) for name in FAMILY_CORRELATED_TRAITS
             }
         is_civilian = not is_noble and occupation not in _NON_CIVILIAN_OCCUPATIONS
         is_ex_soldier = is_civilian and rng.random() < EX_SOLDIER_BASE_RATE
@@ -342,7 +378,7 @@ def _load_residents(
             Node(
                 resident_id=resident_id, ses=ses, alive=True, gender=gender, age=age,
                 occupation=occupation, is_noble=bool(is_noble), is_ex_soldier=is_ex_soldier,
-                **synthesize_traits(rng, family_baselines[family_root]),
+                **synthesize_traits(rng, family_baselines[family_root], means),
             )
         )
 
@@ -381,7 +417,7 @@ def _load_town_state(conn: sqlite3.Connection, graph: SocialGraph) -> Optional[i
         return None
     aggression, year_start = row
     if aggression is not None:
-        graph.town_aggression = aggression
+        graph.params.aggression = aggression
     if year_start is None:
         return None
     try:
@@ -450,7 +486,10 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
         graph.add_edge(edge)
 
 
-def import_snapshot(db_path: str, seed: int) -> SocialGraph:
+def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float]] = None) -> SocialGraph:
+    """overrides: TownParameters fields to set instead of the snapshot's own
+    or the defaults (e.g. {"loyalty": 0.8}); applied before residents are
+    drawn, so trait averages follow them."""
     rng = random.Random(seed)
     graph = SocialGraph()
     # read-only: a snapshot is never written to, and a mistyped path must fail
@@ -458,6 +497,10 @@ def import_snapshot(db_path: str, seed: int) -> SocialGraph:
     conn = sqlite3.connect(f"file:{Path(db_path).resolve().as_posix()}?mode=ro", uri=True)
     try:
         reference_year = _load_town_state(conn, graph)
+        for name, value in (overrides or {}).items():
+            if not hasattr(graph.params, name):
+                raise ValueError(f"unknown town parameter: {name}")
+            setattr(graph.params, name, value)
         _load_residents(conn, graph, rng, reference_year)
         _load_relationships(conn, graph, rng)
         _load_shopkeeper_customer(conn, graph, rng)

@@ -48,11 +48,11 @@ def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
     average_degree = max(1.0, 2 * len(graph.edges) / max(1, len(graph.nodes)))
     # ponytail: linear scale-up, 3x at max aggression (1.0); tune this constant if a
     # max-aggression town should feel more/less volatile than "three times as violent"
-    aggression_factor = 1.0 + 2.0 * graph.town_aggression
     # constructed before violence so it can be wired into it below (group
     # violence's riot-escalation path calls straight into this instance)
-    riot = RiotPhenomenon(unrest_threshold=0.15 / aggression_factor, riot_base_rate=0.03 * aggression_factor)
-    violence = ViolencePhenomenon(base_rate=VIOLENCE_RATE_PER_DEGREE / average_degree * aggression_factor, riot_phenomenon=riot)
+    # riot and violence scale these by graph.params' aggression while running
+    riot = RiotPhenomenon(unrest_threshold=0.15, riot_base_rate=0.03)
+    violence = ViolencePhenomenon(base_rate=VIOLENCE_RATE_PER_DEGREE / average_degree, riot_phenomenon=riot)
     contagion = ContagionPhenomenon.from_tier(graph, epidemic_tier, outbreak_yearly_chance=outbreak_chance)
     for attribute, override in (("base_rate", transmission_rate), ("infectious_days", infectious_days),
                                 ("case_fatality_rate", fatality_rate)):
@@ -63,7 +63,7 @@ def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
     # the eligible unmarried-and-connected pool is small on its own
     romance = RomancePhenomenon()
     # riot's own thresholds (set above, alongside its construction): same
-    # aggression_factor as violence, since an aggressive town riots more
+    # aggression scaling as violence, since an aggressive town riots more
     # readily and reaches unrest sooner (vision doc: "more frequent riots").
     # unrest_threshold=0.15 (not the earlier 0.25) is a deliberate margin below
     # the reference town's natural baseline civilian-to-authority hostility
@@ -103,9 +103,14 @@ def main(argv=None) -> None:
                          help="override the tier's infectious days")
     parser.add_argument("--fatality-rate", type=float, default=None,
                          help="override the tier's base fatality (before SES scaling)")
+    for name in ("aggression", "loyalty", "religiosity", "strictness"):
+        parser.add_argument(f"--{name}", type=float, default=None,
+                            help=f"city-wide {name} (0..1); default: the snapshot's or TownParameters' own")
     args = parser.parse_args(argv)
 
-    graph = import_snapshot(args.db, args.seed)
+    overrides = {name: getattr(args, name) for name in ("aggression", "loyalty", "religiosity", "strictness")
+                 if getattr(args, name) is not None}
+    graph = import_snapshot(args.db, args.seed, overrides)
     phenomena = build_phenomena(graph, args.epidemic_tier, args.outbreak_chance,
                                 args.transmission_rate, args.infectious_days, args.fatality_rate)
     result = run_simulation(graph, phenomena, args.days, args.seed)

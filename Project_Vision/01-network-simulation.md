@@ -527,6 +527,10 @@ implemented yet — unless marked otherwise.
   can change over time, either from an external event we decide or
   naturally, so that the town's equilibrium and dynamics change with
   them. Proposed shape (discussed, not built):
+  - **Built 2026-09-23** (first slice): `graph.TownParameters` with
+    aggression, loyalty, religiosity and strictness; aggression and
+    strictness are read while the town runs, loyalty and religiosity set
+    trait averages at import. See `docs/decisions.md`.
   - **One set of town parameters in one place** (loyalty, aggression,
     strictness/justice harshness, wealth, religiosity, corruption, ...),
     read by every mechanic instead of each holding its own constants.

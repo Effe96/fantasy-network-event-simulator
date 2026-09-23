@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
-from graph import FISKE_TAGS
+from graph import FISKE_TAGS, TownParameters
 
 
 @dataclass
@@ -600,6 +600,8 @@ class ViolencePhenomenon:
         coup_cooldown_days: int = 365,
     ):
         self.base_rate = base_rate
+        # city-wide parameters, set in init_state; aggression scales the odds
+        self._params = TownParameters()
         self._new_candidates: List[Tuple[int, int]] = []
         self.hatred_floor = hatred_floor
         self.riot_escalation_min_band = riot_escalation_min_band
@@ -647,6 +649,7 @@ class ViolencePhenomenon:
         self._coup_mercenaries_hired = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
+        self._params = graph.params
         # "mercenaries" (only meaningful for a noble/priest) and "hired_by"
         # (only meaningful for an ex-soldier) sit on every resident's state
         # dict either way, same uniform shape "alive" already uses
@@ -675,7 +678,7 @@ class ViolencePhenomenon:
         if hostility <= self.hatred_floor:
             return 0.0
         hatred = (hostility - self.hatred_floor) / (1.0 - self.hatred_floor)
-        return self.base_rate * hatred * edge.tie_strength
+        return self.base_rate * self._params.aggression_factor() * hatred * edge.tie_strength
 
     def _pick_aggressor(self, graph, edge, a: int, b: int, rng: random.Random) -> int:
         # whoever wants to hurt the other more is more likely to be the one who
@@ -1183,6 +1186,9 @@ class RiotPhenomenon:
         self.unrest_threshold = unrest_threshold
         self.riot_base_rate = riot_base_rate
         self.join_rate = join_rate
+        # unrest_threshold / riot_base_rate are the values at aggression 0;
+        # aggression_factor divides / multiplies them at use (city-wide dial)
+        self._params = TownParameters()
         self.min_participants = min_participants
         self.guard_lethality = guard_lethality
         # armed and trained: rioters die faster fighting guards than guards die
@@ -1222,6 +1228,7 @@ class RiotPhenomenon:
         self._rioter_deaths = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
+        self._params = graph.params
         # civilian <-> authority (guard or noble) edges, precomputed once: roles
         # don't change during the run, so re-deriving this from all edges daily
         # would be wasted work on a real town's ~75k edges
@@ -1268,9 +1275,11 @@ class RiotPhenomenon:
         avg_hostility = sum(-graph.get_edge(civ, member).valence_from(civ) for civ, member in hostile_links) / len(
             hostile_links
         )
-        if avg_hostility <= self.unrest_threshold:
+        factor = self._params.aggression_factor()
+        unrest_threshold = self.unrest_threshold / factor
+        if avg_hostility <= unrest_threshold:
             return []
-        if rng.random() >= self.riot_base_rate * (avg_hostility - self.unrest_threshold):
+        if rng.random() >= self.riot_base_rate * factor * (avg_hostility - unrest_threshold):
             return []
 
         # a civilian's worst grievance against any single authority figure is
@@ -1608,6 +1617,7 @@ class TheftPhenomenon:
         # own default mean, so an average-loyalty town only executes about
         # a quarter of its arrests
         self.execution_weight = execution_weight
+        self._params = TownParameters()  # set in init_state; strictness scales executions
         self.deterrence_decay = deterrence_decay
         self.deterrence_weight = deterrence_weight
         self._thefts = 0
@@ -1625,6 +1635,7 @@ class TheftPhenomenon:
         self._avg_guard_loyalty = 0.5
 
     def init_state(self, graph) -> Dict[int, Any]:
+        self._params = graph.params
         guard_loyalties = [node.loyalty for node in graph.nodes.values() if node.role == "guard"]
         if guard_loyalties:
             self._avg_guard_loyalty = sum(guard_loyalties) / len(guard_loyalties)
@@ -1675,7 +1686,7 @@ class TheftPhenomenon:
         if rng.random() >= self.arrest_chance:
             return events
 
-        execution_chance = self.execution_weight * (1.0 - self._avg_guard_loyalty)
+        execution_chance = self.execution_weight * (1.0 - self._avg_guard_loyalty) * self._params.strictness_factor()
 
         self._deterrence += 1.0
         if rng.random() < execution_chance:

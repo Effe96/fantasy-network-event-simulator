@@ -75,7 +75,7 @@ def test_town_aggression_defaults_to_zero_when_table_is_missing():
         db_path = str(Path(tmp) / "town.db")
         _build_fixture(db_path)  # no town_state table
         graph = import_snapshot(db_path, seed=1)
-        assert graph.town_aggression == 0.0
+        assert graph.params.aggression == 0.0
 
 
 def test_town_aggression_is_read_from_town_state():
@@ -88,7 +88,7 @@ def test_town_aggression_is_read_from_town_state():
             aggression=0.8,
         )
         graph = import_snapshot(db_path, seed=1)
-        assert graph.town_aggression == 0.8
+        assert graph.params.aggression == 0.8
 
 
 def test_gender_and_age_are_imported_against_town_reference_year():

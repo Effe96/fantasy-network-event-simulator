@@ -43,10 +43,12 @@ events, then let the town change. See Project_Vision's "Equilibrium",
    Findings (docs/decisions.md): feelings are already in balance;
    population, guards, nobles, marriages and religiousness drift; thieves
    and bodyguards aren't at their natural levels on import. Re-run it
-   after every Phase B step. **Next: step 2.**
-2. **City-wide parameters in one place** (aggression, strictness,
-   loyalty, religiosity, wealth, ...), read by every mechanic instead of
-   scattered constants; as a pure refactor, verifiable bit-for-bit.
+   after every Phase B step.
+2. ~~**City-wide parameters in one place**~~ **Done 2026-09-23**:
+   `graph.TownParameters` (aggression, loyalty, religiosity, strictness),
+   `import_snapshot(overrides=...)`, demo flags; aggression and
+   strictness read while running. Byte-identical at the defaults. Wealth
+   waits for Economy & poverty. **Next: step 3.**
 3. **Adding residents mid-run**: engine + every phenomenon can take on a
    resident after day 1 (the blocker for births and arrivals).
 
