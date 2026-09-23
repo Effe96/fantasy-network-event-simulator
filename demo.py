@@ -10,6 +10,7 @@ from phenomena import (
     CommonAilmentsPhenomenon,
     ContagionPhenomenon,
     GuardPhenomenon,
+    QuarantinePhenomenon,
     ReligionPhenomenon,
     RiotPhenomenon,
     RomancePhenomenon,
@@ -25,7 +26,7 @@ def main(argv=None) -> None:
     parser.add_argument("--days", type=int, default=365)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", default="output")
-    parser.add_argument("--transmission-rate", type=float, default=0.5,
+    parser.add_argument("--transmission-rate", type=float, default=0.06,
                          help="per-edge daily transmission hazard before tie strength/type scaling")
     parser.add_argument("--infectious-days", type=int, default=7,
                          help="days an infected resident stays infectious before recovering or dying")
@@ -77,7 +78,10 @@ def main(argv=None) -> None:
     theft = TheftPhenomenon()
     ailments = CommonAilmentsPhenomenon()
     religion = ReligionPhenomenon()
-    phenomena = [contagion, violence, romance, riot, guards, theft, ailments, religion]
+    # right after contagion: reads that day's plague deaths from graph.deaths,
+    # and contagion reads the sealed districts back from the next day on
+    quarantine = QuarantinePhenomenon()
+    phenomena = [contagion, quarantine, violence, romance, riot, guards, theft, ailments, religion]
     result = run_simulation(graph, phenomena, args.days, args.seed)
 
     out_dir = Path(args.out)
@@ -129,6 +133,11 @@ def _print_summary(result) -> None:
     print(f"  peak simultaneous infected: {peak.get('infected', 0)} (day {peak['day']})")
     print(f"  final susceptible/infected/recovered/deceased: "
           f"{last.get('susceptible', 0)}/{last.get('infected', 0)}/{last.get('recovered', 0)}/{disease_deaths}")
+    print("quarantine:")
+    print(f"  declared by priests: {last.get('quarantines_by_priests', 0)}"
+          f"  by nobles: {last.get('quarantines_by_nobles', 0)}"
+          f"  lifted: {last.get('quarantines_lifted', 0)}"
+          f"  residents angered: {last.get('quarantine_angered', 0)}")
     print("violence:")
     print(f"  deaths: {violence_deaths}  (of which group violence: {last.get('group_kills', 0)},"
           f" hired assassinations: {last.get('hired_assassinations', 0)})")

@@ -8,8 +8,9 @@
 > is *what's queued and in what order*, kept current as work lands or the
 > plan changes. Last updated 2026-09-23 (Coup mechanic landed: all
 > four Nobles items are done. Death record (`graph.deaths`) added, which
-> unblocked Priests' disease-curer blame, now also done. Next up per the
-> build order: Quarantine, then Taxes, then town-wide dials.).
+> unblocked Priests' disease-curer blame, now also done. Quarantine landed
+> the same day, with a slower epidemic (base_rate 0.5 -> 0.06). Next up
+> per the build order: Taxes, then town-wide dials.).
 
 ## Resume checklist
 
@@ -113,8 +114,7 @@ landed. Scope recap:
 - ~~Priests as disease-curers: a bad outbreak raises animosity toward
   them (blame).~~ **Done 2026-09-23**, reading `graph.deaths`. Guards'
   patron-protection can read the same record.
-- Quarantine authority (see Quarantine, below — cross-cutting with
-  Nobles).
+- ~~Quarantine authority~~ **Done 2026-09-23** (see Quarantine, below).
 
 ## Nobles — in progress (started 2026-09-22)
 
@@ -198,12 +198,15 @@ landed. Scope recap:
 - Bribing priests to improve reputation with poor residents, scaled by
   each individual's own `religiousness`.
 
-## Quarantine (cross-cutting: Priests + Nobles)
+## Quarantine (cross-cutting: Priests + Nobles) — done (2026-09-23)
 
-Either priests or nobles can institute one for a dangerous/contagious
-disease: raises death rate in the affected area, lowers it elsewhere, and
-raises animosity toward whichever class made the call. Depends on both
-Priests and Nobles existing first (above) — don't start this before them.
+`QuarantinePhenomenon` seals TownShape home districts on plague deaths
+(2 in 14 days, 4 in poor districts); nobles take charge once one of their
+own dies. Sealed boundaries leak at 2%, sick residents inside die at 1.5×,
+residents inside resent the sealing class. Required slowing the epidemic
+(base_rate 0.5 -> 0.06). Full reasoning, including three revised first
+guesses: `docs/decisions.md`'s 2026-09-23 quarantine entry. Open: check
+quarantine's knock-on effect on mercenary hiring (same 0.7 hatred cutoff).
 
 ## Taxes
 

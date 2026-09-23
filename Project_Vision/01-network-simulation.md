@@ -836,6 +836,9 @@ People:
 
 ### Quarantine (cross-cutting: Priests + Nobles)
 
+**Implemented 2026-09-23** — `QuarantinePhenomenon`, sealing TownShape
+home districts; see `docs/decisions.md`'s 2026-09-23 quarantine entry.
+
 - Either priests or nobles can institute a quarantine for a dangerous or
   highly contagious disease.
 - Effect: substantially raises the death rate for residents already in

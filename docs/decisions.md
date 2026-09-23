@@ -8,6 +8,79 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-23 — Quarantine: sealed home districts, and a slower epidemic to make it matter
+
+**Decision:** new `QuarantinePhenomenon` seals TownShape home districts
+during the epidemic; `ContagionPhenomenon` applies the effects by reading
+`graph.quarantined_districts` (district → sealing class). New
+`Node.district_id`/`district_zone`, imported resident → home building →
+district (no randomness drawn, so every seed's import is unchanged).
+Designed with the user step by step; several first guesses were revised
+by real runs, recorded below.
+
+**The epidemic had to slow down first** (user's choice). At the old
+`base_rate` 0.5 it infected 1,890 of 1,911 by day 8, every district by
+day 5, with the first death on day 8, so no quarantine could protect
+anyone. An epidemic-only sweep (5 seeds, import and RNG varied together)
+showed a sharp tipping point. 0.05 took off in 5/5 seeds there, but
+**fizzled in 2/5 full-engine runs**: the other phenomena change the RNG
+stream, and 0.05 sat too close to the edge. **0.06** takes off in every
+full-engine seed: ~70% infected, spread over weeks. Plague deaths drop
+from ~108 to ~83/year as a side effect.
+
+**Area = home district** (user's choice over sick households or
+graph-only ties). 20 inhabited districts on the reference town; 52% of
+ties cross a district line.
+
+**Trigger:** plague deaths in `graph.deaths`, not cases. Flu and
+diarrhea never count. A district qualifies at **2 plague deaths in 14
+days, 4 in `poor_residential`**. Released after 14 days with no plague
+death. Priests seal qualifying districts by default. **Nobles take
+charge once one of their own dies of plague, or plague reaches the rich
+district**, sealing at the same bar (user's choice: quarantine stays a
+last resort). If both would seal a district, the nobles get the credit.
+
+- *First version:* nobles reacted to any **rich** death and sealed every
+  district with even one recent death. That sealed 17 districts in one
+  seed. Nobility and wealth are separate TownShape fields: all 40 nobles
+  are rich, but 64 rich residents are commoners, and 28 of the 40 nobles
+  live in `poor_residential` districts. The user chose nobles' own
+  deaths plus the priests' bar.
+- *Bar 3/6 → 2/4:* deaths lag infection by a week, so at 3/6 every seal
+  came after the plague had reached all 20 districts (first seal day
+  21–37). Quarantine then mostly trapped people with the sick: +12 plague
+  deaths/year at 0.06, +28 at 0.07. The user asked for an earlier
+  trigger and a milder inside effect.
+
+**Effects:** boundary transmission ×`quarantine_leak_factor` 0.02 (the
+user asked for a very small escape chance, never zero). Sick residents
+inside die ×**1.5** (first 2.0; the user lowered it after the late-seal
+result).
+
+**Anger:** once per seal, along existing ties only, every resident
+inside who isn't of the sealing class loses `anger_shock` 0.1 toward
+priests they know (priest seal) or toward the governor, and 0.025
+toward each other noble they know (noble seal). The governor takes the
+biggest hit per tie, but few civilians have a direct tie to them, so in
+aggregate most anger lands on the other nobles. Priest ties are
+concentrated in the districts where the priests live (1, 7, 34 hold 311
+of 334 on the reference town), so a priest seal elsewhere angers almost
+no one.
+
+**Verified (5 seeds, full engine, rate 0.06, 1.5×), off vs bar 2/4 vs
+bar 1/2:** plague deaths 82.8 / 85.4 / 82.0; infected 71% / **65%** /
+61%; seals per year – / 6–7 / 8–14; civilian ties past the hatred line
+toward nobles 133 / 156 / 157; riots 8.8 / 9.4 / 7.4; group attacks on
+priests and nobles 4.2 / 6.6 / –. Quarantine now slows the spread at no
+net death cost. It still arrives after the plague has reached nearly
+every district, a limit of any death-based trigger. 1/2 was rejected
+at 8–14 seals a year: no longer a last resort. Nobles make almost every
+call, since one of 40 nobles dies of plague early in nearly every run.
+
+**Not done:** anger toward nobles feeds mercenary hiring (same 0.7
+hatred cutoff), so quarantine should add a few hires; check whenever the
+coup/mercenary numbers are next revisited.
+
 ## 2026-09-23 — Priests blamed for outbreaks, by the people who lost someone
 
 **Decision:** `ReligionPhenomenon.end_of_day` reads new `graph.deaths`

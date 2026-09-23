@@ -30,6 +30,11 @@ class Node:
     # currently-serving guard isn't "ex" anything, and nobles/priests aren't
     # the pool Nobles hires protection from, they're who it protects.
     is_ex_soldier: bool = False
+    # TownShape home district (resident -> home building -> district) and
+    # that district's zone_type, e.g. "poor_residential". None when the
+    # snapshot has no buildings/districts (test fixtures).
+    district_id: Optional[int] = None
+    district_zone: Optional[str] = None
 
     @property
     def role(self) -> str:
@@ -103,6 +108,9 @@ class SocialGraph:
         # what" is one lookup for anything that needs it (e.g. blaming a
         # priest for an illness death).
         self.deaths: List[Dict[str, Any]] = []
+        # district_id -> "priest" or "noble" (who sealed it). Mutated in place,
+        # never reassigned: ContagionPhenomenon holds a reference to it.
+        self.quarantined_districts: Dict[int, str] = {}
 
     def record_death(self, resident_id: int, day: int, cause: str, killed_by: Optional[int] = None) -> None:
         self.nodes[resident_id].alive = False
@@ -363,6 +371,25 @@ def _load_town_state(conn: sqlite3.Connection, graph: SocialGraph) -> Optional[i
         return None
 
 
+def _load_districts(conn: sqlite3.Connection, graph: SocialGraph) -> None:
+    # not every snapshot has buildings/districts (test fixtures) -- leave
+    # district_id None rather than fail the import. Draws no randomness, so
+    # adding it left every seed's import unchanged.
+    try:
+        rows = conn.execute(
+            "SELECT r.id, d.id, d.zone_type FROM residents r"
+            " JOIN buildings b ON b.id = r.home_building_id"
+            " JOIN districts d ON d.id = b.district_id"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return
+    for resident_id, district_id, zone_type in rows:
+        node = graph.nodes.get(resident_id)
+        if node is not None:
+            node.district_id = district_id
+            node.district_zone = zone_type
+
+
 def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
     rows = conn.execute(
         """
@@ -415,6 +442,7 @@ def import_snapshot(db_path: str, seed: int) -> SocialGraph:
         _load_residents(conn, graph, rng, reference_year)
         _load_relationships(conn, graph, rng)
         _load_shopkeeper_customer(conn, graph, rng)
+        _load_districts(conn, graph)
     finally:
         conn.close()
     return graph

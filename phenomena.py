@@ -44,15 +44,32 @@ class ContagionPhenomenon:
 
     def __init__(
         self,
-        base_rate: float = 0.5,
+        # 0.06, not the original 0.5: at 0.5 the epidemic infected every
+        # district by day 5, before the first death, leaving quarantine
+        # nothing to protect. 0.05 took off in 5/5 epidemic-only seeds but
+        # fizzled in 2/5 full-engine runs; 0.06 takes off in all of them
+        # (~70% infected over weeks). See docs/decisions.md 2026-09-23.
+        base_rate: float = 0.06,
         infectious_days: int = 7,
         patient_zero: Optional[int] = None,
         case_fatality_rate: float = 0.03,
+        quarantine_leak_factor: float = 0.02,
+        quarantined_fatality_multiplier: float = 1.5,
     ):
         self.base_rate = base_rate
         self.infectious_days = infectious_days
         self.patient_zero = patient_zero
         self.case_fatality_rate = case_fatality_rate
+        # QuarantinePhenomenon's two effects on the epidemic: a tie crossing a
+        # sealed district's boundary still carries disease, at this fraction
+        # of the normal rate (rare, never impossible -- user request); and a
+        # sick resident sealed inside dies at this multiple of the usual rate.
+        self.quarantine_leak_factor = quarantine_leak_factor
+        self.quarantined_fatality_multiplier = quarantined_fatality_multiplier
+        # set in init_state: each resident's district, and a reference to
+        # graph.quarantined_districts (edge_probability gets no graph)
+        self._district: Dict[int, Optional[int]] = {}
+        self._sealed: Dict[int, str] = {}
         # Transmissions rolled during a day are staged here and only become
         # "infected" in end_of_day, so every edge roll for a given day is made
         # against day-start state (design doc §6.2/§7). Mutating state inline
@@ -60,6 +77,8 @@ class ContagionPhenomenon:
         self._pending_infections: List[int] = []
 
     def init_state(self, graph) -> Dict[int, Any]:
+        self._district = {resident_id: node.district_id for resident_id, node in graph.nodes.items()}
+        self._sealed = graph.quarantined_districts
         state = {resident_id: {"status": "susceptible", "days_left": 0} for resident_id in graph.nodes}
         patient_zero = self.patient_zero if self.patient_zero is not None else min(graph.nodes)
         state[patient_zero] = {"status": "infected", "days_left": self.infectious_days}
@@ -70,7 +89,13 @@ class ContagionPhenomenon:
         if statuses != {"infected", "susceptible"}:
             return 0.0
         weight = CONTAGION_TYPE_WEIGHTS.get(edge.source_type, 0.2)
-        return self.base_rate * edge.tie_strength * weight
+        probability = self.base_rate * edge.tie_strength * weight
+        if self._sealed:
+            district_a = self._district.get(edge.resident_a)
+            district_b = self._district.get(edge.resident_b)
+            if district_a != district_b and (district_a in self._sealed or district_b in self._sealed):
+                probability *= self.quarantine_leak_factor
+        return probability
 
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
         newly_infected, source = (a, b) if state[a]["status"] == "susceptible" else (b, a)
@@ -94,8 +119,10 @@ class ContagionPhenomenon:
                 continue
             resident_state["days_left"] -= 1
             if resident_state["days_left"] <= 0:
-                fatality_p = min(1.0, self.case_fatality_rate * SES_VULNERABILITY.get(graph.nodes[resident_id].ses, 1.0))
-                if rng.random() < fatality_p:
+                fatality_p = self.case_fatality_rate * SES_VULNERABILITY.get(graph.nodes[resident_id].ses, 1.0)
+                if graph.nodes[resident_id].district_id in graph.quarantined_districts:
+                    fatality_p *= self.quarantined_fatality_multiplier
+                if rng.random() < min(1.0, fatality_p):
                     resident_state["status"] = "deceased"
                     graph.record_death(resident_id, day, "plague")
                     events.append(Event(day, self.name, "died", resident_id, resident_id, "died from infection"))
@@ -1693,4 +1720,154 @@ class ReligionPhenomenon:
             "corruptions": self._corruptions,
             "heretics": self._heretics,
             "blames": self._blames,
+        }
+
+
+class QuarantinePhenomenon:
+    """Quarantine (added 2026-09-23), cross-cutting Priests + Nobles: seals
+    TownShape home districts during the epidemic. Contagion applies the
+    effects (boundary leak, higher fatality inside) by reading
+    graph.quarantined_districts; this phenomenon only decides who seals
+    what and when, and the anger that follows.
+
+    Triggered by plague deaths in graph.deaths, not by cases: bodies are
+    visible, the sick look like flu. Flu/diarrhea never trigger it.
+    - A district qualifies once it has death_threshold plague deaths
+      within window_days, or poor_death_threshold in a poor_residential
+      district -- the user wants quarantine to be a last resort. Priests
+      (the curers) seal qualifying districts by default.
+    - Nobles react to their own class dying: a recent plague death of a
+      noble, or any in the rich_residential district, puts them in charge.
+      They seal by the same toll bar as priests (user's choice: quarantine
+      stays a last resort), so the difference is who acts -- and takes the
+      anger -- not how easily. Nobility and wealth are separate TownShape
+      fields: all 40 nobles are rich, but 64 rich residents are commoners;
+      a first version keyed on any rich death fired almost everywhere.
+    A class needs at least one living member to act; if both would seal
+    the same district, nobles (already alarmed) get the credit. A district is lifted
+    after release_days with no plague death, and can be sealed again.
+
+    On sealing, each living resident inside loses affinity toward the
+    sealing class (except that class's own members), once per seal and
+    only along existing ties: priests
+    each take anger_shock; for a noble seal the governor takes anger_shock
+    and every other noble other_noble_anger_share of it (vision doc: the
+    governor absorbs most of the anger)."""
+
+    name = "quarantine"
+
+    def __init__(
+        self,
+        window_days: int = 14,
+        # 2 (4 in poor districts), lowered from 3/6 after multi-seed trials:
+        # deaths lag infection by a week, so any death-based seal comes after
+        # the plague has reached nearly every district. At 2/4 quarantine cuts
+        # infections ~71% -> 65% at no net death cost, with 6-7 seals a year;
+        # 1/2 gains a few points more but seals 8-14 times a year -- no
+        # longer a last resort. See docs/decisions.md 2026-09-23.
+        death_threshold: int = 2,
+        poor_death_threshold: int = 4,
+        release_days: int = 14,
+        anger_shock: float = 0.1,
+        other_noble_anger_share: float = 0.25,
+    ):
+        self.window_days = window_days
+        self.death_threshold = death_threshold
+        self.poor_death_threshold = poor_death_threshold
+        self.release_days = release_days
+        self.anger_shock = anger_shock
+        self.other_noble_anger_share = other_noble_anger_share
+        # resident -> neighbors who are nobles or priests, built once: roles
+        # never change, and graph.neighbors scans every edge per call
+        self._authority_ties: Dict[int, List[int]] = {}
+        self._sealed: Dict[int, str] = {}  # graph.quarantined_districts, set in init_state
+        self._declared = {"priest": 0, "noble": 0}
+        self._lifted = 0
+        self._angered = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        self._sealed = graph.quarantined_districts
+        self._authority_ties = {resident_id: [] for resident_id in graph.nodes}
+        for a, b in graph.edges:
+            if graph.nodes[b].role in ("noble", "priest"):
+                self._authority_ties[a].append(b)
+            if graph.nodes[a].role in ("noble", "priest"):
+                self._authority_ties[b].append(a)
+        return {resident_id: {} for resident_id in graph.nodes}
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        return 0.0
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        events: List[Event] = []
+        recent_counts: Dict[int, int] = {}
+        last_death_day: Dict[int, int] = {}
+        nobles_alarmed = False
+        for death in graph.deaths:
+            if death["cause"] != "plague":
+                continue
+            node = graph.nodes[death["resident_id"]]
+            district = node.district_id
+            if district is None:
+                continue
+            last_death_day[district] = max(last_death_day.get(district, 0), death["day"])
+            if death["day"] > day - self.window_days:
+                recent_counts[district] = recent_counts.get(district, 0) + 1
+                if node.is_noble or node.district_zone == "rich_residential":
+                    nobles_alarmed = True
+
+        for district in list(graph.quarantined_districts):
+            if day - last_death_day.get(district, 0) >= self.release_days:
+                del graph.quarantined_districts[district]
+                self._lifted += 1
+                events.append(Event(day, self.name, "quarantine_lifted", 0, 0, f"district {district}"))
+
+        living_roles = {node.role for node in graph.nodes.values() if node.alive}
+        zone_of = {node.district_id: node.district_zone for node in graph.nodes.values()}
+        if nobles_alarmed and "noble" in living_roles:
+            caller = "noble"
+        elif "priest" in living_roles:
+            caller = "priest"
+        else:
+            return events
+        for district, count in recent_counts.items():
+            threshold = (self.poor_death_threshold if zone_of.get(district) == "poor_residential"
+                         else self.death_threshold)
+            if count >= threshold and district not in graph.quarantined_districts:
+                events.append(self._seal(graph, district, caller, day))
+        return events
+
+    def _seal(self, graph, district: int, caller: str, day: int) -> Event:
+        graph.quarantined_districts[district] = caller
+        self._declared[caller] += 1
+        angered = 0
+        for resident_id, node in graph.nodes.items():
+            if node.district_id != district or not node.alive or node.role == caller:
+                continue
+            hit = False
+            for other in self._authority_ties[resident_id]:
+                other_node = graph.nodes[other]
+                if not other_node.alive or other_node.role != caller:
+                    continue
+                shock = self.anger_shock
+                if caller == "noble" and other != graph.governor_id:
+                    shock *= self.other_noble_anger_share
+                edge = graph.get_edge(resident_id, other)
+                edge.set_valence_from(resident_id, max(-1.0, edge.valence_from(resident_id) - shock))
+                hit = True
+            angered += hit
+        self._angered += angered
+        return Event(day, self.name, "quarantine_declared", 0, 0,
+                     f"district {district} sealed by {caller}s; {angered} residents angered")
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {
+            "quarantines_by_priests": self._declared["priest"],
+            "quarantines_by_nobles": self._declared["noble"],
+            "quarantines_lifted": self._lifted,
+            "quarantined_now": len(self._sealed),
+            "quarantine_angered": self._angered,
         }
