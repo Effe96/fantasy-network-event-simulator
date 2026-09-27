@@ -665,7 +665,8 @@ implemented yet — unless marked otherwise.
   the source doc raises both independently but they're the same idea at
   different scales.
 - **Stress, a new candidate personal property (user feedback,
-  2026-09-21)**: "a single-person property that represents their level
+  2026-09-21)** — **first version implemented 2026-09-27** (`Node.stress`,
+  `StressPhenomenon`: poverty, grief, illness; gates becoming a thief): "a single-person property that represents their level
   of stress? Affected by poverty, by grief, sickness..." Not
   implemented, no consumer designed yet — this would be a *derived*,
   dynamic per-resident value (unlike the four static traits above),
@@ -1073,7 +1074,9 @@ anyone-to-anyone kind.
   it's only the recipient's feelings that move (the existing favor
   convention) or the giver's warm up too; and calibrating it so that, at
   the town's imported feelings, favors and wrongdoings balance out.
-- **Everyday scorn, the counterweight (user, 2026-09-25) — Proposed.**
+- **Everyday scorn, the counterweight (user, 2026-09-25) — Implemented
+  2026-09-27 with everyday favors** (`EverydayPhenomenon`); not yet balanced,
+  see `02-long-run-findings.md` item 3.2.
   The mirror image of an everyday favor: a small slight (a rude word,
   being ignored, a petty cheat at the market, gossip) that lowers the
   target's affinity toward whoever did it a little. The everyday,
@@ -1111,6 +1114,9 @@ Topics the user flagged to talk through before building. Each is
   it in, crowding and poor sanitation, famine or a hard winter weakening
   people, war or refugees, contaminated water. Also which diseases
   (`medieval_diseases.md`) fit which cause.
+- **Adoption** (added 2026-09-27) — **Deferred (user).** Same-sex couples
+  can marry but have no children; adoption of orphans was proposed and
+  left for later as a complex dynamic.
 - **Kinds of ties** (added 2026-09-25) — **Open.** What kinds of
   relationship the town should have and how each behaves: family,
   workers (coworkers), customers and shopkeepers, and **friends, which

@@ -107,6 +107,11 @@ Explains the married-share curve and most of the population dip.
 - Check: a 25-year run should show the married share holding near the
   imported level and a much smaller early dip.
 
+> **Update 2026-09-27 — Addressed as the user asked:** marriage stays 18+
+> (no Florence ages), same-sex marriage added (`same_sex_share`, 10%),
+> adoption deferred. The dip is fixed by the adapted importer (3.4).
+> See `docs/decisions.md`, 2026-09-27.
+
 > Feedback: We definitely DO NOT WANT the to apply the rules for marriage for realistic medieval cities regarding the age at which girls used to get married. It was messed up. Keep marriage age from 18 onwards. Still allow same same sex marriage. We should look into adopting and how it could work. 
 
 ### 2.2 Religiousness starts at its balance point — Proposed
@@ -116,6 +121,10 @@ and the yearly fade cancel there instead of 0.08 higher. The simplest
 way: the fade pulls toward a point just below each person's starting
 level, set so the average push from recoveries brings them back to it.
 
+> **Update 2026-09-27 — Partly addressed:** the town starts where it was
+> (0.50); the fade now aims 0.08 below each start. Creep halved (0.58 ->
+> 0.54 at year 25) but still rising: the correction needs to be bigger.
+
 > Feedback: So you would start from a higher average religious point? Let's try, if that is what you are thinking. 
 
 ### 2.3 Unfilled places expire — Proposed
@@ -123,6 +132,10 @@ level, set so the average push from recoveries brings them back to it.
 1,249 places left by dead adults were still waiting in the queue at year
 50, because arrivals only fill them while the town is below target. A
 place that stays unfilled for a while (say a year) should simply lapse.
+
+> **Update 2026-09-27 — Folded into 3.1:** a vacancy is the whole place a
+> dead adult leaves (home, job, class, ties). With organic migration homes
+> and jobs are tracked separately, and empty homes draw newcomers.
 
 > Feedback: Are you referring to homes? Empty homes should partly just make it easier from foreigners to move in. And what would lapse mean? Let's delve a bit more into this during our session. 
 
@@ -132,6 +145,12 @@ Thieves go from 0.8% of the town at the end of year 1 to 5.6% at year
 50, still rising. The likely cause is more young poor residents reaching
 12, the minimum age for thieving, but I'd measure before changing
 anything: who becomes a thief, at what age, and why so few stop.
+
+> **Update 2026-09-27 — Addressed:** measured first. Thieves only stopped by
+> being caught while stealing, so thieves with few victims piled up. Now
+> becoming a thief needs stress above 0.6 (poverty plus a recent loss or
+> illness) and thieves go straight on their own: 2-13 thieves instead of
+> 67-82 by year 25.
 
 > Feedback: I think that is smart. Let's also increase the level of stress a person has to go through to decide to become a thief. What parameter does becoming a thief depend on? 
 
@@ -185,6 +204,11 @@ fade, or cool. There are no friends, no everyday favors, and no everyday
 scorn. Details in `01-network-simulation.md` under "Kinds of ties",
 "Ties forming and fading" and "Everyday scorn".
 
+> **Update 2026-09-27 — Favors and scorn built, not yet balanced:** warm
+> ties drift faster (15.7% at year 25) because family ties get far more
+> interactions than the average the pull back is sized on. Next: size it
+> per tie. Tie formation and fading still to design.
+
 > Feedback: I like what you described for ties formation and fading in 01-network-simulation.md, let's start from there. Ties formation is also very important for new people in the town. Also, we should add the Favor or Scorn interaction, which simply changes by a very, very small amount the affinity between people. The more favor, the higher the likelihood of an interaction even being a Favor event rather than scorn (and viceversa). 
 
 ### 3.3 Class mobility, merchants and homeowners — Open
@@ -206,6 +230,11 @@ demography (for example, 20% of residents under 5). Options: accept a
 settling-in period and discard it in reports; make TownShape and the sim
 share the same demographic rules (integration option A); or run a quiet
 warm-up before the "real" start.
+
+> **Update 2026-09-27 — Addressed (first version):** the adapted importer
+> keeps TownShape's town, households, jobs and ties, and re-draws ages to
+> the sim's settled shape and couples' sexes to the town's share. Old-age
+> deaths added. No more dip. Still to do: bring this into TownShape itself.
 
 > Feedback: Can we import the TownShape population generation, and adapt it to our needs? We are going to anyways have to integrate it within TownShape in the future. 
 

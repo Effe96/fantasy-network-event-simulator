@@ -98,7 +98,34 @@ median wedding age). Years 1-25 vs 26-50:
 Correction: the first 25-year dashboard verdict said ~1.6 murders a year;
 that was the riot rate. Murders were 4.1 a year. Fixed on the page (v2).
 
+### 6. The long-run review and its first round of fixes (2026-09-27)
+
+The user added `medieval_italian_cities_population.md` (research notes:
+cities as demographic sinks fed by rural migration, Florence's 1427
+Catasto) and asked why married share, population and faith behaved as
+they did. Answers and a plan went into a new commentable review file,
+`Project_Vision/02-long-run-findings.md`; the user's `> Feedback:` lines
+set the round (details: `docs/decisions.md`, 2026-09-27):
+- Found in TownShape's generator: ages follow `0.97^age` (57% children,
+  20% under 5) and spouse sexes are drawn independently (52% of couples
+  same-sex by accident). Built the adapted importer (ages to the sim's
+  settled shape, couples to a 10% same-sex share), same-sex marriage,
+  old-age deaths, a faith-fade offset, stress, a stress threshold for
+  thieves plus thieves going straight, and everyday favors and scorn.
+- User rules: no Florence marriage ages (keep 18+); allow same-sex
+  marriage; adoption deferred; town should be a demographic sink that
+  still grows, with singles and families moving in for wages and work and
+  moving out only in extreme cases with money.
+- Three 25-year runs compared on "Riverport Runs Compared"
+  (https://claude.ai/artifact/Mk2Vwrhb9Rg9aLRznuVJUG): dip and marriage fall
+  gone; deaths now exceed births with arrivals making growth; thieves 2-13
+  (was 67-82), executions ~2 a year (was ~10). Still open: faith creeps
+  (0.54-0.55 at year 25), and favors/scorn make warm ties drift faster
+  (15.7%): the pull back must be sized per tie.
+- The user is writing a document on medieval markets, for class mobility
+  and the rich tripling.
+
 ## Current repo state
 
-**Uncommitted** on top of `750fb52`: all of the above (code, tests, docs).
-Tests: 209 passing.
+Committed: population turnover in `fe14d97`, docs in `8154288`; the
+2026-09-27 round in the commits after them. Tests: 223 passing.
