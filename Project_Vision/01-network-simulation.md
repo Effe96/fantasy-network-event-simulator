@@ -59,6 +59,27 @@
   directly). Also reads `town_state.aggression` and `.year_start` into
   `SocialGraph.town_aggression` (default 0.0 if the table is absent —
   e.g. test fixtures) and the age-reference year, respectively.
+- **Ties for people added mid-run** (as of 2026-09-25; asked for by the
+  user). Every new tie gets freshly drawn closeness and feelings from its
+  type's baseline, exactly like an imported tie (plus the noble/poor
+  resentment skew); nothing is copied from anyone else's feelings.
+  - **A newborn** gets `parent` ties to both parents and `sibling` ties
+    to the mother's other living children (her parent-tied residents
+    younger than her). Nothing else: no grandparents, aunts, uncles or
+    cousins, no neighbours despite living in the family home, and no
+    shop ties.
+  - **An arrival** takes over every living non-family tie of the dead
+    adult whose place they fill: coworkers, neighbours, unit-mates, and
+    shopkeeper/customer ties. The dead person's family ties do not pass
+    to the stranger.
+  - **A wedding** either retypes the couple's existing tie to `spouse`
+    (love, or an arranged match between people who already knew each
+    other, which also takes on a spouse's closeness) or creates a new
+    `spouse` tie between strangers (arranged match).
+  - **Nothing else creates or removes ties.** Children growing up never
+    gain coworkers, classmates or friends; nobody meets anyone new; ties
+    never fade or end, and a dead person's ties simply stop counting.
+    See "Ties forming and fading" in the discussion tally below.
 
 ### Town-wide dynamic parameters
 
@@ -580,6 +601,9 @@ implemented yet — unless marked otherwise.
   `Phenomenon.default_state` hook or similar to fix properly). Real
   child-Nodes, and therefore real multi-generational family ties
   derived from them, are a follow-up.
+  > **Update 2026-09-24:** births now add real residents, and arranged
+  > marriages + widow(er) remarriage exist; see "Long runs: population
+  > turnover" below.
   - **Calibration finding, worth remembering**: on a real TownShape
     town, most residents are already married at import (337 spouse
     edges / 1911 residents here) and the unmarried-adult pool is small
@@ -690,6 +714,15 @@ People:
   out exactly what they meant. Kept here only as a pointer so this
   section doesn't silently duplicate that one.
 
+- **Class mobility (found in the 50-year run, 2026-09-25) — Open.** Rich
+  residents tripled in 50 quiet years (111 -> 332, 6% -> 14% of the town):
+  the poor die of disease 4x as often as the rich (`SES_VULNERABILITY`), a
+  baby takes its mother's class, an arrival the dead person's, and nobody
+  ever moves between classes. Historically real in direction, but with no
+  downward mobility (lost fortunes, split inheritances, bad marriages) it
+  compounds forever. Ties to the poverty measure above and the merchant
+  class on the discussion list.
+
 ### Guards
 
 - Guards function as something closer to a shared public relationship
@@ -762,6 +795,10 @@ People:
 - Animosity toward a governor (if the town has one) should partly
   trickle down onto the guards and nobles associated with them. Not
   implemented — no governor concept exists yet.
+- **Garrison size follows town aggression** (user, 2026-09-25) —
+  **Proposed.** The number of guards the town needs should vary a bit
+  with its aggressiveness (`params.aggression`). Today arrivals simply
+  refill every dead guard, holding the imported count fixed.
 
 ### Criminals
 
@@ -847,6 +884,11 @@ People:
   themselves.
 - Priests (alongside nobles) can declare a quarantine for a sufficiently
   contagious or dangerous disease — see Quarantine, below.
+- **Clergy size follows town religiousness** (user, 2026-09-25) —
+  **Proposed.** How many priests/acolytes a town has should depend on its
+  religiousness level (the `religiosity` parameter, or the residents'
+  live average). Today arrivals refill every dead clergy member, holding
+  the imported count fixed.
 
 ### Nobles
 
@@ -869,6 +911,12 @@ People:
 - Nobles almost never personally commit manslaughter — when they want
   someone dead, they hire an assassin instead.
 - Nobles don't steal (for now).
+- **Succession (user rule, 2026-09-24) — implemented:** a dead noble's
+  place is never filled by an outsider; the eldest living child in the
+  household inherits the title (even a minor), and with no such child the
+  title lapses. (TownShape marks only a family's head `is_noble`.) Known
+  gap: guards/theft/religion copied roles at day 0, so they still treat
+  an heir as a civilian.
 - Rising taxes raise noble animosity toward the governor; past a
   threshold, nobles may hire mercenaries to move against the governor
   and seize power themselves. The governing body's suspicion of an
@@ -891,6 +939,15 @@ home districts; see `docs/decisions.md`'s 2026-09-23 quarantine entry.
   made the call.
 
 ### Long runs: population turnover (new, user question 2026-09-23)
+
+**Implemented 2026-09-24 as option B** (turnover inside the sim, a stopgap
+that TownShape's `advance_town` loop, option A in
+`docs/townshape-integration.md`, can later replace): babies are real
+residents (`RomancePhenomenon`), everyone ages yearly and adult deaths
+leave vacancies that arrivals fill (`PopulationPhenomenon`), families
+arrange marriages for single adults, widow(er)s can remarry, priests
+stay celibate, children under 12 never turn thief. See
+`docs/decisions.md`'s 2026-09-24 entry.
 
 A 20-year run is only meaningful if the town can renew itself. Today it
 can't: about 300-380 residents die each year on the ~1,900-resident
@@ -917,6 +974,21 @@ few hundred people after ~5 years. Runtime itself is not the problem
   arrivals) or fading immunity, or they'll find almost no one to infect.
 - Long runs are also where Taxes and coups really play out, so this
   comes before Taxes in the build order.
+- **Migration as its own phenomenon, not just replacement** (user,
+  2026-09-25) — **Proposed.** Today an arrival exists only to take over
+  a dead adult's place (home, job, class, coworker/neighbour ties). The
+  user wants arrivals to be organic:
+  - **People arrive from outside on their own**, not only to fill a dead
+    person's place.
+  - **Whole families move in**, not just single adults.
+  - **Newcomers bring their own trade** (the job they had before) and
+    **look for work**. They take an open job, create a new one if they
+    can, or, with enough money and an available place, **open their own
+    shop**.
+  - **People and families move out** when their stress is too high and
+    they have enough money to leave. Needs the per-resident stress level
+    (People, above) and a money measure (Economy & poverty, above);
+    neither exists yet.
 
 ### Equilibrium: a long-lived town shouldn't drift (user principle, 2026-09-23)
 
@@ -934,6 +1006,12 @@ steady drift with no event behind it, because a town that drifts like
 that couldn't have existed in its current state for decades. Anything
 with the capacity to grow indefinitely, and that grows noticeably within
 a single ordinary year, is a calibration bug.
+
+> **Refinement (user, 2026-09-24):** population is the exception to "end
+> where it started": a town at equilibrium should grow slowly over time,
+> not hold a fixed baseline. Implemented as a refill target growing
+> ~0.5%/year (`PopulationPhenomenon.annual_growth`). Everything else
+> stays stationary.
 
 - **Rule for every mechanic**: give each push a counterweight, calibrated
   so the imported levels are the steady state.
@@ -995,6 +1073,72 @@ anyone-to-anyone kind.
   it's only the recipient's feelings that move (the existing favor
   convention) or the giver's warm up too; and calibrating it so that, at
   the town's imported feelings, favors and wrongdoings balance out.
+- **Everyday scorn, the counterweight (user, 2026-09-25) — Proposed.**
+  The mirror image of an everyday favor: a small slight (a rude word,
+  being ignored, a petty cheat at the market, gossip) that lowers the
+  target's affinity toward whoever did it a little. The everyday,
+  anyone-to-anyone form of the generic **wrongdoing** event, just as
+  favors are the everyday form of **favor**. Neither exists yet. Today the
+  only things that lower feelings are big, rare events (grief after a
+  killing, a failed attempt discovered, blame after an epidemic death,
+  religious friction, anger at a quarantine, noble/poor resentment at
+  import). Favors and scorn should be built and calibrated together so
+  that, at the town's imported feelings, they cancel out: the 25-year run
+  shows feelings already drifting warmer (warm ties 8.5% -> 13.1%)
+  without either.
+
+### To discuss with the user (running tally)
+
+Topics the user flagged to talk through before building. Each is
+**Open** until discussed; then move its outcome under its own topic.
+
+- **Homeowners** (added 2026-09-24) — **Open.** Who owns their home and
+  who rents, and what happens to a house when its owner dies. Today an
+  arrival simply moves into the dead person's `home_building_id`, a
+  newborn takes the mother's, and newlyweds never move in together.
+- **The merchant class** (added 2026-09-24) — **Open.** Merchants as a
+  class of their own, rather than civilians distinguished only by `ses`.
+- **Merchants as landlords** (added 2026-09-25, extends the two items
+  above) — **Open.** Some merchants own the houses that poor and
+  middling residents live in. Ties the merchant class to homeownership
+  and rent.
+- **Organic migration** (added 2026-09-25) — **Open.** Families moving in
+  and out, newcomers bringing trades and opening shops; details under
+  "Long runs: population turnover" above.
+- **What causes an epidemic** (added 2026-09-25) — **Open.** Natural,
+  realistic triggers for an outbreak, instead of today's flat ~1-in-4
+  chance a year from a random resident: e.g. arrivals or traders bringing
+  it in, crowding and poor sanitation, famine or a hard winter weakening
+  people, war or refugees, contaminated water. Also which diseases
+  (`medieval_diseases.md`) fit which cause.
+- **Kinds of ties** (added 2026-09-25) — **Open.** What kinds of
+  relationship the town should have and how each behaves: family,
+  workers (coworkers), customers and shopkeepers, and **friends, which
+  don't exist at all today**. The types now all come from TownShape:
+  spouse, parent, sibling, coworker, neighbor, unit_mate, classmate, plus
+  shopkeeper_customer derived at import. Every tie that isn't family,
+  work, neighbours or shops is missing. Closely tied to "Ties forming and
+  fading", below.
+- **Ties forming and fading** (added 2026-09-25) — **Open.** Today ties
+  are only created at import, at birth, by an arrival taking over a dead
+  person's ties, or by a wedding, and are never removed (see "Ties for
+  people added mid-run" under Social graph). Needs a design for:
+  - **New ties forming**: children gaining classmates, friends and, once
+    working, coworkers; neighbours when someone moves in; people meeting
+    through shops, church, work or friends of friends. Also the long-open
+    Romance gap: two unconnected singles can never meet.
+  - **Ties weakening and ending**: contact fading when people stop
+    seeing each other (a changed job or home, or plain neglect), feuds
+    ending a friendship, and what happens to the ties of the dead.
+  - **Newcomers' ties**: fuller families for newborns (grandparents,
+    aunts, uncles, cousins, neighbours), and arrivals building ties of
+    their own over time rather than inheriting a dead person's.
+  - Keeping the number of ties per person stable over decades, per the
+    equilibrium principle.
+- **New houses being built** (added 2026-09-25) — **Open.** How towns
+  gain housing as they grow. Mostly a TownShape question (buildings, map,
+  visualization), but the sim's growth and arrivals will need somewhere
+  to live once the existing houses are full.
 
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 

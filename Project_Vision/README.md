@@ -34,6 +34,13 @@ sections as TownShape's layer files:
   file re-organizes that same content by topic and against what's
   already built, rather than replacing it.
 
+[`02-long-run-findings.md`](02-long-run-findings.md) (2026-09-27) is a
+review iteration: what the first 25- and 50-year runs showed, why, and a
+proposed plan, benchmarked against
+[`../medieval_italian_cities_population.md`](../medieval_italian_cities_population.md).
+Comment under any item with `> Feedback:`; agreed items move into
+`01-network-simulation.md` as they're built.
+
 ## Status key
 
 Same vocabulary as `TownShape/Project_Vision`:
