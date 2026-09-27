@@ -12,12 +12,14 @@ from phenomena import (
     DEFAULT_OUTBREAK_YEARLY_CHANCE,
     EPIDEMIC_TIERS,
     ContagionPhenomenon,
+    EverydayPhenomenon,
     GuardPhenomenon,
     PopulationPhenomenon,
     QuarantinePhenomenon,
     ReligionPhenomenon,
     RiotPhenomenon,
     RomancePhenomenon,
+    StressPhenomenon,
     TheftPhenomenon,
     ViolencePhenomenon,
 )
@@ -30,6 +32,9 @@ from engine import run_simulation
 # resident reference town (user's target, 2026-09-23; medieval towns ran
 # ~20-100 per 100,000, this is a rougher fantasy town).
 VIOLENCE_RATE_PER_DEGREE = 0.0018
+
+
+PARAMETER_FLAGS = ("aggression", "loyalty", "religiosity", "strictness", "same_sex_share")
 
 
 def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
@@ -86,7 +91,10 @@ def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
     quarantine = QuarantinePhenomenon()
     # last: ages everyone at each year end and fills the day's vacancies
     population = PopulationPhenomenon()
-    phenomena = [contagion, quarantine, violence, romance, riot, guards, theft, ailments, religion, population]
+    everyday = EverydayPhenomenon()  # favors and scorn between people who know each other
+    stress = StressPhenomenon()  # before theft, which reads it
+    phenomena = [contagion, quarantine, violence, romance, riot, guards, stress, theft, ailments, religion, everyday,
+                 population]
     return phenomena
 
 
@@ -106,13 +114,12 @@ def main(argv=None) -> None:
                          help="override the tier's infectious days")
     parser.add_argument("--fatality-rate", type=float, default=None,
                          help="override the tier's base fatality (before SES scaling)")
-    for name in ("aggression", "loyalty", "religiosity", "strictness"):
-        parser.add_argument(f"--{name}", type=float, default=None,
+    for name in PARAMETER_FLAGS:
+        parser.add_argument(f"--{name.replace('_', '-')}", type=float, default=None,
                             help=f"city-wide {name} (0..1); default: the snapshot's or TownParameters' own")
     args = parser.parse_args(argv)
 
-    overrides = {name: getattr(args, name) for name in ("aggression", "loyalty", "religiosity", "strictness")
-                 if getattr(args, name) is not None}
+    overrides = {name: getattr(args, name) for name in PARAMETER_FLAGS if getattr(args, name) is not None}
     graph = import_snapshot(args.db, args.seed, overrides)
     phenomena = build_phenomena(graph, args.epidemic_tier, args.outbreak_chance,
                                 args.transmission_rate, args.infectious_days, args.fatality_rate)

@@ -8,6 +8,50 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-27 — The long-run review's first round (Project_Vision/02-long-run-findings.md)
+
+Decided with the user item by item (their `> Feedback:` lines in that file).
+Checked with three 25-year runs, compared on the "Riverport Runs Compared"
+dashboard (https://claude.ai/artifact/Mk2Vwrhb9Rg9aLRznuVJUG).
+
+- **No Florence marriage ages (user):** the history had girls married at ~18
+  and the user doesn't want that rule; marriage stays 18+. **Same-sex
+  marriage (user):** a `same_sex_share` town parameter (default 0.1); each
+  resident is drawn to their own sex or not, and love and arranged matches
+  pair only compatible people. Births stay mixed-sex only; **adoption is
+  deferred (user).**
+- **Adapted importer (user: "import TownShape's population generation and
+  adapt it"):** `reshape_to_settled_town`, on by default, re-draws ages
+  household by household to the shape the sim settles into
+  (`demography.SETTLED_BAND_SHARES`, measured in the 50-year run), and keeps
+  only enough of TownShape's same-sex couples for the share (TownShape draws
+  each spouse's sex independently: 52% of couples were same-sex, by
+  accident). TownShape's `0.97^age` curve made 20% of the town under 5 and
+  57% children; a third of those children become adult offspring at home.
+  Removes the early population dip and the married-share fall.
+- **Old-age deaths:** nobody died of old age before. 1% a year at 50, x e
+  every 10 years (7.4% at 70, 20% at 80).
+- **Faith:** the fade now aims 0.08 below each person's starting level, so
+  gratitude from recoveries brings them back to it. Halves the creep
+  (0.58 -> 0.54-0.55 at year 25); still rising slowly, so the offset is too
+  small.
+- **Stress and thieves (user):** a per-resident `Node.stress` (poverty, grief
+  after losing close family, a month after illness). Becoming a thief needs
+  stress above 0.6, which poverty alone never reaches; thieves also go
+  straight on their own (30% a year once calmer). Before, a thief only
+  stopped by being caught while stealing, so thieves with few victims piled
+  up (10 -> 66 in 25 years). Now 2-13, and executions fall from ~10 to 2.3 a
+  year. Joblessness isn't a pressure: TownShape gives 87% of adults no
+  occupation.
+- **Everyday favors and scorn (user):** a favor's chance is 0.5 + 0.5 x the
+  actor's feeling, each moving the other's feeling by 0.002, with a pull
+  back toward each tie's starting feeling. **Not yet balanced:** the pull is
+  sized on the town's average contact, but family ties get far more
+  interactions, so warm ties drift faster (8.6% -> 15.7%, against 13.1%
+  without it). Next: size the pull per tie.
+- **Vacancies (2.3):** folded into the organic-migration design (homes and
+  jobs tracked on their own), not fixed separately.
+
 ## 2026-09-24 — Population turnover inside the sim (pipeline step 4, option B)
 
 **Decision:** turnover is built sim-side first, not through TownShape's

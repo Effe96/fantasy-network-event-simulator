@@ -1,9 +1,12 @@
 import random
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from demography import MAX_AGE, settled_age_weights
 
 
 @dataclass
@@ -31,6 +34,12 @@ class Node:
     # currently-serving guard isn't "ex" anything, and nobles/priests aren't
     # the pool Nobles hires protection from, they're who it protects.
     is_ex_soldier: bool = False
+    # drawn to their own sex (params.same_sex_share); marriages pair only
+    # compatible people, and only mixed-sex couples have children
+    same_sex_attracted: bool = False
+    # 0..1, what they're going through (poverty, grief, illness), kept
+    # current by StressPhenomenon; theft reads it
+    stress: float = 0.0
     # TownShape home district (resident -> home building -> district) and
     # that district's zone_type, e.g. "poor_residential". None when the
     # snapshot has no buildings/districts (test fixtures).
@@ -113,6 +122,9 @@ class TownParameters:
     # how harshly crime is punished; scales the chance a caught thief is
     # executed, 1x at the default
     strictness: float = DEFAULT_STRICTNESS
+    # share of residents drawn to their own sex, drawn at import and birth;
+    # roughly that share of new marriages are same-sex (user, 2026-09-27)
+    same_sex_share: float = 0.1
 
     def aggression_factor(self) -> float:
         return 1.0 + 2.0 * self.aggression
@@ -446,6 +458,7 @@ def node_from_resident_row(graph: "SocialGraph", row: Dict[str, Any], rng: rando
         occupation=occupation, is_noble=is_noble, is_ex_soldier=is_ex_soldier,
         household_id=row.get("household_id"), home_building_id=row.get("home_building_id"),
         workplace_building_id=row.get("workplace_building_id"), birth_date=row.get("birth_date"),
+        same_sex_attracted=rng.random() < graph.params.same_sex_share,
         **synthesize_traits(rng, graph.family_baselines[family_root], means),
     )
 
@@ -575,7 +588,86 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
         graph.add_edge(edge)
 
 
-def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float]] = None) -> SocialGraph:
+def _mark_same_sex_spouses(graph: SocialGraph) -> None:
+    """TownShape draws each spouse's sex independently (about half its
+    couples are same-sex); both partners of an imported same-sex couple are
+    drawn to their own sex, so a widow(er) looks for the same again."""
+    for edge in graph.edges.values():
+        a, b = graph.nodes[edge.resident_a], graph.nodes[edge.resident_b]
+        if edge.source_type == "spouse" and a.gender is not None and a.gender == b.gender:
+            a.same_sex_attracted = b.same_sex_attracted = True
+
+
+OFFSPRING_MAX_AGE = 29
+
+
+def reshape_to_settled_town(graph: SocialGraph, seed: int) -> None:
+    """The adapted importer (user, 2026-09-27): TownShape's town, buildings,
+    households, jobs and ties kept as they are, but reshaped into the
+    population the sim itself settles into, so a run doesn't open with years
+    of adjustment (a dip in population and marriages).
+    - Ages are re-drawn household by household from the settled age
+      structure (demography.settled_age_weights) instead of TownShape's
+      0.97^age curve, which gave 20% under-5s. Children stay children and
+      adults stay adults, but a child may become an adult son or daughter
+      still at home (up to 29); children are drawn first, then a first adult
+      18-45 years older than each of them, and a second adult close in age
+      to the first (so a second parent can fall a little outside 18-45).
+    - TownShape draws each spouse's sex independently (about half its
+      couples same-sex); just enough of them keep it for same-sex couples
+      to be params.same_sex_share of all couples, the rest become mixed-sex.
+    Upstream into TownShape's own generator later
+    (docs/townshape-integration.md). Its own random stream, so every other
+    import draw is unchanged."""
+    rng = random.Random(f"reshape-{seed}")
+    weights = settled_age_weights()
+
+    def draw(lo: int, hi: int) -> int:
+        lo, hi = max(0, lo), min(MAX_AGE, hi)
+        if lo >= hi:
+            return max(0, lo)
+        return rng.choices(range(lo, hi + 1), weights=weights[lo:hi + 1])[0]
+
+    spouses = [e for e in graph.edges.values() if e.source_type == "spouse"]
+    same_sex = [e for e in spouses if graph.nodes[e.resident_a].gender is not None
+                and graph.nodes[e.resident_a].gender == graph.nodes[e.resident_b].gender]
+    if same_sex:
+        keep = min(1.0, graph.params.same_sex_share * len(spouses) / len(same_sex))
+        for edge in same_sex:
+            if rng.random() >= keep:
+                partner = graph.nodes[edge.resident_b]
+                # ponytail: TownShape's first name stays as drawn for the old sex
+                partner.gender = "male" if partner.gender == "female" else "female"
+
+    households: Dict[Any, List[Node]] = defaultdict(list)
+    for node in graph.nodes.values():
+        if node.age is not None:
+            households[node.household_id if node.household_id is not None else ("alone", node.resident_id)].append(node)
+    for key in sorted(households, key=str):
+        members = sorted(households[key], key=lambda n: n.resident_id)
+        adults = [n for n in members if n.age >= 18]
+        children = [n for n in members if n.age < 18]
+        # children first, so the town's child ages follow the settled shape;
+        # then a first adult 18-45 years older than every child. TownShape
+        # makes 57% of the town children (2.2 a household); read as
+        # offspring living at home, aged up to 29, about a third are young
+        # adults, which brings children near the settled ~40%. They keep
+        # TownShape's child record (no job) for now.
+        for child in children:
+            child.age = draw(0, OFFSPRING_MAX_AGE)
+        if children:
+            first = draw(max(child.age for child in children) + 18, min(child.age for child in children) + 45)
+        else:
+            first = draw(18, MAX_AGE)
+        for index, adult in enumerate(adults):
+            adult.age = first if index == 0 else min(MAX_AGE, max(18, first + round(rng.gauss(0, 4))))
+        for node in members:
+            if graph.reference_year is not None:
+                node.birth_date = f"{graph.reference_year - node.age:04d}-01-01"
+
+
+def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float]] = None,
+                    reshape: bool = True) -> SocialGraph:
     """overrides: TownParameters fields to set instead of the snapshot's own
     or the defaults (e.g. {"loyalty": 0.8}); applied before residents are
     drawn, so trait averages follow them."""
@@ -594,6 +686,9 @@ def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float
         _load_relationships(conn, graph, rng)
         _load_shopkeeper_customer(conn, graph, rng)
         _load_resident_identity(conn, graph)
+        if reshape:
+            reshape_to_settled_town(graph, seed)
+        _mark_same_sex_spouses(graph)
         _load_districts(conn, graph)
     finally:
         conn.close()

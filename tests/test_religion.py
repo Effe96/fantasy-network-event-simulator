@@ -243,7 +243,7 @@ def test_contagion_records_a_recovery():
 
 def test_religiousness_fades_back_toward_where_it_started():
     graph = _civilian_priest_graph(religiousness=0.5, skepticism=0.2)
-    phenomenon = ReligionPhenomenon(religiousness_fade_per_year=0.1)
+    phenomenon = ReligionPhenomenon(religiousness_fade_per_year=0.1, religiousness_fade_offset=0.0)
     state = phenomenon.init_state(graph)
     graph.nodes[1].religiousness = 0.7  # e.g. after surviving the plague
     for day in range(1, 366):
@@ -251,6 +251,16 @@ def test_religiousness_fades_back_toward_where_it_started():
     # a tenth of the 0.2 gap closes in a year
     assert abs(graph.nodes[1].religiousness - 0.68) < 1e-6
     assert state[1]["religiousness"] == graph.nodes[1].religiousness
+
+
+def test_the_fade_aims_just_below_the_start_so_gratitude_balances_it():
+    graph = _civilian_priest_graph(religiousness=0.5, skepticism=0.2)
+    phenomenon = ReligionPhenomenon(religiousness_fade_per_year=0.1, religiousness_fade_offset=0.08)
+    state = phenomenon.init_state(graph)
+    for day in range(1, 366):
+        phenomenon.end_of_day(graph, state, day=day, rng=random.Random(0))
+    # no recoveries here, so a tenth of the gap to 0.42 closes in a year
+    assert abs(graph.nodes[1].religiousness - 0.492) < 1e-6
 
 
 def test_losing_someone_in_an_outbreak_lowers_faith():
@@ -285,6 +295,7 @@ def _run_all():
     test_worse_diseases_move_survivors_further()
     test_contagion_records_a_recovery()
     test_religiousness_fades_back_toward_where_it_started()
+    test_the_fade_aims_just_below_the_start_so_gratitude_balances_it()
     test_losing_someone_in_an_outbreak_lowers_faith()
     print("OK")
 

@@ -171,7 +171,7 @@ def test_recent_arrests_suppress_the_become_thief_probability():
         count = 0
         for seed in range(trials):
             graph = SocialGraph()
-            graph.add_node(Node(resident_id=1, ses="poor", alive=True))
+            graph.add_node(Node(resident_id=1, ses="poor", alive=True, stress=1.0))
             phenomenon = TheftPhenomenon(become_thief_rate=become_thief_rate)
             phenomenon._deterrence = deterrence
             state = phenomenon.init_state(graph)
@@ -182,22 +182,41 @@ def test_recent_arrests_suppress_the_become_thief_probability():
     assert hits(deterrence=0.0) > hits(deterrence=50.0)
 
 
-def test_poorer_residents_become_thieves_more_readily():
+def test_more_stressed_residents_become_thieves_more_readily():
     trials = 200
-    become_thief_rate = 0.05
-    poor_hits = 0
-    rich_hits = 0
+    become_thief_rate = 0.3
+    strained_hits = 0
+    calmer_hits = 0
     for seed in range(trials):
         graph = SocialGraph()
-        graph.add_node(Node(resident_id=1, ses="poor", alive=True))
-        graph.add_node(Node(resident_id=2, ses="rich", alive=True))
+        graph.add_node(Node(resident_id=1, ses="poor", alive=True, stress=0.95))
+        graph.add_node(Node(resident_id=2, ses="poor", alive=True, stress=0.65))
+        graph.add_node(Node(resident_id=3, ses="poor", alive=True, stress=0.5))  # poverty alone
         phenomenon = TheftPhenomenon(become_thief_rate=become_thief_rate)
         state = phenomenon.init_state(graph)
         phenomenon.end_of_day(graph, state, day=1, rng=random.Random(seed))
-        poor_hits += state[1]["is_thief"]
-        rich_hits += state[2]["is_thief"]
+        strained_hits += state[1]["is_thief"]
+        calmer_hits += state[2]["is_thief"]
+        assert not state[3]["is_thief"]
 
-    assert poor_hits > rich_hits
+    assert strained_hits > calmer_hits
+
+
+def test_a_thief_under_less_strain_goes_straight_sooner():
+    def quits(stress):
+        count = 0
+        for seed in range(100):
+            graph = SocialGraph()
+            graph.add_node(Node(resident_id=1, ses="poor", alive=True, stress=stress))
+            phenomenon = TheftPhenomenon(become_thief_rate=0.0, quit_per_year_calm=0.99, quit_per_year_strained=0.0)
+            state = phenomenon.init_state(graph)
+            state[1]["is_thief"] = True
+            for day in range(1, 91):
+                phenomenon.end_of_day(graph, state, day=day, rng=random.Random(seed * 1000 + day))
+            count += not state[1]["is_thief"]
+        return count
+
+    assert quits(0.3) > 50 and quits(0.9) == 0
 
 
 def _run_all():
@@ -212,7 +231,8 @@ def _run_all():
     test_low_loyalty_guards_execute_instead_of_arresting()
     test_recent_arrests_suppress_the_become_thief_probability()
     test_nobles_never_become_thieves()
-    test_poorer_residents_become_thieves_more_readily()
+    test_more_stressed_residents_become_thieves_more_readily()
+    test_a_thief_under_less_strain_goes_straight_sooner()
     print("OK")
 
 

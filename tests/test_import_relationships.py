@@ -103,7 +103,7 @@ def test_gender_and_age_are_imported_against_town_reference_year():
             ],
             year_start="1300-01-01",
         )
-        graph = import_snapshot(db_path, seed=1)
+        graph = import_snapshot(db_path, seed=1, reshape=False)  # the raw TownShape ages
         assert graph.nodes[1].gender == "male"
         assert graph.nodes[1].age == 20
         assert graph.nodes[2].gender == "female"

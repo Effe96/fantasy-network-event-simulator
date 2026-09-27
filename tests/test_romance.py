@@ -36,12 +36,46 @@ def test_unrequited_affinity_never_fires():
     assert phenomenon.edge_probability(edge, state[1], state[2], day=1) == 0.0
 
 
-def test_same_gender_pair_never_fires():
-    graph = _lovers_graph(gender_a="male", gender_b="male")
+def test_love_needs_both_drawn_to_each_other_s_sex():
+    for same_1, same_2, expected in [(False, False, False), (True, False, False), (True, True, True)]:
+        graph = _lovers_graph(gender_a="male", gender_b="male")
+        graph.nodes[1].same_sex_attracted, graph.nodes[2].same_sex_attracted = same_1, same_2
+        phenomenon = RomancePhenomenon(love_threshold=0.5)
+        state = phenomenon.init_state(graph)
+        edge = graph.get_edge(1, 2)
+        assert (phenomenon.edge_probability(edge, state[1], state[2], day=1) > 0.0) == expected
+    graph = _lovers_graph()  # a man and a woman, one drawn to their own sex
+    graph.nodes[1].same_sex_attracted = True
     phenomenon = RomancePhenomenon(love_threshold=0.5)
     state = phenomenon.init_state(graph)
-    edge = graph.get_edge(1, 2)
-    assert phenomenon.edge_probability(edge, state[1], state[2], day=1) == 0.0
+    assert phenomenon.edge_probability(graph.get_edge(1, 2), state[1], state[2], day=1) == 0.0
+
+
+def test_a_same_sex_couple_has_no_children():
+    graph = _lovers_graph(source_type="spouse", gender_a="female", gender_b="female")
+    graph.nodes[1].same_sex_attracted = graph.nodes[2].same_sex_attracted = True
+    phenomenon = RomancePhenomenon(birth_base_rate=1.0)
+    state = phenomenon.init_state(graph)
+    assert phenomenon.edge_probability(graph.get_edge(1, 2), state[1], state[2], day=1) == 0.0
+
+
+def test_an_arranged_match_pairs_two_women_drawn_to_women():
+    graph = SocialGraph()
+    for resident_id, gender, same in [(1, "female", True), (2, "male", False), (3, "female", True)]:
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, gender=gender, age=25,
+                            same_sex_attracted=same))
+    phenomenon = RomancePhenomenon(arranged_match_rate=1.0)
+    state = phenomenon.init_state(graph)
+    events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert {(e.resident_a, e.resident_b) for e in events} in ({(1, 3)}, {(3, 1)})
+    assert not state[2]["married"]
+
+
+def test_imported_same_sex_spouses_are_drawn_to_their_own_sex():
+    from graph import _mark_same_sex_spouses
+    graph = _lovers_graph(source_type="spouse", gender_a="male", gender_b="male")
+    _mark_same_sex_spouses(graph)
+    assert graph.nodes[1].same_sex_attracted and graph.nodes[2].same_sex_attracted
 
 
 def test_minors_never_fire():
@@ -131,7 +165,10 @@ def test_summarize_counts_married_residents():
 def _run_all():
     test_mutual_high_affinity_has_positive_marriage_probability()
     test_unrequited_affinity_never_fires()
-    test_same_gender_pair_never_fires()
+    test_love_needs_both_drawn_to_each_other_s_sex()
+    test_a_same_sex_couple_has_no_children()
+    test_an_arranged_match_pairs_two_women_drawn_to_women()
+    test_imported_same_sex_spouses_are_drawn_to_their_own_sex()
     test_minors_never_fire()
     test_family_edges_never_fire()
     test_already_married_resident_never_fires_a_second_romance()

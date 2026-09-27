@@ -3,6 +3,7 @@ import random
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
+from demography import old_age_death_chance
 from graph import FISKE_TAGS, TownParameters, edge_from_relationship, synthesize_relationship_attributes
 
 
@@ -1096,10 +1097,7 @@ class RomancePhenomenon:
         # edge_probability has no graph access, only edge + per-resident state, so
         # the static fields it needs (gender, age) are copied in here rather than
         # looked up live -- same reason ContagionPhenomenon keeps its own "status".
-        state = {
-            resident_id: {"married": False, "gender": node.gender, "age": node.age, "celibate": node.role == "priest"}
-            for resident_id, node in graph.nodes.items()
-        }
+        state = {resident_id: self._resident_state(node) for resident_id, node in graph.nodes.items()}
         for edge in graph.edges.values():
             if edge.source_type == "spouse":
                 state[edge.resident_a]["married"] = True
@@ -1110,8 +1108,7 @@ class RomancePhenomenon:
         node = graph.nodes[resident_id]
         married = any(graph.get_edge(resident_id, other).source_type == "spouse"
                       for other in graph.neighbors(resident_id))
-        state[resident_id] = {"married": married, "gender": node.gender, "age": node.age,
-                              "celibate": node.role == "priest"}
+        state[resident_id] = dict(self._resident_state(node), married=married)
         for other in graph.neighbors(resident_id):
             if married and graph.get_edge(resident_id, other).source_type == "spouse":
                 state[other]["married"] = True
@@ -1121,9 +1118,24 @@ class RomancePhenomenon:
         return person_state["age"] is not None and person_state["age"] >= ADULT_MIN_AGE
 
     @staticmethod
+    def _resident_state(node) -> Dict[str, Any]:
+        return {"married": False, "gender": node.gender, "age": node.age, "celibate": node.role == "priest",
+                "same_sex": node.same_sex_attracted}
+
+    @staticmethod
+    def _compatible(state_a, state_b) -> bool:
+        """Could these two marry: both drawn to their own sex and the same
+        sex, or both drawn to the other sex and not."""
+        if state_a["gender"] is None or state_b["gender"] is None:
+            return False
+        if state_a["gender"] == state_b["gender"]:
+            return state_a["same_sex"] and state_b["same_sex"]
+        return not state_a["same_sex"] and not state_b["same_sex"]
+
+    @staticmethod
     def _is_opposite_gender_pair(state_a, state_b) -> bool:
-        # v1 only models opposite-gender romance/births, matching every gender
-        # value seen in TownShape data so far; known gap, not a deliberate exclusion
+        # births only: marriage itself uses _compatible (same-sex couples too);
+        # adoption is deferred (user, 2026-09-27)
         return (
             state_a["gender"] is not None
             and state_b["gender"] is not None
@@ -1155,7 +1167,7 @@ class RomancePhenomenon:
             return 0.0  # monogamy: no divorce (a widow(er) is free again, see end_of_day)
         if state_a["celibate"] or state_b["celibate"]:
             return 0.0
-        if not self._is_opposite_gender_pair(state_a, state_b):
+        if not self._compatible(state_a, state_b):
             return 0.0
         if not (self._is_adult(state_a) and self._is_adult(state_b)):
             return 0.0
@@ -1226,7 +1238,8 @@ class RomancePhenomenon:
             if state[resident_id]["married"] or rng.random() >= self.arranged_match_rate:
                 continue
             candidates = [other for other in singles
-                          if not state[other]["married"] and state[other]["gender"] != state[resident_id]["gender"]
+                          if other != resident_id and not state[other]["married"]
+                          and self._compatible(state[resident_id], state[other])
                           and not self._are_family(graph, resident_id, other)]
             same_class = [other for other in candidates if graph.nodes[other].ses == graph.nodes[resident_id].ses]
             if not (same_class or candidates):
@@ -1677,10 +1690,88 @@ class GuardPhenomenon:
         return {"bribes": self._bribes}
 
 
-# ponytail: same placeholder shape as SES_VULNERABILITY -- poverty raises the
-# odds someone turns to thievery; tune if a real wealth-inequality dial lands
-THIEF_SES_FACTOR = {"poor": 2.0, "middling": 1.0, "rich": 0.3}
+# Stress (user, 2026-09-27): what a resident is going through, 0..1, kept on
+# Node.stress so any phenomenon can read it (theft now; moving out later).
+# ponytail: poverty, grief and recent illness only -- TownShape gives 87% of
+# adults no occupation, so joblessness can't be a pressure yet (see the
+# market discussion); add hunger, debt, unemployment once the economy exists
+STRESS_POVERTY = {"poor": 0.4, "middling": 0.2, "rich": 0.05}
+STRESS_GRIEF_PER_LOSS = 0.4   # losing a spouse, parent, child or sibling
+STRESS_GRIEF_CAP = 0.6
+STRESS_GRIEF_DAYS = 365       # grief fades to nothing over a year
+STRESS_ILLNESS = 0.15
+STRESS_ILLNESS_DAYS = 30      # after recovering from any sickness
+STRESS_CATCH_UP_DAYS = 30     # stress closes the gap to its pressures in about a month
+FAMILY_TIES = ("spouse", "parent", "sibling")
+
+
+class StressPhenomenon:
+    """Keeps every resident's Node.stress moving toward the sum of their
+    pressures: poverty (always there), grief after losing close family
+    (fading over a year, several losses add up), and a month of strain after
+    an illness. Runs before theft, which reads it."""
+    name = "stress"
+
+    def __init__(self):
+        self._deaths_seen = 0
+        self._recoveries_seen = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        self._deaths_seen = len(graph.deaths)
+        self._recoveries_seen = len(graph.recoveries)
+        state = {resident_id: {"grief": 0.0, "ill_until": 0} for resident_id in graph.nodes}
+        for resident_id, node in graph.nodes.items():
+            node.stress = self._pressure(node, state[resident_id], 0)  # start settled
+        return state
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = {"grief": 0.0, "ill_until": 0}
+        graph.nodes[resident_id].stress = self._pressure(graph.nodes[resident_id], state[resident_id], 0)
+
+    def candidate_edges(self, graph, state):
+        return []
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        return 0.0
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    @staticmethod
+    def _pressure(node, resident_state, day: int) -> float:
+        illness = STRESS_ILLNESS if day < resident_state["ill_until"] else 0.0
+        return min(1.0, STRESS_POVERTY.get(node.ses, 0.2) + resident_state["grief"] + illness)
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        for death in graph.deaths[self._deaths_seen:]:
+            dead = death["resident_id"]
+            for other in graph.neighbors(dead):
+                if other in state and graph.get_edge(dead, other).source_type in FAMILY_TIES:
+                    state[other]["grief"] = min(STRESS_GRIEF_CAP, state[other]["grief"] + STRESS_GRIEF_PER_LOSS)
+        self._deaths_seen = len(graph.deaths)
+        for recovery in graph.recoveries[self._recoveries_seen:]:
+            if recovery["resident_id"] in state:
+                state[recovery["resident_id"]]["ill_until"] = day + STRESS_ILLNESS_DAYS
+        self._recoveries_seen = len(graph.recoveries)
+
+        fade = STRESS_GRIEF_PER_LOSS / STRESS_GRIEF_DAYS
+        for resident_id, resident_state in state.items():
+            node = graph.nodes[resident_id]
+            if not node.alive:
+                continue
+            if resident_state["grief"]:
+                resident_state["grief"] = max(0.0, resident_state["grief"] - fade)
+            node.stress += (self._pressure(node, resident_state, day) - node.stress) / STRESS_CATCH_UP_DAYS
+        return []
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {"grieving": sum(1 for s in state.values() if s["grief"] > 0)}
+
+
 THIEF_MIN_AGE = 12  # a child pickpocket is plausible; a toddler thief (hanged!) was not
+# only someone under real strain turns to theft (user, 2026-09-27): poverty
+# alone (0.4) never reaches it; a recent loss or illness on top does
+THIEF_STRESS_THRESHOLD = 0.6
 
 
 class TheftPhenomenon:
@@ -1733,7 +1824,9 @@ class TheftPhenomenon:
 
     def __init__(
         self,
-        become_thief_rate: float = 0.00015,
+        become_thief_rate: float = 0.002,
+        quit_per_year_calm: float = 0.3,
+        quit_per_year_strained: float = 0.05,
         theft_base_rate: float = 0.01,
         discovery_chance: float = 0.4,
         caught_animosity: float = 0.3,
@@ -1742,7 +1835,14 @@ class TheftPhenomenon:
         deterrence_decay: float = 0.985,
         deterrence_weight: float = 0.25,
     ):
+        # daily chance at stress 1.0; scales down to 0 at THIEF_STRESS_THRESHOLD
         self.become_thief_rate = become_thief_rate
+        # thieves also go straight on their own (user, 2026-09-27): being
+        # caught used to be the only way out, so thieves with few victims to
+        # steal from were never caught and piled up (10 -> 66 in 25 years)
+        self._quit_calm = 1.0 - (1.0 - quit_per_year_calm) ** (1.0 / 365.0)
+        self._quit_strained = 1.0 - (1.0 - quit_per_year_strained) ** (1.0 / 365.0)
+        self._quits = 0
         self.theft_base_rate = theft_base_rate
         self.discovery_chance = discovery_chance
         self.caught_animosity = caught_animosity
@@ -1850,13 +1950,23 @@ class TheftPhenomenon:
         self._deterrence *= self.deterrence_decay
         events: List[Event] = []
         for resident_id, resident_state in state.items():
-            if resident_state["is_thief"] or resident_state["role"] == "noble":
-                continue
             node = graph.nodes[resident_id]
+            if resident_state["is_thief"]:
+                if node.alive:
+                    quit = self._quit_calm if node.stress < THIEF_STRESS_THRESHOLD else self._quit_strained
+                    if rng.random() < quit:
+                        resident_state["is_thief"] = False
+                        self._quits += 1
+                        events.append(Event(day, self.name, "went_straight", resident_id, resident_id, "gave up thievery"))
+                continue
+            if resident_state["role"] == "noble":
+                continue
             if not node.alive or (node.age is not None and node.age < THIEF_MIN_AGE):
                 continue
-            base_p = self.become_thief_rate * THIEF_SES_FACTOR.get(resident_state["ses"], 1.0)
-            p = base_p / (1.0 + self.deterrence_weight * self._deterrence)
+            strain = (node.stress - THIEF_STRESS_THRESHOLD) / (1.0 - THIEF_STRESS_THRESHOLD)
+            if strain <= 0.0:
+                continue
+            p = self.become_thief_rate * strain / (1.0 + self.deterrence_weight * self._deterrence)
             if rng.random() < p:
                 resident_state["is_thief"] = True
                 events.append(Event(day, self.name, "became_thief", resident_id, resident_id, "turned to thievery"))
@@ -1869,6 +1979,7 @@ class TheftPhenomenon:
             "thefts_caught": self._caught,
             "thefts_arrested": self._arrests,
             "thefts_executed": self._executions,
+            "thieves_went_straight": self._quits,
         }
 
 
@@ -1955,6 +2066,12 @@ class ReligionPhenomenon:
         recovery_respect_gain: float = 0.05,
         blame_religiousness_loss: float = 0.05,
         religiousness_fade_per_year: float = 0.1,
+        # ponytail: measured, not derived -- gratitude from everyday recoveries
+        # held the reference town's average 0.08 above its imported level
+        # (25/50-year runs, 2026-09-25). Fading toward start - 0.08 makes the
+        # imported level the balance point. Re-measure if ailment rates or
+        # the gratitude gain change; upgrade to a running estimate if needed.
+        religiousness_fade_offset: float = 0.08,
     ):
         self.devotion_base_rate = devotion_base_rate
         self.devotion_affinity_gain = devotion_affinity_gain
@@ -1977,6 +2094,7 @@ class ReligionPhenomenon:
         self.blame_religiousness_loss = blame_religiousness_loss
         # daily share of the gap closed, so the yearly total is the knob
         self._fade_per_day = 1.0 - (1.0 - religiousness_fade_per_year) ** (1.0 / 365.0)
+        self.religiousness_fade_offset = religiousness_fade_offset
         self._baseline_religiousness: Dict[int, float] = {}
         self._recoveries_seen = 0  # index into graph.recoveries already processed
         self._gratitudes = 0
@@ -2093,8 +2211,9 @@ class ReligionPhenomenon:
     def _fade_religiousness(self, graph, state) -> None:
         for resident_id, baseline in self._baseline_religiousness.items():
             current = graph.nodes[resident_id].religiousness
-            if current != baseline and graph.nodes[resident_id].alive:
-                self._set_religiousness(graph, state, resident_id, current + (baseline - current) * self._fade_per_day)
+            target = max(0.0, baseline - self.religiousness_fade_offset)
+            if current != target and graph.nodes[resident_id].alive:
+                self._set_religiousness(graph, state, resident_id, current + (target - current) * self._fade_per_day)
 
     def _gratitude(self, graph, state, day: int) -> List[Event]:
         new_recoveries = graph.recoveries[self._recoveries_seen:]
@@ -2334,7 +2453,8 @@ class PopulationPhenomenon:
     """Population turnover, sim-side (pipeline step 4, option B in
     docs/townshape-integration.md; TownShape's advance_town replaces it once
     integrated). Births are RomancePhenomenon's; this ages everyone once a
-    year and brings in arrivals. Like real medieval towns, which drew
+    year, lets the old die of old age (demography.old_age_death_chance), and
+    brings in arrivals. Like real medieval towns, which drew
     migrants to fill the places their dead left: an adult's death leaves a
     vacancy (home, job, SES, role), and a newcomer takes it over after a
     while, with fresh ties to the dead person's coworkers and neighbours.
@@ -2381,6 +2501,13 @@ class PopulationPhenomenon:
                 if node.alive and node.age is not None:
                     node.age += 1
         events: List[Event] = []
+        for node in list(graph.nodes.values()):
+            if node.alive and node.age is not None and node.age >= 50:
+                yearly = old_age_death_chance(node.age)
+                if rng.random() < 1.0 - (1.0 - yearly) ** (1.0 / 365.0):
+                    graph.record_death(node.resident_id, day, "old age")
+                    events.append(Event(day, self.name, "died_of_old_age", node.resident_id, node.resident_id,
+                                        f"died of old age at {node.age}"))
         for death in graph.deaths[self._deaths_seen:]:
             dead = death["resident_id"]
             age = graph.nodes[dead].age
@@ -2446,3 +2573,97 @@ class PopulationPhenomenon:
     def summarize(self, state) -> Dict[str, int]:
         return {"arrivals": self._arrivals, "inheritances": self._inheritances,
                 "open_vacancies": len(self._vacancies)}
+
+
+class EverydayPhenomenon:
+    """Everyday favors and scorn (user, 2026-09-27; vision: "Everyday
+    favors", "Everyday scorn"): the ordinary, anyone-to-anyone kind of the
+    generic favor and wrongdoing events. Each day each resident has
+    interactions_per_day chance of dealing with someone they know, picked
+    by how much time the tie takes. How the actor feels decides what it is:
+    a favor with chance 0.5 + 0.5 * their feeling (warm ties mostly help,
+    hostile ones mostly slight), and the other side's feeling toward the
+    actor moves by +/- nudge.
+
+    That alone would polarize (warm ties warming, cold ones cooling), so
+    every month feelings are pulled pull_per_year of the way back toward
+    where each tie started, like faith's fade. The pull aims a little below
+    the start (by the favors a tie's warmth brings in, at the town's average
+    contact), so the imported town is the balance point, not a drift. It
+    also slowly softens grudges and warmth left by other events. No Event
+    per interaction (about 1,000 a day): counts only."""
+    name = "everyday"
+
+    def __init__(self, interactions_per_day: float = 0.5, nudge: float = 0.002, pull_per_year: float = 0.1):
+        self.interactions_per_day = interactions_per_day
+        self.nudge = nudge
+        self.pull_per_year = pull_per_year
+        self._pull_per_month = 1.0 - (1.0 - pull_per_year) ** (1.0 / 12.0)
+        self._base: Dict[Tuple[Tuple[int, int], int], float] = {}  # (tie, feeler) -> feeling at first sight
+        self._offset = 0.0
+        self._favors = 0
+        self._scorns = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        # ponytail: one town-wide average; a tie with much more contact than
+        # average drifts a little warmer or colder than it started
+        residents = max(1, len(graph.nodes))
+        ties_per_resident = max(1.0, 2.0 * len(graph.edges) / residents)
+        per_tie = self.interactions_per_day * 365 / ties_per_resident  # yearly nudges one feeling gets
+        self._offset = per_tie * self.nudge / self.pull_per_year if self.pull_per_year else 0.0
+        self._register_ties(graph)
+        return {resident_id: {} for resident_id in graph.nodes}
+
+    def _register_ties(self, graph) -> None:
+        for key, edge in graph.edges.items():
+            if (key, edge.resident_a) not in self._base:
+                self._base[(key, edge.resident_a)] = edge.valence_a_to_b
+                self._base[(key, edge.resident_b)] = edge.valence_b_to_a
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = {}
+
+    def candidate_edges(self, graph, state):
+        return []
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        return 0.0
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        for actor, node in graph.nodes.items():
+            if not node.alive or rng.random() >= self.interactions_per_day:
+                continue
+            others = graph.neighbors(actor)
+            # time-weighted pick by rejection: a few tries, cheap for 50-tie residents
+            for _ in range(4):
+                if not others:
+                    break
+                other = others[rng.randrange(len(others))]
+                edge = graph.get_edge(actor, other)
+                if graph.nodes[other].alive and rng.random() < edge.time:
+                    favor = rng.random() < 0.5 + 0.5 * edge.valence_from(actor)
+                    felt = edge.valence_from(other) + (self.nudge if favor else -self.nudge)
+                    edge.set_valence_from(other, max(-1.0, min(1.0, felt)))
+                    if favor:
+                        self._favors += 1
+                    else:
+                        self._scorns += 1
+                    break
+        if day % 30 == 0:
+            self._pull_back(graph)
+        return []
+
+    def _pull_back(self, graph) -> None:
+        self._register_ties(graph)  # ties created since (births, weddings, arrivals)
+        for key, edge in graph.edges.items():
+            a, b = key
+            for feeler, other in ((a, b), (b, a)):
+                target = self._base[(key, feeler)] - self._offset * self._base[(key, other)]
+                current = edge.valence_from(feeler)
+                edge.set_valence_from(feeler, current + (target - current) * self._pull_per_month)
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {"favors": self._favors, "scorns": self._scorns}

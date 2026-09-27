@@ -204,7 +204,8 @@ def test_a_dead_noble_s_eldest_child_inherits_and_no_stranger_arrives():
 
 def test_a_small_child_never_turns_thief():
     graph = _guard_post()
-    graph.add_node(Node(resident_id=4, ses="poor", alive=True, age=3))
+    graph.add_node(Node(resident_id=4, ses="poor", alive=True, age=3, stress=1.0))
+    graph.nodes[3].stress = 1.0
     theft = TheftPhenomenon(become_thief_rate=1.0)
     state = theft.init_state(graph)
     theft.end_of_day(graph, state, day=1, rng=random.Random(0))
