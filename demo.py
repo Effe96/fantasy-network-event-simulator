@@ -13,6 +13,7 @@ from phenomena import (
     EPIDEMIC_TIERS,
     ContagionPhenomenon,
     GuardPhenomenon,
+    PopulationPhenomenon,
     QuarantinePhenomenon,
     ReligionPhenomenon,
     RiotPhenomenon,
@@ -83,7 +84,9 @@ def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
     # right after contagion: reads that day's plague deaths from graph.deaths,
     # and contagion reads the sealed districts back from the next day on
     quarantine = QuarantinePhenomenon()
-    phenomena = [contagion, quarantine, violence, romance, riot, guards, theft, ailments, religion]
+    # last: ages everyone at each year end and fills the day's vacancies
+    population = PopulationPhenomenon()
+    phenomena = [contagion, quarantine, violence, romance, riot, guards, theft, ailments, religion, population]
     return phenomena
 
 

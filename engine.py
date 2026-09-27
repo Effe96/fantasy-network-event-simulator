@@ -18,7 +18,8 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
     rng = random.Random(seed)
     states = {phenomenon.name: phenomenon.init_state(graph) for phenomenon in phenomena}
     result = SimulationResult()
-    # no phenomenon adds ties mid-run, so each tie's place in the order is fixed
+    # ties are only ever added (newcomers, arranged marriages), never removed,
+    # so each tie keeps its place in the order and new ones go at the end
     edge_order = list(graph.edges)
     position = {key: index for index, key in enumerate(edge_order)}
 
@@ -49,7 +50,7 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                                 queued.add(later)
                                 heapq.heappush(heap, later)
             result.events.extend(phenomenon.end_of_day(graph, state, day, rng))
-            if graph.newcomers:
+            if graph.newcomers or len(graph.edges) > len(edge_order):
                 _register_newcomers(graph, phenomena, states, edge_order, position)
 
         summary = {"day": day}
@@ -71,7 +72,8 @@ def _register_newcomers(graph, phenomena, states, edge_order, position) -> None:
     """Residents added mid-run (graph.add_resident) join every phenomenon's
     state, and their new ties join the fixed tie order, at the end of the
     phenomenon that created them -- so later phenomena that same day, and
-    every phenomenon from the next day, see them."""
+    every phenomenon from the next day, see them. Also takes new ties
+    between existing residents (an arranged marriage)."""
     while graph.newcomers:
         resident_id = graph.newcomers.pop(0)
         for phenomenon in phenomena:

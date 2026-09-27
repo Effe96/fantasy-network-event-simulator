@@ -149,7 +149,7 @@ class SocialGraph:
         # never reassigned: ContagionPhenomenon holds a reference to it.
         self.quarantined_districts: Dict[int, str] = {}
         # resident -> neighbor ids, built lazily in edge order (the same order
-        # the old full-scan neighbors() returned) and dropped on add_edge
+        # the old full-scan neighbors() returned), extended by add_edge
         self._adjacency: Optional[Dict[int, List[int]]] = None
         # Residents added mid-run (births, arrivals) enter through the same
         # code path as import (node_from_resident_row / edge_from_relationship),
@@ -217,7 +217,11 @@ class SocialGraph:
         if existing is not None and existing.tie_strength >= edge.tie_strength:
             return
         self.edges[key] = edge
-        self._adjacency = None
+        # a new key is appended to the edge order, so appending keeps the
+        # lazily built adjacency in that same order; a replaced one changes nothing
+        if existing is None and self._adjacency is not None:
+            self._adjacency.setdefault(key[0], []).append(key[1])
+            self._adjacency.setdefault(key[1], []).append(key[0])
 
     def get_edge(self, a: int, b: int) -> Optional[Edge]:
         return self.edges.get(self._key(a, b))

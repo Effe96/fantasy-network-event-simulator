@@ -3,7 +3,7 @@ import random
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
-from graph import FISKE_TAGS, TownParameters
+from graph import FISKE_TAGS, TownParameters, edge_from_relationship, synthesize_relationship_attributes
 
 
 @dataclass
@@ -85,7 +85,7 @@ class ContagionPhenomenon:
             tie_sum[a] += weighted
             tie_sum[b] += weighted
         mean_tie_sum = sum(tie_sum.values()) / max(1, len(tie_sum))
-        mean_vulnerability = sum(SES_VULNERABILITY.get(n.ses, 1.0) for n in graph.nodes.values()) / max(1, len(graph.nodes))
+        mean_vulnerability = sum(disease_fatality_factor(n) for n in graph.nodes.values()) / max(1, len(graph.nodes))
         return cls(
             base_rate=r0 / (infectious_days * max(mean_tie_sum, 1e-9)),
             infectious_days=infectious_days,
@@ -195,7 +195,7 @@ class ContagionPhenomenon:
                 continue
             resident_state["days_left"] -= 1
             if resident_state["days_left"] <= 0:
-                fatality_p = self.case_fatality_rate * SES_VULNERABILITY.get(graph.nodes[resident_id].ses, 1.0)
+                fatality_p = self.case_fatality_rate * disease_fatality_factor(graph.nodes[resident_id])
                 if graph.nodes[resident_id].district_id in graph.quarantined_districts:
                     fatality_p *= self.quarantined_fatality_multiplier
                 if rng.random() < min(1.0, fatality_p):
@@ -235,6 +235,21 @@ class ContagionPhenomenon:
 # ponytail: placeholder vulnerability rule (skews toward lower socioeconomic status);
 # swap for a real vulnerability model if "good enough" stops being good enough
 SES_VULNERABILITY = {"poor": 2.0, "middling": 1.0, "rich": 0.5}
+
+
+def child_fatality_factor(age: Optional[int]) -> float:
+    """How much likelier a sick child is to die of it than an adult: infants
+    x20, ages 1-4 x3. With the town's everyday flu/diarrhea, calibrated
+    (seed 1) toward ~20-25% dying in their first year and ~a third before 5,
+    the medieval norm and the counterweight that keeps births from
+    outrunning deaths in quiet years (x8/x2 gave only ~9% infant deaths)."""
+    if age is None or age >= 5:
+        return 1.0
+    return 20.0 if age < 1 else 3.0
+
+
+def disease_fatality_factor(node) -> float:
+    return SES_VULNERABILITY.get(node.ses, 1.0) * child_fatality_factor(node.age)
 
 
 class CommonAilmentsPhenomenon:
@@ -389,7 +404,7 @@ class CommonAilmentsPhenomenon:
             ailment_state["days_left"] -= 1
             if ailment_state["days_left"] > 0:
                 continue
-            fatality_p = min(1.0, case_fatality_rate * SES_VULNERABILITY.get(resident_state["ses"], 1.0))
+            fatality_p = min(1.0, case_fatality_rate * disease_fatality_factor(graph.nodes[resident_id]))
             if rng.random() < fatality_p:
                 graph.record_death(resident_id, day, ailment)
                 if ailment == "flu":
@@ -1051,28 +1066,38 @@ class ViolencePhenomenon:
 
 ADULT_MIN_AGE = 18  # matches TownShape's own town_relationships/family.py adulthood threshold
 FERTILE_MAX_AGE = 45  # ponytail: placeholder cutoff, tune if it reads oddly
+# per single adult per day; each single also gets picked by others' rolls, so
+# ~2x this a day, ~12% a year: from 18, most marry in their mid-twenties.
+# 0.001 (~50%/yr) married off the whole singles pool, then births ran to
+# 60-70 per 1,000 (medieval towns ~35-45)
+ARRANGED_MATCH_RATE = 0.00017
 
 
 class RomancePhenomenon:
     name = "romance"
 
-    def __init__(self, love_threshold: float = 0.5, marriage_base_rate: float = 0.05, birth_base_rate: float = 0.01):
+    def __init__(self, love_threshold: float = 0.5, marriage_base_rate: float = 0.05, birth_base_rate: float = 0.0018,
+                 arranged_match_rate: float = ARRANGED_MATCH_RATE):
         self.love_threshold = love_threshold
         self.marriage_base_rate = marriage_base_rate
+        # per fertile couple per day, times tie strength; ~30-35 births per 1,000
+        # residents a year on the reference town, a little under its deaths,
+        # the gap filled by arrivals (PopulationPhenomenon) as in real towns
         self.birth_base_rate = birth_base_rate
+        # per single adult per day: most medieval marriages were arranged, and
+        # the love path alone gave the reference town 1-3 weddings a year
+        self.arranged_match_rate = arranged_match_rate
+        self._arranged = 0
         self._marriages = 0
-        # ponytail: births are log-only for now -- no Node is created, since every
-        # other phenomenon's state dict is fixed at day 0 and doesn't yet tolerate
-        # residents added mid-run. Upgrade path: give Phenomenon a default_state
-        # hook so a newborn can join contagion/violence too.
         self._births = 0
+        self._deaths_seen = 0  # cursor into graph.deaths, for widowhood
 
     def init_state(self, graph) -> Dict[int, Any]:
         # edge_probability has no graph access, only edge + per-resident state, so
         # the static fields it needs (gender, age) are copied in here rather than
         # looked up live -- same reason ContagionPhenomenon keeps its own "status".
         state = {
-            resident_id: {"married": False, "gender": node.gender, "age": node.age}
+            resident_id: {"married": False, "gender": node.gender, "age": node.age, "celibate": node.role == "priest"}
             for resident_id, node in graph.nodes.items()
         }
         for edge in graph.edges.values():
@@ -1085,7 +1110,8 @@ class RomancePhenomenon:
         node = graph.nodes[resident_id]
         married = any(graph.get_edge(resident_id, other).source_type == "spouse"
                       for other in graph.neighbors(resident_id))
-        state[resident_id] = {"married": married, "gender": node.gender, "age": node.age}
+        state[resident_id] = {"married": married, "gender": node.gender, "age": node.age,
+                              "celibate": node.role == "priest"}
         for other in graph.neighbors(resident_id):
             if married and graph.get_edge(resident_id, other).source_type == "spouse":
                 state[other]["married"] = True
@@ -1126,7 +1152,9 @@ class RomancePhenomenon:
         if edge.source_type in ("parent", "sibling"):
             return 0.0  # no romance within family
         if state_a["married"] or state_b["married"]:
-            return 0.0  # monogamy: v1 has no divorce/remarriage
+            return 0.0  # monogamy: no divorce (a widow(er) is free again, see end_of_day)
+        if state_a["celibate"] or state_b["celibate"]:
+            return 0.0
         if not self._is_opposite_gender_pair(state_a, state_b):
             return 0.0
         if not (self._is_adult(state_a) and self._is_adult(state_b)):
@@ -1141,7 +1169,9 @@ class RomancePhenomenon:
         edge = graph.get_edge(a, b)
         if edge.source_type == "spouse":
             self._births += 1
-            return [Event(day, self.name, "born", a, b, "had a child (not yet a tracked resident)")]
+            mother, father = (a, b) if graph.nodes[a].gender == "female" else (b, a)
+            baby = self._add_baby(graph, mother, father, day, rng)
+            return [Event(day, self.name, "born", mother, baby, f"had a child with {father}")]
 
         edge.source_type = "spouse"
         edge.fiske_type = FISKE_TAGS["spouse"]
@@ -1150,12 +1180,82 @@ class RomancePhenomenon:
         self._marriages += 1
         return [Event(day, self.name, "married", a, b, "fell in love and married")]
 
+    @staticmethod
+    def _add_baby(graph, mother: int, father: int, day: int, rng: random.Random) -> int:
+        """A real resident, shaped like a TownShape vital_records birth: the
+        mother's SES, household and home; parent ties to both, sibling ties to
+        the mother's other children (her parent-tied neighbours younger than her)."""
+        mother_node = graph.nodes[mother]
+        year = graph.reference_year + (day - 1) // 365 if graph.reference_year is not None else None
+        siblings = [other for other in graph.neighbors(mother)
+                    if graph.get_edge(mother, other).source_type == "parent" and graph.nodes[other].alive
+                    and (graph.nodes[other].age or 0) < (mother_node.age or 0)]
+        baby = graph.add_resident({
+            "ses": mother_node.ses, "gender": rng.choice(("female", "male")),
+            "birth_date": f"{year:04d}-01-01" if year is not None else None,
+            "occupation": None, "is_noble": 0, "household_id": mother_node.household_id,
+            "home_building_id": mother_node.home_building_id, "workplace_building_id": None,
+        }, [(mother, "parent"), (father, "parent")] + [(sibling, "sibling") for sibling in siblings], rng)
+        graph.nodes[baby].age = 0  # also when the graph has no reference year
+        return baby
+
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
-        return []
+        # a widow(er) can marry again: the spouse tie stays (feelings, grief)
+        # but no longer counts as a marriage
+        for death in graph.deaths[self._deaths_seen:]:
+            dead = death["resident_id"]
+            for other in graph.neighbors(dead):
+                if graph.get_edge(dead, other).source_type == "spouse" and other in state:
+                    state[other]["married"] = False
+        self._deaths_seen = len(graph.deaths)
+        # ages advance yearly on the nodes (PopulationPhenomenon); keep the copy current
+        for resident_id, resident_state in state.items():
+            resident_state["age"] = graph.nodes[resident_id].age
+        return self._arrange_matches(graph, state, day, rng)
+
+    def _arrange_matches(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        """Families marry off single adults: each has a small daily chance of a
+        match with a single adult of the other gender, not a relative, of the
+        same SES when there is one. The chance is per single person, so a
+        backlog of singles means more weddings: the married share settles."""
+        singles = [rid for rid, rs in state.items()
+                   if not rs["married"] and not rs["celibate"] and self._is_adult(rs)
+                   and rs["age"] <= FERTILE_MAX_AGE and rs["gender"] is not None and graph.nodes[rid].alive]
+        events: List[Event] = []
+        for resident_id in singles:
+            if state[resident_id]["married"] or rng.random() >= self.arranged_match_rate:
+                continue
+            candidates = [other for other in singles
+                          if not state[other]["married"] and state[other]["gender"] != state[resident_id]["gender"]
+                          and not self._are_family(graph, resident_id, other)]
+            same_class = [other for other in candidates if graph.nodes[other].ses == graph.nodes[resident_id].ses]
+            if not (same_class or candidates):
+                continue
+            partner = rng.choice(same_class or candidates)
+            edge = graph.get_edge(resident_id, partner)
+            if edge is None:
+                graph.add_edge(edge_from_relationship(graph, resident_id, partner, "spouse", rng))
+            else:  # they knew each other: keep the feelings, take on a spouse's closeness
+                attrs = synthesize_relationship_attributes("spouse", rng)
+                edge.time, edge.intimacy, edge.services = attrs["time"], attrs["intimacy"], attrs["services"]
+                edge.source_type, edge.fiske_type = "spouse", FISKE_TAGS["spouse"]
+            # ponytail: the couple doesn't move in together (home/household stay
+            # as imported); a newborn takes the mother's. Add a move when
+            # something reads shared homes beyond births.
+            state[resident_id]["married"] = state[partner]["married"] = True
+            self._arranged += 1
+            events.append(Event(day, self.name, "married", resident_id, partner, "an arranged match"))
+        return events
+
+    @staticmethod
+    def _are_family(graph, a: int, b: int) -> bool:
+        edge = graph.get_edge(a, b)
+        return edge is not None and edge.source_type in ("parent", "sibling")
 
     def summarize(self, state) -> Dict[str, int]:
         return {
             "married_residents": sum(1 for resident_state in state.values() if resident_state["married"]),
+            "arranged_marriages": self._arranged,
             "births": self._births,
         }
 
@@ -1580,6 +1680,7 @@ class GuardPhenomenon:
 # ponytail: same placeholder shape as SES_VULNERABILITY -- poverty raises the
 # odds someone turns to thievery; tune if a real wealth-inequality dial lands
 THIEF_SES_FACTOR = {"poor": 2.0, "middling": 1.0, "rich": 0.3}
+THIEF_MIN_AGE = 12  # a child pickpocket is plausible; a toddler thief (hanged!) was not
 
 
 class TheftPhenomenon:
@@ -1751,7 +1852,8 @@ class TheftPhenomenon:
         for resident_id, resident_state in state.items():
             if resident_state["is_thief"] or resident_state["role"] == "noble":
                 continue
-            if not graph.nodes[resident_id].alive:
+            node = graph.nodes[resident_id]
+            if not node.alive or (node.age is not None and node.age < THIEF_MIN_AGE):
                 continue
             base_p = self.become_thief_rate * THIEF_SES_FACTOR.get(resident_state["ses"], 1.0)
             p = base_p / (1.0 + self.deterrence_weight * self._deterrence)
@@ -2226,3 +2328,121 @@ class QuarantinePhenomenon:
             "quarantined_now": len(self._sealed),
             "quarantine_angered": self._angered,
         }
+
+
+class PopulationPhenomenon:
+    """Population turnover, sim-side (pipeline step 4, option B in
+    docs/townshape-integration.md; TownShape's advance_town replaces it once
+    integrated). Births are RomancePhenomenon's; this ages everyone once a
+    year and brings in arrivals. Like real medieval towns, which drew
+    migrants to fill the places their dead left: an adult's death leaves a
+    vacancy (home, job, SES, role), and a newcomer takes it over after a
+    while, with fresh ties to the dead person's coworkers and neighbours.
+    Guard and clergy places are always refilled (garrison, diocese);
+    ordinary ones only while the town is below a target that grows slowly
+    from its starting size (medieval towns grew, mostly by migration), so
+    births and arrivals together hold it on that gentle upward path. A noble's place never goes
+    to a stranger: the eldest living child in the household inherits the
+    title, and with no such child it lapses."""
+    name = "population"
+
+    def __init__(self, arrival_daily_chance: float = 1 / 60, adult_age: int = 18,
+                 arrival_ages: Tuple[int, int] = (18, 35), annual_growth: float = 0.005):
+        self.arrival_daily_chance = arrival_daily_chance  # per open vacancy: ~2 months on average
+        self.adult_age = adult_age
+        self.arrival_ages = arrival_ages
+        # ponytail: ~0.5%/yr, a plausible 13th-century town rate; make it a
+        # TownParameters dial if towns should grow at different speeds
+        self.annual_growth = annual_growth
+        self._arrivals = 0
+        self._inheritances = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        self._start_size = sum(1 for node in graph.nodes.values() if node.alive)
+        self._vacancies: List[int] = []  # dead residents whose place is still open, oldest first
+        self._deaths_seen = len(graph.deaths)
+        return {resident_id: {} for resident_id in graph.nodes}
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = {}
+
+    def candidate_edges(self, graph, state):
+        return []
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        return 0.0
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        if day % 365 == 0:
+            for node in graph.nodes.values():
+                if node.alive and node.age is not None:
+                    node.age += 1
+        events: List[Event] = []
+        for death in graph.deaths[self._deaths_seen:]:
+            dead = death["resident_id"]
+            age = graph.nodes[dead].age
+            if graph.nodes[dead].is_noble:
+                heir = self._inherit(graph, dead)
+                if heir is not None:
+                    self._inheritances += 1
+                    events.append(Event(day, self.name, "inherited", heir, dead, "inherited the title of"))
+            elif age is None or age >= self.adult_age:
+                self._vacancies.append(dead)
+        self._deaths_seen = len(graph.deaths)
+
+        alive = sum(1 for node in graph.nodes.values() if node.alive)
+        target = self._start_size * (1 + self.annual_growth) ** (day / 365)
+        for dead in list(self._vacancies):
+            if graph.nodes[dead].role == "civilian" and alive >= target:
+                continue
+            if rng.random() >= self.arrival_daily_chance:
+                continue
+            self._vacancies.remove(dead)
+            newcomer = self._arrive(graph, dead, day, rng)
+            alive += 1
+            self._arrivals += 1
+            events.append(Event(day, self.name, "arrived", newcomer, dead, "took over the place of"))
+        return events
+
+    @staticmethod
+    def _inherit(graph, dead: int) -> Optional[int]:
+        """The eldest living child of the dead noble in the same household
+        becomes noble, even a minor (a ward until of age)."""
+        old = graph.nodes[dead]
+        children = [graph.nodes[other] for other in graph.neighbors(dead)
+                    if graph.get_edge(dead, other).source_type == "parent" and graph.nodes[other].alive
+                    and graph.nodes[other].household_id == old.household_id
+                    and (graph.nodes[other].age or 0) < (old.age or 0)]
+        if not children:
+            return None
+        heir = max(children, key=lambda node: node.age or 0)
+        # ponytail: phenomena that copied role at init (guards, theft, religion)
+        # still see the heir as a civilian; add a role-change hook if heirs'
+        # behaviour starts to matter
+        heir.is_noble = True
+        return heir.resident_id
+
+    def _arrive(self, graph, dead: int, day: int, rng: random.Random) -> int:
+        old = graph.nodes[dead]
+        age = rng.randint(*self.arrival_ages)
+        year = graph.reference_year + (day - 1) // 365 if graph.reference_year is not None else None
+        # every living non-family tie of the dead person (coworkers, neighbours,
+        # unit-mates, shop customers or shopkeepers); family doesn't pass to a stranger
+        ties = [(other, graph.get_edge(dead, other).source_type) for other in graph.neighbors(dead)
+                if graph.nodes[other].alive
+                and graph.get_edge(dead, other).source_type not in ("spouse", "parent", "sibling")]
+        newcomer = graph.add_resident({
+            "ses": old.ses, "gender": rng.choice(("female", "male")),
+            "birth_date": f"{year - age:04d}-01-01" if year is not None else None,
+            "occupation": old.occupation, "is_noble": 0, "household_id": None,
+            "home_building_id": old.home_building_id, "workplace_building_id": old.workplace_building_id,
+        }, ties, rng)
+        graph.nodes[newcomer].age = age
+        return newcomer
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {"arrivals": self._arrivals, "inheritances": self._inheritances,
+                "open_vacancies": len(self._vacancies)}

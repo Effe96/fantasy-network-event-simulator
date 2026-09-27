@@ -177,6 +177,24 @@ def test_poorer_residents_more_likely_to_die_of_diarrhea():
     assert death_rate("poor") > death_rate("rich")
 
 
+def test_a_sick_infant_is_likelier_to_die_than_an_adult():
+    def death_rate(age):
+        deaths = 0
+        for seed in range(300):
+            graph = SocialGraph()
+            graph.add_node(Node(resident_id=1, ses="middling", alive=True, age=age))
+            phenomenon = CommonAilmentsPhenomenon(
+                diarrhea_duration_days=1, diarrhea_case_fatality_rate=0.05, flu_spontaneous_rate=0.0
+            )
+            state = phenomenon.init_state(graph)
+            state[1]["diarrhea"] = {"status": "sick", "days_left": 1}
+            phenomenon.end_of_day(graph, state, day=1, rng=random.Random(seed))
+            deaths += not graph.nodes[1].alive
+        return deaths / 300
+
+    assert death_rate(0) > 3 * death_rate(30)
+
+
 def test_flu_transmission_is_higher_in_winter_quarters():
     graph = _pair()
     phenomenon = CommonAilmentsPhenomenon(flu_transmission_rate=0.1, flu_winter_multiplier=3.0)
@@ -247,6 +265,7 @@ def _run_all():
     test_dead_residents_do_not_progress()
     test_poorer_residents_get_diarrhea_more_readily()
     test_poorer_residents_more_likely_to_die_of_diarrhea()
+    test_a_sick_infant_is_likelier_to_die_than_an_adult()
     test_flu_transmission_is_higher_in_winter_quarters()
     test_flu_season_factor_recurs_every_calendar_year_in_multi_year_runs()
     test_diarrhea_has_no_seasonality()

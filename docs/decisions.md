@@ -8,6 +8,47 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-24 — Population turnover inside the sim (pipeline step 4, option B)
+
+**Decision:** turnover is built sim-side first, not through TownShape's
+`advance_town` (option A stays the long-term target; both feed
+`graph.add_resident`). `RomancePhenomenon` births add real babies (mother's
+SES, household, home; parent and sibling ties) at ~30-35 births per 1,000
+residents a year, and arranges marriages for single adults (per-single daily
+chance, same SES preferred), because the love path alone gave the reference
+town 1-3 weddings a year and most medieval marriages were arranged.
+`PopulationPhenomenon` ages everyone at each year end and fills the places
+adults leave when they die: after ~2 months an arrival (18-35) takes the dead
+person's home, job, SES and non-family ties. Guard and clergy places are
+always refilled; civilian ones only while the town is below a target,
+which starts at the imported size and grows ~0.5% a year: the user
+asked (2026-09-24) that a town at equilibrium grow slowly rather than hold a
+fixed baseline, as 13th-century towns did, mostly by migration.
+
+**Nobles are not refilled (user rule):** the eldest living child in the
+dead noble's household inherits the title, even a minor; otherwise it
+lapses. TownShape flags only the head of a noble family, so an arrival
+"becoming noble" would be a stranger buying into a title, which isn't how
+it worked.
+
+**Calibrated against quiet-town runs (seed 1, epidemics off):**
+- Babies almost never died, so births outran deaths (+1.2%/yr). Sick
+  children are now likelier to die of any disease (`child_fatality_factor`:
+  infants x20, ages 1-4 x3; x8/x2 gave only ~9% infant deaths). The user
+  chose this over lowering births.
+- Births then climbed to 57-70 per 1,000 because arranged marriages
+  (0.001/day, ~50% of singles a year) turned every single adult into a
+  young fertile couple. The user chose fewer arranged marriages over fewer
+  children per couple: `ARRANGED_MATCH_RATE` 0.00017, ~12% a year, median
+  wedding age 25-27.
+
+**Verified:** tests, plus 25- and 50-year runs
+(`Project_Vision/02-long-run-findings.md`): growth +0.50%/yr in both
+halves; births 41 -> 38 and deaths 49 -> 40 per 1,000 (first half vs
+second); married share 51-55%. Still open there: an early population dip
+and married-share fall (the imported town's age structure), warm ties and
+thieves drifting up, the rich tripling.
+
 ## 2026-09-23 — Residents added mid-run, shaped for TownShape (pipeline step 3)
 
 **Decision:** a newcomer enters through the same code path as import, fed

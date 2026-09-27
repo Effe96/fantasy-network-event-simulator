@@ -91,19 +91,34 @@ def test_apply_effect_marries_and_retypes_the_edge():
     assert any(event.kind == "married" for event in events)
 
 
-def test_married_couple_can_have_a_birth_event_without_a_new_node():
+def test_a_birth_adds_a_real_baby_to_the_mother_s_household():
     graph = _lovers_graph(source_type="spouse")
+    graph.nodes[2].household_id, graph.nodes[2].home_building_id = 100, 10
+    graph.add_node(Node(resident_id=3, ses="rich", alive=True, gender="male", age=3))
+    graph.add_edge(Edge(2, 3, "parent", "Communal Sharing", 0.7, 0.7, 0.7, 0.4, 0.4))  # an older child
     phenomenon = RomancePhenomenon(birth_base_rate=1.0)
     state = phenomenon.init_state(graph)
-    node_count_before = len(graph.nodes)
 
     edge = graph.get_edge(1, 2)
     assert phenomenon.edge_probability(edge, state[1], state[2], day=1) > 0.0
     events = phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
 
-    assert len(graph.nodes) == node_count_before  # log-only: no new resident yet
-    assert any(event.kind == "born" for event in events)
+    born = next(event for event in events if event.kind == "born")
+    baby = graph.nodes[born.resident_b]
+    assert born.resident_a == 2  # the mother
+    assert baby.age == 0 and baby.ses == "rich" and (baby.household_id, baby.home_building_id) == (100, 10)
+    assert graph.get_edge(baby.resident_id, 1).source_type == "parent"
+    assert graph.get_edge(baby.resident_id, 3).source_type == "sibling"
     assert phenomenon.summarize(state)["births"] == 1
+
+
+def test_a_widow_can_marry_again():
+    graph = _lovers_graph(source_type="spouse")
+    phenomenon = RomancePhenomenon()
+    state = phenomenon.init_state(graph)
+    graph.record_death(1, day=5, cause="flu")
+    phenomenon.end_of_day(graph, state, day=5, rng=random.Random(0))
+    assert state[2]["married"] is False
 
 
 def test_summarize_counts_married_residents():
@@ -122,7 +137,8 @@ def _run_all():
     test_already_married_resident_never_fires_a_second_romance()
     test_init_state_marks_existing_spouses_as_married()
     test_apply_effect_marries_and_retypes_the_edge()
-    test_married_couple_can_have_a_birth_event_without_a_new_node()
+    test_a_birth_adds_a_real_baby_to_the_mother_s_household()
+    test_a_widow_can_marry_again()
     test_summarize_counts_married_residents()
     print("OK")
 
