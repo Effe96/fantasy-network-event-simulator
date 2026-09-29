@@ -41,6 +41,12 @@ proposed plan, benchmarked against
 Comment under any item with `> Feedback:`; agreed items move into
 `01-network-simulation.md` as they're built.
 
+[`03-economy-design.md`](03-economy-design.md) (2026-09-29) is the
+economy proposal built from
+[`../medieval_city_sim_parameters.md`](../medieval_city_sim_parameters.md):
+household money, income and spending, limits on the rich, hunger, jobs and
+migration, merchants and landlords, in slices. Same `> Feedback:` convention.
+
 ## Status key
 
 Same vocabulary as `TownShape/Project_Vision`:

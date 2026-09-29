@@ -1123,7 +1123,9 @@ Topics the user flagged to talk through before building. Each is
 - **Adoption** (added 2026-09-27) — **Deferred (user).** Same-sex couples
   can marry but have no children; adoption of orphans was proposed and
   left for later as a complex dynamic.
-- **Kinds of ties** (added 2026-09-25) — **Open.** What kinds of
+- **Kinds of ties** (added 2026-09-25) — **Friends implemented
+  2026-09-29** (plus acquaintances; see `docs/decisions.md`). Still open:
+  what kinds of
   relationship the town should have and how each behaves: family,
   workers (coworkers), customers and shopkeepers, and **friends, which
   don't exist at all today**. The types now all come from TownShape:
@@ -1137,7 +1139,11 @@ Topics the user flagged to talk through before building. Each is
   25 years in ~30 minutes, a 5,000-10,000-resident town would take 2-3
   hours. Measurements and likely fixes: `Project-Memory/2026-09-24-...`,
   section 7.
-- **Ties forming and fading** (added 2026-09-25) — **Open.** Today ties
+- **Ties forming and fading** (added 2026-09-25) — **Partly implemented
+  2026-09-29:** people meet through people they know, warm ties become
+  friendships and cool back, acquaintances fade, newborns and new adults
+  get their household's ties, the dead's ties are archived. Still open:
+  classmates, coworkers for new workers, fuller families, feuds. Today ties
   are only created at import, at birth, by an arrival taking over a dead
   person's ties, or by a wedding, and are never removed (see "Ties for
   people added mid-run" under Social graph). Needs a design for:

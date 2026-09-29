@@ -135,6 +135,16 @@ set the round (details: `docs/decisions.md`, 2026-09-27):
   -> 59.2), runs 24-30 min (were 35). Growth target kept: without it
   +1.6%/yr. Friends proposed, awaiting the user.
 
+### 6b. Friends (2026-09-29)
+
+Built as proposed: warm ties (0.3+ both ways) become friendships, cool
+back below 0.1; ~1 meeting a person a year through someone they know makes
+acquaintances, which fade if they never warm. Run H (25 years): friends
+2.76 -> 2.52 a person, love weddings 63 -> 78, the rest unchanged. Two
+bugs found: stale riot/religion caches when a living tie fades, and
+arrivals inheriting the dead person's friends. Economy design written for
+the user to comment: `Project_Vision/03-economy-design.md`.
+
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 
 The user asked how long runs take and how they scale; to be addressed in
