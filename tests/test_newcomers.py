@@ -159,6 +159,7 @@ def test_a_dead_guard_is_replaced_by_an_arrival_who_takes_over_the_post():
 
 def test_a_civilian_place_stays_open_while_the_town_is_at_full_size():
     graph = _guard_post()
+    graph.nodes[3].workplace_building_id = None  # jobless: replaced only below the target
     population = PopulationPhenomenon(arrival_daily_chance=1.0, annual_growth=0.0)
     state = population.init_state(graph)
     graph.record_death(3, day=1, cause="flu")
@@ -166,6 +167,17 @@ def test_a_civilian_place_stays_open_while_the_town_is_at_full_size():
     assert population.end_of_day(graph, state, day=1, rng=random.Random(0)) == []
     graph.record_death(4, day=2, cause="diarrhea")  # now one short: the old place is filled
     assert [e.resident_b for e in population.end_of_day(graph, state, day=2, rng=random.Random(0))] == [3]
+
+
+def test_a_job_is_refilled_even_when_the_town_is_at_full_size():
+    graph = _guard_post()  # civilian 3 works at building 20
+    population = PopulationPhenomenon(arrival_daily_chance=1.0, annual_growth=0.0)
+    state = population.init_state(graph)
+    graph.record_death(3, day=1, cause="flu")
+    graph.add_node(Node(resident_id=4, ses="poor", alive=True, age=0))  # a birth made up the loss
+    events = population.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert [e.resident_b for e in events if e.kind == "arrived"] == [3]
+    assert graph.nodes[events[0].resident_a].workplace_building_id == 20
 
 
 def test_the_town_may_grow_past_its_starting_size():
@@ -220,6 +232,7 @@ def _run_all():
     test_a_phenomenon_without_add_resident_fails_loudly()
     test_a_dead_guard_is_replaced_by_an_arrival_who_takes_over_the_post()
     test_a_civilian_place_stays_open_while_the_town_is_at_full_size()
+    test_a_job_is_refilled_even_when_the_town_is_at_full_size()
     test_the_town_may_grow_past_its_starting_size()
     test_everyone_ages_at_the_year_end()
     test_a_dead_noble_s_eldest_child_inherits_and_no_stranger_arrives()

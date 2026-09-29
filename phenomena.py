@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from graph import FISKE_TAGS, TownParameters, edge_from_relationship, synthesize_relationship_attributes
+from graph import (FISKE_TAGS, TownParameters, edge_from_relationship, household_shop_ties, shop_edge,
+                   synthesize_relationship_attributes)
 
 
 @dataclass
@@ -1196,18 +1197,25 @@ class RomancePhenomenon:
     def _add_baby(graph, mother: int, father: int, day: int, rng: random.Random) -> int:
         """A real resident, shaped like a TownShape vital_records birth: the
         mother's SES, household and home; parent ties to both, sibling ties to
-        the mother's other children (her parent-tied neighbours younger than her)."""
+        the mother's other children (her parent-tied neighbours younger than
+        her), and neighbour ties to the mother's neighbours."""
         mother_node = graph.nodes[mother]
         year = graph.reference_year + (day - 1) // 365 if graph.reference_year is not None else None
         siblings = [other for other in graph.neighbors(mother)
                     if graph.get_edge(mother, other).source_type == "parent" and graph.nodes[other].alive
                     and (graph.nodes[other].age or 0) < (mother_node.age or 0)]
+        # TownShape ties everyone living in the nearest buildings to a home, so
+        # a baby born into the mother's home has her neighbours (2026-09-29:
+        # newborns with family ties only made warm family ties a growing share)
+        neighbours = [other for other in graph.neighbors(mother)
+                      if graph.get_edge(mother, other).source_type == "neighbor" and graph.nodes[other].alive]
         baby = graph.add_resident({
             "ses": mother_node.ses, "gender": rng.choice(("female", "male")),
             "birth_date": f"{year:04d}-01-01" if year is not None else None,
             "occupation": None, "is_noble": 0, "household_id": mother_node.household_id,
             "home_building_id": mother_node.home_building_id, "workplace_building_id": None,
-        }, [(mother, "parent"), (father, "parent")] + [(sibling, "sibling") for sibling in siblings], rng)
+        }, [(mother, "parent"), (father, "parent")] + [(sibling, "sibling") for sibling in siblings]
+           + [(neighbour, "neighbor") for neighbour in neighbours], rng)
         graph.nodes[baby].age = 0  # also when the graph has no reference year
         return baby
 
@@ -2066,11 +2074,10 @@ class ReligionPhenomenon:
         recovery_respect_gain: float = 0.05,
         blame_religiousness_loss: float = 0.05,
         religiousness_fade_per_year: float = 0.1,
-        # ponytail: measured, not derived -- gratitude from everyday recoveries
-        # held the reference town's average 0.08 above its imported level
-        # (25/50-year runs, 2026-09-25). Fading toward start - 0.08 makes the
-        # imported level the balance point. Re-measure if ailment rates or
-        # the gratitude gain change; upgrade to a running estimate if needed.
+        # the first year's guess for how far below each start the fade aims:
+        # gratitude from everyday recoveries held the reference town 0.08 above
+        # its imported level (2026-09-25). After a year the offset is measured
+        # instead (see _fade_offset).
         religiousness_fade_offset: float = 0.08,
     ):
         self.devotion_base_rate = devotion_base_rate
@@ -2095,6 +2102,10 @@ class ReligionPhenomenon:
         # daily share of the gap closed, so the yearly total is the knob
         self._fade_per_day = 1.0 - (1.0 - religiousness_fade_per_year) ** (1.0 / 365.0)
         self.religiousness_fade_offset = religiousness_fade_offset
+        self._fade_rate = -math.log(1.0 - religiousness_fade_per_year) if 0.0 < religiousness_fade_per_year < 1.0 else 0.0
+        self._event_push = 0.0  # net faith change from gratitude and blame so far, all civilians
+        self._civilian_days = 0
+        self._days = 0
         self._baseline_religiousness: Dict[int, float] = {}
         self._recoveries_seen = 0  # index into graph.recoveries already processed
         self._gratitudes = 0
@@ -2208,11 +2219,32 @@ class ReligionPhenomenon:
         graph.nodes[resident_id].religiousness = min(1.0, max(0.0, value))
         state[resident_id]["religiousness"] = graph.nodes[resident_id].religiousness  # devotion odds read this copy
 
+    def _push_religiousness(self, graph, state, resident_id: int, value: float) -> None:
+        """A change from an event (gratitude, blame), counted toward the fade's offset."""
+        before = graph.nodes[resident_id].religiousness
+        self._set_religiousness(graph, state, resident_id, value)
+        self._event_push += graph.nodes[resident_id].religiousness - before
+
+    def _fade_offset(self) -> float:
+        """How far below each start the fade aims, so events and the fade
+        cancel at the start: the average yearly push events gave a civilian so
+        far, over the fade's rate. The first year uses the configured guess.
+        Measured, so it follows whatever the town's diseases do (2026-09-28;
+        a fixed 0.08 left faith creeping 0.50 -> 0.55 in 25 years)."""
+        if self._days < 365 or not self._civilian_days or not self._fade_rate:
+            return self.religiousness_fade_offset
+        return (self._event_push / (self._civilian_days / 365.0)) / self._fade_rate
+
     def _fade_religiousness(self, graph, state) -> None:
+        self._days += 1
+        offset = self._fade_offset()
         for resident_id, baseline in self._baseline_religiousness.items():
+            if not graph.nodes[resident_id].alive:
+                continue
+            self._civilian_days += 1
             current = graph.nodes[resident_id].religiousness
-            target = max(0.0, baseline - self.religiousness_fade_offset)
-            if current != target and graph.nodes[resident_id].alive:
+            target = min(1.0, max(0.0, baseline - offset))
+            if current != target:
                 self._set_religiousness(graph, state, resident_id, current + (target - current) * self._fade_per_day)
 
     def _gratitude(self, graph, state, day: int) -> List[Event]:
@@ -2225,8 +2257,8 @@ class ReligionPhenomenon:
             if civilian_state["role"] != "civilian" or not graph.nodes[civilian_id].alive:
                 continue
             severity = RECOVERY_SEVERITY.get(recovery["cause"], 0.0)
-            self._set_religiousness(graph, state, civilian_id,
-                                    graph.nodes[civilian_id].religiousness + self.recovery_religiousness_gain * severity)
+            self._push_religiousness(graph, state, civilian_id,
+                                     graph.nodes[civilian_id].religiousness + self.recovery_religiousness_gain * severity)
             gain = self.recovery_respect_gain * severity
             for priest_id in self._priest_ties.get(civilian_id, []):
                 if not graph.nodes[priest_id].alive:
@@ -2260,8 +2292,8 @@ class ReligionPhenomenon:
                 if graph.nodes[mourner].alive and state[mourner]["role"] == "civilian":
                     tie_strength = graph.get_edge(mourner, deceased).tie_strength
                     blame_by_civilian[mourner] = blame_by_civilian.get(mourner, 0.0) + self.blame_shock * tie_strength
-                    self._set_religiousness(graph, state, mourner, graph.nodes[mourner].religiousness
-                                            - self.blame_religiousness_loss * tie_strength)
+                    self._push_religiousness(graph, state, mourner, graph.nodes[mourner].religiousness
+                                             - self.blame_religiousness_loss * tie_strength)
 
         events = []
         for civilian_id, shock in blame_by_civilian.items():
@@ -2458,7 +2490,8 @@ class PopulationPhenomenon:
     migrants to fill the places their dead left: an adult's death leaves a
     vacancy (home, job, SES, role), and a newcomer takes it over after a
     while, with fresh ties to the dead person's coworkers and neighbours.
-    Guard and clergy places are always refilled (garrison, diocese);
+    Guard and clergy places, and any job, are always refilled (garrison,
+    diocese, people coming for work);
     ordinary ones only while the town is below a target that grows slowly
     from its starting size (medieval towns grew, mostly by migration), so
     births and arrivals together hold it on that gentle upward path. A noble's place never goes
@@ -2476,6 +2509,7 @@ class PopulationPhenomenon:
         self.annual_growth = annual_growth
         self._arrivals = 0
         self._inheritances = 0
+        self._shop_ties = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         self._start_size = sum(1 for node in graph.nodes.values() if node.alive)
@@ -2496,11 +2530,13 @@ class PopulationPhenomenon:
         return []
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        events: List[Event] = []
         if day % 365 == 0:
-            for node in graph.nodes.values():
+            for node in list(graph.nodes.values()):
                 if node.alive and node.age is not None:
                     node.age += 1
-        events: List[Event] = []
+                    if node.age == ADULT_MIN_AGE:
+                        self._shop_ties += household_shop_ties(graph, node, rng)
         for node in list(graph.nodes.values()):
             if node.alive and node.age is not None and node.age >= 50:
                 yearly = old_age_death_chance(node.age)
@@ -2523,7 +2559,12 @@ class PopulationPhenomenon:
         alive = sum(1 for node in graph.nodes.values() if node.alive)
         target = self._start_size * (1 + self.annual_growth) ** (day / 365)
         for dead in list(self._vacancies):
-            if graph.nodes[dead].role == "civilian" and alive >= target:
+            # a job is always refilled, like a guard's or a priest's post: people
+            # come to town for work, and a shop that lost its staff would cut
+            # every customer's tie (2026-09-29: shop ties per adult fell 52 -> 35
+            # in 10 years). The jobless are replaced only below the target.
+            old = graph.nodes[dead]
+            if old.role == "civilian" and old.workplace_building_id is None and alive >= target:
                 continue
             if rng.random() >= self.arrival_daily_chance:
                 continue
@@ -2557,22 +2598,33 @@ class PopulationPhenomenon:
         age = rng.randint(*self.arrival_ages)
         year = graph.reference_year + (day - 1) // 365 if graph.reference_year is not None else None
         # every living non-family tie of the dead person (coworkers, neighbours,
-        # unit-mates, shop customers or shopkeepers); family doesn't pass to a stranger
-        ties = [(other, graph.get_edge(dead, other).source_type) for other in graph.neighbors(dead)
-                if graph.nodes[other].alive
-                and graph.get_edge(dead, other).source_type not in ("spouse", "parent", "sibling")]
+        # unit-mates, shop customers or shopkeepers); family doesn't pass to a
+        # stranger. The ties may already be archived: a place can stay open for months.
+        past = [graph.get_edge(dead, other) for other in graph.neighbors(dead)]
+        records = [{"resident_a": e.resident_a, "resident_b": e.resident_b, "source_type": e.source_type,
+                    "time": e.time, "services": e.services} for e in past] + graph.archived_ties_of(dead)
+        ties, shops = [], []
+        for record in records:
+            other = record["resident_b"] if record["resident_a"] == dead else record["resident_a"]
+            if graph.nodes[other].alive and record["source_type"] not in ("spouse", "parent", "sibling"):
+                (shops if record["source_type"] == "shopkeeper_customer" else ties).append((other, record))
         newcomer = graph.add_resident({
             "ses": old.ses, "gender": rng.choice(("female", "male")),
             "birth_date": f"{year - age:04d}-01-01" if year is not None else None,
             "occupation": old.occupation, "is_noble": 0, "household_id": None,
             "home_building_id": old.home_building_id, "workplace_building_id": old.workplace_building_id,
-        }, ties, rng)
+        }, [(other, record["source_type"]) for other, record in ties], rng)
         graph.nodes[newcomer].age = age
+        # shop ties have their own shape (add_resident skips them): the newcomer
+        # takes the dead person's side, customer or staff, at the same contact
+        for other, record in shops:
+            customer, staff = (newcomer, other) if record["resident_a"] == dead else (other, newcomer)
+            graph.add_edge(shop_edge(graph, customer, staff, record["time"], record["services"], False, rng))
         return newcomer
 
     def summarize(self, state) -> Dict[str, int]:
         return {"arrivals": self._arrivals, "inheritances": self._inheritances,
-                "open_vacancies": len(self._vacancies)}
+                "open_vacancies": len(self._vacancies), "shop_ties_on_coming_of_age": self._shop_ties}
 
 
 class EverydayPhenomenon:
@@ -2587,11 +2639,14 @@ class EverydayPhenomenon:
 
     That alone would polarize (warm ties warming, cold ones cooling), so
     every month feelings are pulled pull_per_year of the way back toward
-    where each tie started, like faith's fade. The pull aims a little below
-    the start (by the favors a tie's warmth brings in, at the town's average
-    contact), so the imported town is the balance point, not a drift. It
-    also slowly softens grudges and warmth left by other events. No Event
-    per interaction (about 1,000 a day): counts only."""
+    where each tie started, like faith's fade. Each feeling's pull aims a
+    little off its start, by the push the other side's feeling brings in at
+    that tie's own expected contact (its share of the other side's time), so
+    the imported feelings are the balance point, not a drift. A town-wide
+    average was tried first: busy family ties then kept warming (warm ties
+    8.6% -> 15.7% in 25 years). It also slowly softens grudges and warmth
+    left by other events. No Event per interaction (about 1,000 a day):
+    counts only."""
     name = "everyday"
 
     def __init__(self, interactions_per_day: float = 0.5, nudge: float = 0.002, pull_per_year: float = 0.1):
@@ -2599,26 +2654,44 @@ class EverydayPhenomenon:
         self.nudge = nudge
         self.pull_per_year = pull_per_year
         self._pull_per_month = 1.0 - (1.0 - pull_per_year) ** (1.0 / 12.0)
-        self._base: Dict[Tuple[Tuple[int, int], int], float] = {}  # (tie, feeler) -> feeling at first sight
-        self._offset = 0.0
+        self._pull_rate = -math.log(1.0 - pull_per_year) if 0.0 < pull_per_year < 1.0 else pull_per_year
+        self._target: Dict[Tuple[Tuple[int, int], int], float] = {}  # (tie, feeler) -> where the pull aims
         self._favors = 0
         self._scorns = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
-        # ponytail: one town-wide average; a tie with much more contact than
-        # average drifts a little warmer or colder than it started
-        residents = max(1, len(graph.nodes))
-        ties_per_resident = max(1.0, 2.0 * len(graph.edges) / residents)
-        per_tie = self.interactions_per_day * 365 / ties_per_resident  # yearly nudges one feeling gets
-        self._offset = per_tie * self.nudge / self.pull_per_year if self.pull_per_year else 0.0
         self._register_ties(graph)
         return {resident_id: {} for resident_id in graph.nodes}
 
+    def _contact(self, graph, actor: int, stats: Dict[int, Tuple[int, float]]) -> Tuple[int, float]:
+        """(ties, mean time per tie) for an actor, cached per registration pass."""
+        if actor not in stats:
+            others = graph.neighbors(actor)
+            mean_time = sum(graph.get_edge(actor, o).time for o in others) / len(others) if others else 0.0
+            stats[actor] = (len(others), mean_time)
+        return stats[actor]
+
+    def _yearly_nudges(self, graph, actor: int, edge, stats) -> float:
+        """Expected interactions a year from actor over this tie: a uniform pick
+        accepted with the tie's time, up to 4 tries (see end_of_day)."""
+        ties, mean_time = self._contact(graph, actor, stats)
+        if not ties or mean_time <= 0.0:
+            return 0.0
+        tries = (1.0 - (1.0 - mean_time) ** 4) / mean_time
+        return self.interactions_per_day * 365 * edge.time / ties * tries
+
     def _register_ties(self, graph) -> None:
+        # ponytail: each tie's contact is fixed when first seen; ties gained or
+        # lost later shift it a little. Recompute if feelings start drifting.
+        stats: Dict[int, Tuple[int, float]] = {}
         for key, edge in graph.edges.items():
-            if (key, edge.resident_a) not in self._base:
-                self._base[(key, edge.resident_a)] = edge.valence_a_to_b
-                self._base[(key, edge.resident_b)] = edge.valence_b_to_a
+            if (key, edge.resident_a) in self._target:
+                continue
+            a, b = key
+            for feeler, other in ((a, b), (b, a)):
+                push = self._yearly_nudges(graph, other, edge, stats) * self.nudge  # per unit of other's feeling
+                offset = push / self._pull_rate if self._pull_rate else 0.0
+                self._target[(key, feeler)] = edge.valence_from(feeler) - offset * edge.valence_from(other)
 
     def add_resident(self, graph, state, resident_id: int) -> None:
         state[resident_id] = {}
@@ -2660,8 +2733,8 @@ class EverydayPhenomenon:
         self._register_ties(graph)  # ties created since (births, weddings, arrivals)
         for key, edge in graph.edges.items():
             a, b = key
-            for feeler, other in ((a, b), (b, a)):
-                target = self._base[(key, feeler)] - self._offset * self._base[(key, other)]
+            for feeler, _other in ((a, b), (b, a)):
+                target = self._target[(key, feeler)]
                 current = edge.valence_from(feeler)
                 edge.set_valence_from(feeler, current + (target - current) * self._pull_per_month)
 

@@ -8,6 +8,59 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-29 — Ties follow TownShape's rules as people come and go; ties of the dead archived
+
+Warm ties kept rising (8.6% -> 13.0%) with feelings flat: the mix of ties
+was drifting. TownShape ties everyone in the 4 nearest buildings to a home
+(neighbours) and gives shop ties to adults only (~49 each); the sim gave
+newborns family ties only and never gave anyone shop ties. Now:
+- **Newborns get the mother's neighbours** (same home). Warm ties 8.6% ->
+  9.4% in 25 years, from 13.0%.
+- **At 18, a resident gets their household's shop ties** (the shops a living
+  parent buys from, same contact, fresh feelings), `household_shop_ties`.
+  The importer applies it to the TownShape children it makes adults (447 of
+  451 got them).
+- **Arrivals inherit shop ties** too, taking the dead person's side
+  (customer or staff). Bug: they never had, because the general
+  newcomer path skips this tie shape.
+- **A job is always refilled**, like guard and clergy posts: shop staff
+  dying with nobody replacing them (the town above its growth target) cut
+  every customer's tie. Shop ties per adult fell 52 -> 35 in 10 years;
+  ties per resident now 83.5 -> 75.6 in 25 years (was -> 59.2). The rest is
+  likely young adults copying one parent's shops (28 vs 49).
+- **Ties of the dead are archived** (user): the day after a death, when every
+  phenomenon has read it, the ties leave the live graph for
+  `graph.archived_ties` (both ids, type, closeness, both feelings, when and
+  whose death), written by `demo.py` to `ties_of_the_dead.jsonl`, kept in
+  case it matters one day who knew whom. Arrivals read the dead person's
+  ties from there. Runs had slowed from 19 to 35 minutes; now 24-30.
+- **Growth target kept (user asked what removing it would do):** replacing
+  every dead adult would grow the town by births minus child deaths,
+  about +1.6% a year (Florence's boom century: ~0.6%), and arrivals would
+  still only replace the dead. Organic migration should replace it.
+
+## 2026-09-28 — Favors balanced tie by tie; faith's correction measured
+
+- **Favors and scorn:** the pull back toward each tie's starting feeling
+  was sized on the town's average contact, but warm family ties get far
+  more everyday interactions, so they kept warming (8.6% -> 15.7% warm ties
+  in 25 years). Each feeling's pull now aims off its start by the push that
+  tie's own expected contact brings (its share of the other side's time).
+  Alone, over 25 years, the warm share holds at 8.57-8.59%.
+- **Faith:** the fixed 0.08 offset left faith creeping (0.50 -> 0.55). The
+  offset is now measured as the town runs: the average yearly push from
+  gratitude and blame per civilian, over the fade's rate (the first year
+  uses 0.08). Religiousness holds at 0.49-0.50 for 25 years, and the same
+  rule balances epidemic years, where blame pushes the other way.
+- **Still open:** warm ties still rise 8.6% -> 13.0%, exactly as in a run
+  without favors, from the mix of ties: the dead lose all their ties
+  (mostly neighbour and shop ties, 5-8% warm) while newborns bring only
+  family ties (33-40% warm) and nobody gains new ones. That is the "ties
+  forming and fading" design, not a feelings problem.
+
+Checked with run D on "Riverport Runs Compared"
+(https://claude.ai/artifact/Mk2Vwrhb9Rg9aLRznuVJUG).
+
 ## 2026-09-27 — The long-run review's first round (Project_Vision/02-long-run-findings.md)
 
 Decided with the user item by item (their `> Feedback:` lines in that file).

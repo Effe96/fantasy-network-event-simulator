@@ -172,6 +172,14 @@ class SocialGraph:
         self.family_baselines: Dict[int, Dict[str, float]] = {}  # family root -> shared trait centres
         # added but not yet registered with the phenomena; the engine drains it
         self.newcomers: List[int] = []
+        # Ties of the dead, moved out of `edges` once every phenomenon has
+        # read them (retire_ties_of_dead): kept for safekeeping (user,
+        # 2026-09-29) -- whose grandparents knew each other may matter one
+        # day -- and for an arrival taking over a dead person's place.
+        # Each record: both ids, type, closeness, both feelings, when retired.
+        self.archived_ties: List[Dict[str, Any]] = []
+        self._archived_by_dead: Dict[int, List[Dict[str, Any]]] = {}
+        self._deaths_retired = 0  # cursor into self.deaths
 
     def record_recovery(self, resident_id: int, day: int, cause: str) -> None:
         # the counterpart of record_death, for anything that reacts to
@@ -234,6 +242,38 @@ class SocialGraph:
         if existing is None and self._adjacency is not None:
             self._adjacency.setdefault(key[0], []).append(key[1])
             self._adjacency.setdefault(key[1], []).append(key[0])
+
+    def retire_ties_of_dead(self, before_day: int) -> int:
+        """Move the ties of everyone who died before `before_day` out of the
+        live graph into the archive; returns how many ties moved. Called by the
+        engine at the end of each day for deaths up to the day before, so every
+        phenomenon reading a death (grief, widowhood, blame, inheritance,
+        stress) has seen the ties first. Keeps the live graph from filling up
+        with the dead (2026-09-29: runs had slowed from 19 to 35 minutes)."""
+        moved = 0
+        while self._deaths_retired < len(self.deaths) and self.deaths[self._deaths_retired]["day"] < before_day:
+            dead = self.deaths[self._deaths_retired]["resident_id"]
+            self._deaths_retired += 1
+            records = self._archived_by_dead.setdefault(dead, [])
+            for other in self.neighbors(dead):
+                key = self._key(dead, other)
+                edge = self.edges.pop(key)
+                record = {"resident_a": edge.resident_a, "resident_b": edge.resident_b, "source_type": edge.source_type,
+                          "time": edge.time, "intimacy": edge.intimacy, "services": edge.services,
+                          "valence_a_to_b": edge.valence_a_to_b, "valence_b_to_a": edge.valence_b_to_a,
+                          "retired_on_day": before_day - 1, "on_death_of": dead}
+                self.archived_ties.append(record)
+                records.append(record)
+                if self._adjacency is not None:
+                    self._adjacency[other].remove(dead)
+                moved += 1
+            if self._adjacency is not None:
+                self._adjacency.pop(dead, None)
+        return moved
+
+    def archived_ties_of(self, dead: int) -> List[Dict[str, Any]]:
+        """The archive records of every tie a dead resident had when it was retired."""
+        return list(self._archived_by_dead.get(dead, []))
 
     def get_edge(self, a: int, b: int) -> Optional[Edge]:
         return self.edges.get(self._key(a, b))
@@ -566,26 +606,33 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
     max_purchase_count = max(row[3] for row in rows) or 1.0
 
     for customer_id, staff_id, customer_score, purchase_count, is_primary in rows:
-        time = _clamp01(customer_score / max_customer_score)
-        services = _clamp01(purchase_count / max_purchase_count)
-        intimacy = _clamp01(rng.gauss(0.10, 0.08))
-        valence_mean = 0.15 if is_primary else 0.0
-        # drawn independently: the customer's opinion of the staff member need not match the reverse
-        valence_a_to_b = _clamp_signed(rng.gauss(valence_mean, 0.30))
-        valence_b_to_a = _clamp_signed(rng.gauss(valence_mean, 0.30))
-        edge = Edge(
-            resident_a=customer_id,
-            resident_b=staff_id,
-            source_type="shopkeeper_customer",
-            fiske_type=FISKE_TAGS["shopkeeper_customer"],
-            time=time,
-            intimacy=intimacy,
-            services=services,
-            valence_a_to_b=valence_a_to_b,
-            valence_b_to_a=valence_b_to_a,
-        )
-        _apply_noble_poor_skew(graph, edge)
-        graph.add_edge(edge)
+        graph.add_edge(shop_edge(graph, customer_id, staff_id, _clamp01(customer_score / max_customer_score),
+                                 _clamp01(purchase_count / max_purchase_count), bool(is_primary), rng))
+
+
+def shop_edge(graph: SocialGraph, customer_id: int, staff_id: int, time: float, services: float,
+              is_primary: bool, rng: random.Random) -> Edge:
+    """A customer's tie to a shop's staff member: time and services from how
+    much they buy there, fresh intimacy and feelings. Used by import and when
+    a resident comes of age (PopulationPhenomenon)."""
+    intimacy = _clamp01(rng.gauss(0.10, 0.08))
+    valence_mean = 0.15 if is_primary else 0.0
+    # drawn independently: the customer's opinion of the staff member need not match the reverse
+    valence_a_to_b = _clamp_signed(rng.gauss(valence_mean, 0.30))
+    valence_b_to_a = _clamp_signed(rng.gauss(valence_mean, 0.30))
+    edge = Edge(
+        resident_a=customer_id,
+        resident_b=staff_id,
+        source_type="shopkeeper_customer",
+        fiske_type=FISKE_TAGS["shopkeeper_customer"],
+        time=time,
+        intimacy=intimacy,
+        services=services,
+        valence_a_to_b=valence_a_to_b,
+        valence_b_to_a=valence_b_to_a,
+    )
+    _apply_noble_poor_skew(graph, edge)
+    return edge
 
 
 def _mark_same_sex_spouses(graph: SocialGraph) -> None:
@@ -661,9 +708,42 @@ def reshape_to_settled_town(graph: SocialGraph, seed: int) -> None:
             first = draw(18, MAX_AGE)
         for index, adult in enumerate(adults):
             adult.age = first if index == 0 else min(MAX_AGE, max(18, first + round(rng.gauss(0, 4))))
+        # TownShape children made adults here have a child's ties (no shops):
+        # they buy where their household does, as if they had just come of age
+        for child in children:
+            if child.age >= 18:
+                household_shop_ties(graph, child, rng)
         for node in members:
             if graph.reference_year is not None:
                 node.birth_date = f"{graph.reference_year - node.age:04d}-01-01"
+
+
+def household_shop_ties(graph: SocialGraph, node: Node, rng: random.Random) -> int:
+    """TownShape gives shop ties to adults only; a resident coming of age
+    starts buying where their household does: a tie to each shop staff member
+    a living parent buys from (the parent's own buying pattern, fresh
+    feelings). Used at 18 (PopulationPhenomenon) and by the importer for
+    TownShape children it makes adults. Returns how many ties were added."""
+    resident_id = node.resident_id
+    parents = sorted(other for other in graph.neighbors(resident_id)
+                     if graph.get_edge(resident_id, other).source_type == "parent"
+                     and graph.nodes[other].alive and (graph.nodes[other].age or 0) > (node.age or 0))
+    if not parents:
+        return 0
+    parent = graph.nodes[parents[0]]
+    added = 0
+    for other in graph.neighbors(parent.resident_id):
+        tie = graph.get_edge(parent.resident_id, other)
+        staff = graph.nodes[other]
+        if tie.source_type != "shopkeeper_customer" or not staff.alive or other == resident_id:
+            continue
+        # the parent is the customer, not the staff member serving customers
+        if staff.workplace_building_id is None or staff.workplace_building_id == parent.workplace_building_id:
+            continue
+        if graph.get_edge(resident_id, other) is None:
+            graph.add_edge(shop_edge(graph, resident_id, other, tie.time, tie.services, False, rng))
+            added += 1
+    return added
 
 
 def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float]] = None,

@@ -23,6 +23,7 @@ from tests import (
     test_romance,
     test_stress,
     test_theft,
+    test_ties,
     test_town_parameters,
     test_violence,
 )
@@ -47,6 +48,7 @@ MODULES = [
     test_newcomers,
     test_reshape,
     test_everyday,
+    test_ties,
     test_engine,
 ]
 

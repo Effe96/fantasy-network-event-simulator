@@ -130,7 +130,16 @@ def main(argv=None) -> None:
     _write_summary_csv(out_dir / "summary.csv", result.daily_summaries)
     _write_events_json(out_dir / "events.json", result.events)
     _write_deaths_csv(out_dir / "deaths.csv", graph.deaths)
+    _write_archived_ties(out_dir / "ties_of_the_dead.jsonl", graph.archived_ties)
     _print_summary(result)
+
+
+def _write_archived_ties(path: Path, archived_ties) -> None:
+    """One JSON object per line: every tie retired with the dead, kept for
+    safekeeping (who knew whom, how they felt, when it ended)."""
+    with open(path, "w", encoding="utf-8") as f:
+        for record in archived_ties:
+            f.write(json.dumps(record) + "\n")
 
 
 def _write_deaths_csv(path: Path, deaths) -> None:

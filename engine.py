@@ -37,7 +37,8 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                 # scan exactly. A phenomenon whose own effects can make a later
                 # tie eligible mid-pass (violence's grief) reports it via
                 # drain_new_candidates, and it's queued if still ahead.
-                heap = sorted({position[key] for key in candidates})
+                # a phenomenon's cached ties can include ties since retired with the dead
+                heap = sorted({position[key] for key in candidates if key in position})
                 queued = set(heap)
                 drain = getattr(phenomenon, "drain_new_candidates", None)
                 while heap:
@@ -45,6 +46,8 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                     fired = _roll_edge(graph, phenomenon, state, graph.edges[edge_order[current]], day, rng, result)
                     if fired and drain is not None:
                         for key in drain():
+                            if key not in position:
+                                continue
                             later = position[key]
                             if later > current and later not in queued:
                                 queued.add(later)
@@ -52,6 +55,12 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
             result.events.extend(phenomenon.end_of_day(graph, state, day, rng))
             if graph.newcomers or len(graph.edges) > len(edge_order):
                 _register_newcomers(graph, phenomena, states, edge_order, position)
+
+        # everyone has now read yesterday's deaths: their ties go to the archive
+        if graph.retire_ties_of_dead(before_day=day):
+            edge_order[:] = list(graph.edges)
+            position.clear()
+            position.update((key, index) for index, key in enumerate(edge_order))
 
         summary = {"day": day}
         for phenomenon in phenomena:
