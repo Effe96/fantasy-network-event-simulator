@@ -145,6 +145,22 @@ bugs found: stale riot/religion caches when a living tie fades, and
 arrivals inheriting the dead person's friends. Economy design written for
 the user to comment: `Project_Vision/03-economy-design.md`.
 
+### 6c. The economy (2026-09-29/30)
+
+The user's market parameter book (`medieval_city_sim_parameters.md`) led to
+`Project_Vision/03-economy-design.md`; the user commented, decided (florins,
+small city, before the plague, all children inherit, merchants first,
+jobs from workshops/putting-out/day labour/farms set by the importer) and
+added rules on the way: unemployment without its own stress, titles to
+siblings and nephews, five classes 15/50/25/9/1 (a very poor class and a
+very rich 1%). Built as `economy.py` (details in `docs/decisions.md`,
+2026-09-30). Calibration found four money leaks before money held steady.
+Refreshed dashboards with the current model (25-year v3/v4, runs compared
+v3, 50-year v2). The first 25-year run with the economy: class moves, the
+rich stop growing, but wealth drains through heirless estates, households
+shrink (3.6 -> 2.2 people) and poverty grows (design file section 5b).
+Runs slowed to 42 min for 25 years: **the user made speed the next priority.**
+
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 
 The user asked how long runs take and how they scale; to be addressed in

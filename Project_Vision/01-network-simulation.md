@@ -1137,7 +1137,8 @@ Topics the user flagged to talk through before building. Each is
   (user).** Run time grows with the number of ties, about 1 minute per
   simulated year per 100,000 ties: the 1,900-resident reference town runs
   25 years in ~30 minutes, a 5,000-10,000-resident town would take 2-3
-  hours. Measurements and likely fixes: `Project-Memory/2026-09-24-...`,
+  hours. **2026-09-30: with the economy, 42 minutes for 25 years; the user
+  made speed the first priority.** Measurements and likely fixes: `Project-Memory/2026-09-24-...`,
   section 7.
 - **Ties forming and fading** (added 2026-09-25) — **Partly implemented
   2026-09-29:** people meet through people they know, warm ties become

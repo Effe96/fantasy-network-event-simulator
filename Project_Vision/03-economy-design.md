@@ -1,5 +1,12 @@
 # Economy Design
 
+> **Status (2026-09-29):** reviewed by the user. Decided: florins only;
+> Riverport a small city (~45 fl a person); before the plague; estates
+> split among all children; merchants as a class, the town's trade with the
+> outside, in slice 1; jobs from workshops, putting-out, day labour and
+> farm work, set by the sim's importer; debt with several kinds of lender;
+> beggars and death from hardship. Order: see the reply in section 6.
+
 ### A proposal for giving the town money: who has it, how they earn and spend it, what limits the rich, and how it feeds class, stress and migration. Written 2026-09-29 from the user's parameter book (`medieval_city_sim_parameters.md` / `.json`) for the user to read and comment on before anything is built.
 
 **How to comment:** add a line starting `> Feedback:` under any section or
@@ -53,7 +60,7 @@ book, so the proposal below keeps TownShape's structure (who is rich, who
 works where, which household is which) and rescales the amounts to the
 book's florins.
 
-> Feedback:
+> Feedback: 
 
 ---
 
@@ -75,7 +82,7 @@ book's florins.
   the default, the other as an option. An epidemic big enough could later
   move a town from one to the other on its own.
 
-> Feedback:
+> Feedback: What I have read above seems really good. 
 
 ---
 
@@ -121,7 +128,7 @@ Each slice is buildable and checkable on its own, in this order.
   about 45% of an unskilled budget; a top household's property income 30-40x
   an unskilled wage.
 
-> Feedback:
+> Feedback: I think this is all very good.
 
 ### 4.2 Slice 2 — What limits the rich — Proposed
 
@@ -140,7 +147,7 @@ The book's section 7, each as a rule:
 - **Check:** in quiet years the richest tenth's share of wealth holds
   steady instead of growing.
 
-> Feedback:
+> Feedback: regarding heirs, let's make it all children. The rest is good. We have to also make rules for who inherits money upon death of a noble, but it can come later. 
 
 ### 4.3 Slice 3 — Poverty that hurts — Proposed
 
@@ -155,7 +162,22 @@ The book's section 7, each as a rule:
 - Opens the vision's older items: **beggars**, and **death from hardship**
   after long poverty.
 
-> Feedback:
+> Feedback: I like the idea of debt, but who are people getting indebted to? That is also an important dynamic. Beggars and death from hardship should be introduced. 
+
+> **Reply (2026-09-29):** Options for who lends, and I'd have more than one:
+> 1. **Family and friends:** small loans, usually without interest; the
+>    commonest credit. A new debt sits on the tie they already have.
+> 2. **Moneylenders and pawnbrokers:** a licensed profession, at high
+>    interest against a pledged object.
+> 3. **Rich households and merchants:** larger loans at interest, often to
+>    people who work for them, which gives the lender leverage.
+> 4. **Charity:** confraternities and the Church give rather than lend (the
+>    Monte di Pieta, a charitable pawn bank, came later, from the 1460s).
+>
+> Each debt links a debtor to a creditor. A late or unpaid debt breeds
+> resentment on both sides; a creditor can seize goods, or push a desperate
+> debtor into theft or begging. Beggars and death from hardship go into this
+> slice, as you said.
 
 ### 4.4 Slice 4 — Jobs and organic migration — Proposed
 
@@ -171,7 +193,7 @@ The book's section 7, each as a rule:
 - **Check:** the town stays a demographic sink (deaths above births) and
   grows slowly because arrivals outnumber the gap, as in the research notes.
 
-> Feedback:
+> Feedback: Good. 
 
 ### 4.5 Slice 5 — Merchants, homeowners and landlords — Open
 
@@ -181,7 +203,13 @@ The book's section 7, each as a rule:
 - A merchant class as its own group: trade profits riskier than land,
   with the failure risk from slice 2.
 
-> Feedback:
+> Feedback: We definitely have to add a merchants as a class. They are the ones importing and exporting goods to and from the city. They are basically the main source of flow of money from/to outside of the enclosed system of the city. 
+
+> **Reply (2026-09-29):** Agreed, and it changes the order (see section 6):
+> without merchants the town has no money coming in or going out, so wages
+> and prices would have nothing behind them. Merchants buy what the town
+> makes and sell it outside, and bring in what it lacks (grain above all).
+> Their trade is the inflow; imports are the outflow.
 
 ---
 
@@ -199,6 +227,83 @@ The book's section 7, each as a rule:
 6. **Fantasy adjustments:** anything in the book to deliberately not
    follow, as with Florence's marriage ages?
 
+> Feedback: florins only. Riverport is a small city. Before plague. All children. We cannot have 92% of people being jobless. What would the best solution for this be? Let's discuss options together. In terms of fantasy adjustements, just make sure to also consider magic-based shops (the rules for how many should already exist within town-shape)
+
+> **Reply (2026-09-29):** Florins, a small city at about 45 fl a person,
+> before the plague, all children inherit: noted. On jobs, TownShape makes
+> jobs as posts in buildings (a shop has a shopkeeper and 2 staff, a
+> farmstead a farmer and 3 farmhands, a manor a noble and 3 servants). In
+> Riverport the 203 houses and the **28 workshops** offer no posts at all,
+> hence 92% jobless. Options, which combine:
+> 1. **Workshops get trades:** each of the 28 gets a craft (weaving,
+>    dyeing, tanning, carpentry, baking, coopering...) with a master and
+>    3-5 workers. About 100-150 jobs.
+> 2. **Work at home for a merchant (putting-out):** how most of the medieval
+>    cloth trade worked, and a third of Florence lived from wool. Poor
+>    households spin, card or weave at home, paid by the piece by a
+>    merchant. Employs many, including women and older children.
+> 3. **Day labour:** porters, carters, builders hired day by day; work on a
+>    given day depends on demand, so income is irregular.
+> 4. **Farm work outside the walls:** Riverport's farmsteads and fields.
+> 5. **Housework counted as work:** running a household was a full-time
+>    job, often alongside piecework.
+>
+> My suggestion: 1, 2 and 3 together, set by the sim's importer (like the
+> adapted importer) and written to move into TownShape's generator later.
+> The target is an occupational mix where nearly every adult has
+> some work, most of it poorly paid and irregular.
+>
+> **Magic shops:** TownShape adds "arcane shops" in the merchant district
+> (a mage and 2 apprentices each), in proportion to the town's magic
+> setting. Riverport's is 0, so it has none; a town with magic would get
+> them as posts, selling TownShape's magic goods (healing potions, spell
+> scrolls, arcane reagents) with their own prices and customers.
+
+> **Decided (user, 2026-09-29):** all four job sources combined: workshops
+> get trades, putting-out work at home for merchants, day labour, and more
+> farm work outside the walls. Set by the sim's importer now, written to
+> move into TownShape's generator later.
+
+> **Decided (user, 2026-09-30):** adults can be unemployed while they look
+> for work (built: about 5%, work found in about 4 months, precarious work
+> lost at 1% a month). Unemployment does **not** add stress directly: a
+> long spell makes a household poor, and poverty raises stress. That needs
+> slice 3, where hunger (not affording the basket) replaces today's flat
+> "poor" pressure, which reads a class label 94% of the town carries.
+>
+> **Decided (user, 2026-09-30):** a noble title passes to a child (at home
+> first), then a sibling, then a nephew or niece, eldest first.
+
+---
+
+## 5b. Findings from the first full run, to solve (2026-09-30)
+
+The first 25-year run with slice 1 and parts of slice 2 (households,
+dowries, inheritance to all children, unemployment, five classes; seed 1,
+epidemics off). Dashboard: "Riverport, 25 Quiet Years" v4,
+https://claude.ai/artifact/2kmbLQcyGg34eG1bcDSkqC.
+
+Works: class moves (rich 8% -> 10-12%, no longer growing without limit);
+the very rich halve (17 -> ~8 people) as estates split among all
+children; nobles 14 -> 12 with the wider succession; crime, faith,
+feelings and marriage hold; ties per resident 83 -> 78.
+
+**To solve:**
+1. **Wealth drains away** (about 91,000 fl at year 5, 70,000 at year 25).
+   Cash holds near 16,000; the loss is property from 183 heirless estates
+   going to "the commune", which is outside the town. Proposed: heirless
+   estates pass to siblings, then nephews (like titles), otherwise stay
+   in town (commune or Church as a household that spends).
+2. **Households shrink** (520 -> 964 households for +14% people; 3.6 ->
+   2.2 people each; Florence 1427 about 4). Every arrival lives alone,
+   newlyweds always start a household, widows stay alone. Proposed: some
+   arrivals come as families (slice 4), widows join a child's household.
+3. **Poverty grows** (very poor 15% -> 9% by year 5, then 23.5% by year
+   25; hungry households 31 -> 134; Gini 0.75 -> 0.79, book ~0.70).
+   Likely driven by 2; slice 3 (debt, charity, beggars) is the rest.
+4. **Runs slowed** to 42 min for 25 years (24-30 before the economy;
+   ~110 s a year by years 16-20). **First priority (user, 2026-09-30).**
+
 > Feedback:
 
 ---
@@ -213,4 +318,17 @@ The book's section 7, each as a rule:
 4. Slice 4 (jobs and organic migration), replacing the growth target.
 5. Slice 5 (merchants and landlords).
 
-> Feedback:
+> Feedback: are you sure we should add the merchants and landlords first? Honest question, I wonder why you are putting them last. 
+
+> **Reply (2026-09-29):** Honest answer: I put them last because I saw them as
+> an extra layer on top of basic money, and because rents are missing from
+> the book. Your point about merchants is right: they are where money
+> enters and leaves, so they belong in the first slice. Landlords can still
+> come later, since rents need data and homes matter most once migration
+> exists. Revised order:
+> 1. **Jobs** (the options above) **+ money, income and spending + merchants
+>    as the town's trade with the outside.**
+> 2. Limits on the rich, with inheritance to all children.
+> 3. Debt with lenders, hunger, beggars, death from hardship.
+> 4. Organic migration.
+> 5. Homeowners, landlords and rent.
