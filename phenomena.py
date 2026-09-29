@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
+from economy import form_household
 from graph import (FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TownParameters, befriend, edge_from_relationship,
                    household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
@@ -238,7 +239,7 @@ class ContagionPhenomenon:
 
 # ponytail: placeholder vulnerability rule (skews toward lower socioeconomic status);
 # swap for a real vulnerability model if "good enough" stops being good enough
-SES_VULNERABILITY = {"poor": 2.0, "middling": 1.0, "rich": 0.5}
+SES_VULNERABILITY = {"very_poor": 3.0, "poor": 2.0, "middling": 1.0, "rich": 0.5, "very_rich": 0.4}
 
 
 def child_fatality_factor(age: Optional[int]) -> float:
@@ -442,7 +443,7 @@ class CommonAilmentsPhenomenon:
                 continue
             if not graph.nodes[resident_id].alive:
                 continue
-            p = self.flu_spontaneous_rate * SES_VULNERABILITY.get(resident_state["ses"], 1.0) * self._flu_season_factor(day)
+            p = self.flu_spontaneous_rate * SES_VULNERABILITY.get(graph.nodes[resident_id].ses, 1.0) * self._flu_season_factor(day)
             if rng.random() < p:
                 resident_state["flu"] = {"status": "sick", "days_left": self.flu_duration_days}
                 self._flu_cases += 1
@@ -455,7 +456,7 @@ class CommonAilmentsPhenomenon:
                 continue
             if not graph.nodes[resident_id].alive:
                 continue
-            p = self.diarrhea_spontaneous_rate * SES_VULNERABILITY.get(resident_state["ses"], 1.0)
+            p = self.diarrhea_spontaneous_rate * SES_VULNERABILITY.get(graph.nodes[resident_id].ses, 1.0)
             if rng.random() < p:
                 resident_state["diarrhea"] = {"status": "sick", "days_left": self.diarrhea_duration_days}
                 self._diarrhea_cases += 1
@@ -1193,6 +1194,7 @@ class RomancePhenomenon:
         state[a]["married"] = True
         state[b]["married"] = True
         self._marriages += 1
+        form_household(graph, a, b)
         return [Event(day, self.name, "married", a, b, "fell in love and married")]
 
     @staticmethod
@@ -1267,6 +1269,7 @@ class RomancePhenomenon:
             # something reads shared homes beyond births.
             state[resident_id]["married"] = state[partner]["married"] = True
             self._arranged += 1
+            form_household(graph, resident_id, partner)
             events.append(Event(day, self.name, "married", resident_id, partner, "an arranged match"))
         return events
 
@@ -1625,12 +1628,19 @@ class RiotPhenomenon:
 # ponytail: wealth as a bribe-affordability proxy, since there's no town-wide
 # wealth aggregate yet (see the "Wealth inequality" candidate town parameter);
 # swap for that once it exists
-BRIBE_WEALTH_FACTOR = {"poor": 0.5, "middling": 1.0, "rich": 2.0}
+BRIBE_WEALTH_FACTOR = {"very_poor": 0.25, "poor": 0.5, "middling": 1.0, "rich": 2.0, "very_rich": 3.0}
 # graph.deaths causes that count as "disease" for priests' curer blame
 SICKNESS_CAUSES = {"plague", "flu", "diarrhea"}
 # how much surviving each sickness moves a resident toward faith and the
 # clergy (user's ordering: very bad diseases most, diarrhea less, flu much less)
 RECOVERY_SEVERITY = {"plague": 1.0, "diarrhea": 0.3, "flu": 0.1}
+
+
+def refresh_classes(graph, state) -> None:
+    """Class now follows money (economy.py): per-resident copies used by
+    per-tie odds (bribes, theft targets) are refreshed each day."""
+    for resident_id, resident_state in state.items():
+        resident_state["ses"] = graph.nodes[resident_id].ses
 
 
 class GuardPhenomenon:
@@ -1696,6 +1706,7 @@ class GuardPhenomenon:
         return [Event(day, self.name, "bribed", briber_id, guard_id, f"guard's affinity +{self.bribe_affinity_gain:.2f}")]
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        refresh_classes(graph, state)
         return []
 
     def summarize(self, state) -> Dict[str, int]:
@@ -1707,7 +1718,7 @@ class GuardPhenomenon:
 # ponytail: poverty, grief and recent illness only -- TownShape gives 87% of
 # adults no occupation, so joblessness can't be a pressure yet (see the
 # market discussion); add hunger, debt, unemployment once the economy exists
-STRESS_POVERTY = {"poor": 0.4, "middling": 0.2, "rich": 0.05}
+STRESS_POVERTY = {"very_poor": 0.55, "poor": 0.4, "middling": 0.2, "rich": 0.05, "very_rich": 0.0}
 STRESS_GRIEF_PER_LOSS = 0.4   # losing a spouse, parent, child or sibling
 STRESS_GRIEF_CAP = 0.6
 STRESS_GRIEF_DAYS = 365       # grief fades to nothing over a year
@@ -1959,6 +1970,7 @@ class TheftPhenomenon:
         return events
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        refresh_classes(graph, state)
         self._deterrence *= self.deterrence_decay
         events: List[Event] = []
         for resident_id, resident_state in state.items():
@@ -2216,6 +2228,7 @@ class ReligionPhenomenon:
         ]
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        refresh_classes(graph, state)
         self._fade_religiousness(graph, state)
         return self._gratitude(graph, state, day) + self._blame(graph, state, day)
 
@@ -2581,16 +2594,30 @@ class PopulationPhenomenon:
 
     @staticmethod
     def _inherit(graph, dead: int) -> Optional[int]:
-        """The eldest living child of the dead noble in the same household
-        becomes noble, even a minor (a ward until of age)."""
+        """Who takes a dead noble's title, eldest first in each group (user,
+        2026-09-30): a child at home, then a child elsewhere, then a sibling,
+        then a nephew or niece. The heir, even a minor (a ward until of age),
+        moves into the noble household. Children now leave home when they
+        marry, so "at home only" let titles lapse: 14 nobles -> 6 in 50 years."""
         old = graph.nodes[dead]
-        children = [graph.nodes[other] for other in graph.neighbors(dead)
-                    if graph.get_edge(dead, other).source_type == "parent" and graph.nodes[other].alive
-                    and graph.nodes[other].household_id == old.household_id
-                    and (graph.nodes[other].age or 0) < (old.age or 0)]
-        if not children:
+
+        def kin(person, kind, younger=False):
+            return [graph.nodes[o] for o in graph.neighbors(person)
+                    if graph.get_edge(person, o).source_type == kind and graph.nodes[o].alive and o != dead
+                    and (not younger or (graph.nodes[o].age or 0) < (graph.nodes[person].age or 0))]
+
+        children = kin(dead, "parent", younger=True)
+        siblings = kin(dead, "sibling")
+        nephews = [child for sibling in [graph.nodes[o] for o in graph.neighbors(dead)
+                                          if graph.get_edge(dead, o).source_type == "sibling"]
+                   for child in kin(sibling.resident_id, "parent", younger=True)]
+        for group in ([c for c in children if c.household_id == old.household_id], children, siblings, nephews):
+            if group:
+                heir = max(group, key=lambda node: node.age or 0)
+                break
+        else:
             return None
-        heir = max(children, key=lambda node: node.age or 0)
+        heir.household_id = old.household_id
         # ponytail: phenomena that copied role at init (guards, theft, religion)
         # still see the heir as a civilian; add a role-change hook if heirs'
         # behaviour starts to matter

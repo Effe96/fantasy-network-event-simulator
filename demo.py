@@ -24,6 +24,7 @@ from phenomena import (
     TheftPhenomenon,
     ViolencePhenomenon,
 )
+from economy import EconomyPhenomenon
 from engine import run_simulation
 
 
@@ -95,8 +96,9 @@ def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
     everyday = EverydayPhenomenon()  # favors and scorn between people who know each other
     stress = StressPhenomenon()  # before theft, which reads it
     friendship = FriendshipPhenomenon()  # people meeting, befriending, drifting apart
+    economy = EconomyPhenomenon()  # monthly wages, spending, trade; class follows wealth
     phenomena = [contagion, quarantine, violence, romance, riot, guards, stress, theft, ailments, religion, everyday,
-                 friendship, population]
+                 friendship, economy, population]
     return phenomena
 
 

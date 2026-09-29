@@ -8,6 +8,44 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-30 — The economy, slice 1 and parts of slice 2
+
+Built from `Project_Vision/03-economy-design.md` with the user's decisions
+(florins only; Riverport a small city, ~45 fl a person; before the plague;
+all children inherit; merchants as the town's trade with the outside).
+- **Jobs at import** (`economy.setup_economy`): TownShape left 92% of adults
+  without work. Workshops get trades (a master and 3-5 hands), farmsteads
+  4 more farmhands, the richest non-noble households give ~13 merchants,
+  other adults of the richest tenth live off property (rentiers), the
+  rest do putting-out work for a merchant or day labour; ~5% unemployed.
+- **Money** per household in florins: TownShape's ranking, the book's
+  amounts (Prato 1300 deciles, 25% owning nothing), 90% property earning
+  7% a year and 10% cash. Monthly: wages from employers (or from outside
+  for guards, clergy, clerks), basket spending (grain from farmers and
+  merchants' imports, the rest local), merchants selling cloth abroad and
+  buying raw wool, day labour paid by sellers and by spending in town.
+- **Four leaks found and closed while calibrating:** sellers counting only
+  wages as income (+13% money a year); no raw-wool cost; spending decided
+  before the month's income arrived; cash earning 7% like land. Then
+  savings taper to a three-month cushion and cash above it is spent down
+  (50% a year): money holds steady.
+- **Households form:** newlyweds set up their own (the bride's family gives
+  a 10% dowry; 5% each for same-sex couples); estates go to a surviving
+  spouse, else to all children, else stay, else to the commune.
+- **Unemployment** (user): found in ~4 months, precarious work lost at 1% a
+  month, ~5% unemployed; no stress of its own (user: long spells make
+  people poor, and poverty is the stress).
+- **Five classes** (user): very poor / poor / middling / rich / very rich,
+  15/50/25/9/1 at import, by resources per person (wealth plus a year of
+  income; wealth alone can't rank the propertyless quarter), against lines
+  fixed at import with a 20% margin before dropping. Servants capped at poor.
+- **Noble titles** (user): child at home, child elsewhere, sibling, nephew.
+
+**Checked (25-year run):** class moves, rich stay 10-12%, very rich halve,
+nobles 14 -> 12, the rest of the town holds. **Open:** wealth draining via
+heirless estates, households shrinking (3.6 -> 2.2), poverty growing,
+runs slower (42 min). See the design file's section 5b.
+
 ## 2026-09-29 — Friends and acquaintances
 
 **Decision (user approved the proposal):** `FriendshipPhenomenon` plus two

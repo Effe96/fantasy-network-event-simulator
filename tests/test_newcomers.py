@@ -214,6 +214,24 @@ def test_a_dead_noble_s_eldest_child_inherits_and_no_stranger_arrives():
     assert graph.nodes[2].role == "noble" and not graph.nodes[3].is_noble
 
 
+def test_with_no_children_a_sibling_then_a_nephew_takes_the_title():
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="rich", alive=True, gender="male", age=60, is_noble=True, household_id=7))
+    graph.add_node(Node(resident_id=2, ses="rich", alive=True, gender="female", age=55, household_id=8))  # sister
+    graph.add_node(Node(resident_id=3, ses="rich", alive=True, gender="male", age=30, household_id=9))  # her son
+    graph.add_edge(Edge(1, 2, "sibling", "Communal Sharing", 0.6, 0.6, 0.6, 0.3, 0.3))
+    graph.add_edge(Edge(2, 3, "parent", "Communal Sharing", 0.7, 0.7, 0.7, 0.4, 0.4))
+    population = PopulationPhenomenon(arrival_daily_chance=0.0)
+    state = population.init_state(graph)
+    graph.record_death(1, day=1, cause="old age")
+    events = population.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert [(e.kind, e.resident_a) for e in events] == [("inherited", 2)] and graph.nodes[2].household_id == 7
+    graph.record_death(2, day=2, cause="old age")  # the sister dies too: her son, the nephew... of 1
+    graph.nodes[2].is_noble = True
+    events = population.end_of_day(graph, state, day=2, rng=random.Random(0))
+    assert [(e.kind, e.resident_a) for e in events] == [("inherited", 3)]
+
+
 def test_a_small_child_never_turns_thief():
     graph = _guard_post()
     graph.add_node(Node(resident_id=4, ses="poor", alive=True, age=3, stress=1.0))
@@ -236,6 +254,7 @@ def _run_all():
     test_the_town_may_grow_past_its_starting_size()
     test_everyone_ages_at_the_year_end()
     test_a_dead_noble_s_eldest_child_inherits_and_no_stranger_arrives()
+    test_with_no_children_a_sibling_then_a_nephew_takes_the_title()
     test_a_small_child_never_turns_thief()
     print("OK")
 

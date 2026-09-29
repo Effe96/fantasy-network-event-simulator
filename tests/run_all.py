@@ -9,6 +9,7 @@ from tests import (
     test_attributes,
     test_contagion,
     test_drift_check,
+    test_economy,
     test_engine,
     test_everyday,
     test_friendship,
@@ -51,6 +52,7 @@ MODULES = [
     test_everyday,
     test_ties,
     test_friendship,
+    test_economy,
     test_engine,
 ]
 

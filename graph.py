@@ -127,6 +127,13 @@ class TownParameters:
     # share of residents drawn to their own sex, drawn at import and birth;
     # roughly that share of new marriages are same-sex (user, 2026-09-27)
     same_sex_share: float = 0.1
+    # shares of residents in each class at import, poorest first: very poor
+    # (barely surviving), poor, middling, rich, very rich (user, 2026-09-30,
+    # 15/50/25/9/1: unskilled wages sat at bare subsistence, book §5c;
+    # the top 1% held ~30% of the wealth, book §3b/§3d). The lines between
+    # them are then fixed and people move across them as their resources
+    # change (economy.py).
+    class_shares: Tuple[float, ...] = (0.15, 0.50, 0.25, 0.09, 0.01)
 
     def aggression_factor(self) -> float:
         return 1.0 + 2.0 * self.aggression
@@ -490,9 +497,9 @@ def _apply_noble_poor_skew(graph: "SocialGraph", edge: Edge) -> None:
     the family-trait correlation and every phenomenon's own favor/wrongdoing
     events already use."""
     node_a, node_b = graph.nodes[edge.resident_a], graph.nodes[edge.resident_b]
-    if node_a.is_noble and not node_b.is_noble and node_b.ses == "poor":
+    if node_a.is_noble and not node_b.is_noble and node_b.ses in ("poor", "very_poor"):
         poor_id = node_b.resident_id
-    elif node_b.is_noble and not node_a.is_noble and node_a.ses == "poor":
+    elif node_b.is_noble and not node_a.is_noble and node_a.ses in ("poor", "very_poor"):
         poor_id = node_a.resident_id
     else:
         return
@@ -620,6 +627,20 @@ def _load_districts(conn: sqlite3.Connection, graph: SocialGraph) -> None:
         location = graph.building_districts.get(node.home_building_id)
         if location is not None:
             node.district_id, node.district_zone = location
+
+
+def _building_types(conn: sqlite3.Connection) -> Dict[int, str]:
+    try:
+        return dict(conn.execute("SELECT id, building_type FROM buildings").fetchall())
+    except sqlite3.OperationalError:  # test fixtures without buildings
+        return {}
+
+
+def _household_wealth(conn: sqlite3.Connection) -> Dict[int, float]:
+    try:
+        return {hid: wealth or 0.0 for hid, wealth in conn.execute("SELECT id, wealth FROM households").fetchall()}
+    except sqlite3.OperationalError:  # test fixtures without households or wealth
+        return {}
 
 
 def _load_resident_identity(conn: sqlite3.Connection, graph: SocialGraph) -> None:
@@ -826,6 +847,9 @@ def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float
                     befriend(edge)
         _mark_same_sex_spouses(graph)
         _load_districts(conn, graph)
+        if reshape:
+            from economy import setup_economy  # imported here: economy reads graph objects, not the module
+            setup_economy(graph, _building_types(conn), _household_wealth(conn), seed)
     finally:
         conn.close()
     return graph
