@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from graph import (FISKE_TAGS, TownParameters, edge_from_relationship, household_shop_ties, shop_edge,
-                   synthesize_relationship_attributes)
+from graph import (FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TownParameters, befriend, edge_from_relationship,
+                   household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
 
 @dataclass
@@ -41,6 +41,8 @@ CONTAGION_TYPE_WEIGHTS = {
     "neighbor": 0.2,
     "classmate": 0.2,
     "shopkeeper_customer": 0.15,
+    "friend": 0.5,
+    "acquaintance": 0.1,
 }
 
 
@@ -1419,9 +1421,11 @@ class RiotPhenomenon:
         return total
 
     def _start_riot(self, graph, day: int, rng: random.Random) -> List[Event]:
+        # the cached pairs can outlive a tie that has since faded (2026-09-29)
         hostile_links = [
             (civ, member) for civ, member in self._adjacency
             if graph.nodes[civ].alive and graph.nodes[member].alive
+            and graph.get_edge(civ, member) is not None
             and graph.get_edge(civ, member).valence_from(civ) < 0
         ]
         if not hostile_links:
@@ -2261,9 +2265,9 @@ class ReligionPhenomenon:
                                      graph.nodes[civilian_id].religiousness + self.recovery_religiousness_gain * severity)
             gain = self.recovery_respect_gain * severity
             for priest_id in self._priest_ties.get(civilian_id, []):
-                if not graph.nodes[priest_id].alive:
-                    continue
                 edge = graph.get_edge(civilian_id, priest_id)
+                if not graph.nodes[priest_id].alive or edge is None:  # dead, or the tie has faded
+                    continue
                 edge.set_valence_from(civilian_id, min(1.0, edge.valence_from(civilian_id) + gain))
                 self._gratitudes += 1
                 events.append(Event(day, self.name, "gratitude", civilian_id, priest_id,
@@ -2298,9 +2302,9 @@ class ReligionPhenomenon:
         events = []
         for civilian_id, shock in blame_by_civilian.items():
             for priest_id in self._priest_ties.get(civilian_id, []):
-                if not graph.nodes[priest_id].alive:
-                    continue
                 edge = graph.get_edge(civilian_id, priest_id)
+                if not graph.nodes[priest_id].alive or edge is None:  # dead, or the tie has faded
+                    continue
                 edge.set_valence_from(civilian_id, max(-1.0, edge.valence_from(civilian_id) - shock))
                 self._blames += 1
                 events.append(Event(day, self.name, "blame", civilian_id, priest_id,
@@ -2602,12 +2606,16 @@ class PopulationPhenomenon:
         # stranger. The ties may already be archived: a place can stay open for months.
         past = [graph.get_edge(dead, other) for other in graph.neighbors(dead)]
         records = [{"resident_a": e.resident_a, "resident_b": e.resident_b, "source_type": e.source_type,
-                    "time": e.time, "services": e.services} for e in past] + graph.archived_ties_of(dead)
+                    "former_type": e.former_type, "time": e.time, "services": e.services}
+                   for e in past] + graph.archived_ties_of(dead)
         ties, shops = [], []
         for record in records:
             other = record["resident_b"] if record["resident_a"] == dead else record["resident_a"]
-            if graph.nodes[other].alive and record["source_type"] not in ("spouse", "parent", "sibling"):
-                (shops if record["source_type"] == "shopkeeper_customer" else ties).append((other, record))
+            # the place's ties, not the person's: a friendship counts as what it
+            # was (a neighbour, a customer); acquaintances and family don't pass
+            kind = record.get("former_type") if record["source_type"] == "friend" else record["source_type"]
+            if graph.nodes[other].alive and kind not in (None, "acquaintance", "spouse", "parent", "sibling"):
+                (shops if kind == "shopkeeper_customer" else ties).append((other, dict(record, source_type=kind)))
         newcomer = graph.add_resident({
             "ses": old.ses, "gender": rng.choice(("female", "male")),
             "birth_date": f"{year - age:04d}-01-01" if year is not None else None,
@@ -2740,3 +2748,100 @@ class EverydayPhenomenon:
 
     def summarize(self, state) -> Dict[str, int]:
         return {"favors": self._favors, "scorns": self._scorns}
+
+
+class FriendshipPhenomenon:
+    """Friends and acquaintances (user, 2026-09-29; vision "Kinds of ties",
+    "Ties forming and fading"). Three moves:
+    - **Meeting:** each day a resident aged friend_min_age or over has
+      meetings_per_year / 365 chance to meet someone through a person they
+      know (a tie picked by its time, then one of that person's ties): a new
+      `acquaintance` tie. Also how two unconnected singles can now meet.
+    - **Befriending and cooling (monthly):** any non-family tie warm both ways
+      (graph.FRIEND_WARMTH) becomes a friendship (graph.befriend); a
+      friendship where either side has cooled below graph.FRIEND_COOLED goes
+      back to what it was. The gap between the two stops ties flickering.
+    - **Fading (monthly):** an acquaintance that hasn't become a friend fades
+      (acquaintance_fade_per_year) and is archived like a dead person's tie.
+    The importer already turns warm ties into friendships, so the town starts
+    with its friends rather than growing them over the first years."""
+    name = "friendship"
+
+    def __init__(self, meetings_per_year: float = 1.0, acquaintance_fade_per_year: float = 0.4,
+                 friend_min_age: int = 6):
+        self.meetings_per_year = meetings_per_year
+        self._fade_per_month = 1.0 - (1.0 - acquaintance_fade_per_year) ** (1.0 / 12.0)
+        self.friend_min_age = friend_min_age
+        self._met = 0
+        self._befriended = 0
+        self._cooled = 0
+        self._faded = 0
+        self._friends = 0
+        self._acquaintances = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        self._count(graph)
+        return {resident_id: {} for resident_id in graph.nodes}
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = {}
+
+    def candidate_edges(self, graph, state):
+        return []
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        return 0.0
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    def _can_meet(self, node) -> bool:
+        return node.alive and (node.age is None or node.age >= self.friend_min_age)
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        chance = self.meetings_per_year / 365.0
+        for actor, node in list(graph.nodes.items()):
+            if not self._can_meet(node) or rng.random() >= chance:
+                continue
+            others = graph.neighbors(actor)
+            for _ in range(4):  # someone they spend time with, picked by the tie's time
+                if not others:
+                    break
+                via = others[rng.randrange(len(others))]
+                if graph.nodes[via].alive and rng.random() < graph.get_edge(actor, via).time:
+                    theirs = graph.neighbors(via)
+                    stranger = theirs[rng.randrange(len(theirs))]
+                    if (stranger != actor and self._can_meet(graph.nodes[stranger])
+                            and graph.get_edge(actor, stranger) is None):
+                        graph.add_edge(edge_from_relationship(graph, actor, stranger, "acquaintance", rng))
+                        self._met += 1
+                    break
+        if day % 30 == 0:
+            self._monthly(graph, day, rng)
+        return []
+
+    def _monthly(self, graph, day: int, rng: random.Random) -> None:
+        for (a, b), edge in list(graph.edges.items()):
+            if not (graph.nodes[a].alive and graph.nodes[b].alive):
+                continue
+            coolest = min(edge.valence_a_to_b, edge.valence_b_to_a)
+            if edge.source_type == "friend":
+                if coolest < FRIEND_COOLED:
+                    unfriend(edge)
+                    self._cooled += 1
+            elif edge.source_type not in ("spouse", "parent", "sibling") and coolest >= FRIEND_WARMTH:
+                befriend(edge)
+                self._befriended += 1
+            elif edge.source_type == "acquaintance" and rng.random() < self._fade_per_month:
+                graph.retire_tie(a, b, day, "faded")
+                self._faded += 1
+        self._count(graph)
+
+    def _count(self, graph) -> None:
+        self._friends = sum(1 for e in graph.edges.values() if e.source_type == "friend")
+        self._acquaintances = sum(1 for e in graph.edges.values() if e.source_type == "acquaintance")
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {"friendships": self._friends, "acquaintances": self._acquaintances, "people_met": self._met,
+                "befriended": self._befriended, "friendships_cooled": self._cooled,
+                "acquaintances_faded": self._faded}

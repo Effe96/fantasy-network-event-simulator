@@ -11,6 +11,7 @@ from tests import (
     test_drift_check,
     test_engine,
     test_everyday,
+    test_friendship,
     test_graph,
     test_guards,
     test_import_relationships,
@@ -49,6 +50,7 @@ MODULES = [
     test_reshape,
     test_everyday,
     test_ties,
+    test_friendship,
     test_engine,
 ]
 

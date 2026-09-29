@@ -8,6 +8,30 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-09-29 — Friends and acquaintances
+
+**Decision (user approved the proposal):** `FriendshipPhenomenon` plus two
+sim-only tie types. A non-family tie warm both ways (0.3+) is a
+friendship (`befriend`: remembers its former type, at least 0.5 intimacy,
+keeps its time so favors' per-tie balance still holds); it goes back to
+what it was once either side cools below 0.1 (the gap stops flickering).
+The importer befriends warm ties at import, so the town starts with ~2.8
+friends a person instead of growing them. About once a year each resident
+aged 6+ meets someone through a person they know (a new `acquaintance`
+tie), which also lets two unconnected singles meet (the romance gap noted
+since 2026-09-21); acquaintances that never warm fade (40%/yr) into the
+archive, keeping ties per person steady.
+
+**Found on the way:** a tie between two living people could not disappear
+before, and riot and religion kept cached pairs that crashed when one
+faded (now skipped). Arrivals had been inheriting the dead person's
+friends and acquaintances: they now take the place's ties only (a
+friendship counts as the neighbour or shop tie it was).
+
+**Checked (run H, 25 years):** friends per person 2.76 -> 2.52, acquaintances
+settling around 600-800, love weddings 63 -> 78 over the run; feelings,
+faith, thieves and growth unchanged.
+
 ## 2026-09-29 — Ties follow TownShape's rules as people come and go; ties of the dead archived
 
 Warm ties kept rising (8.6% -> 13.0%) with feelings flat: the mix of ties

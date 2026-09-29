@@ -78,6 +78,8 @@ class Edge:
     services: float
     valence_a_to_b: float
     valence_b_to_a: float
+    # what a friendship was before (neighbor, coworker, ...), see befriend
+    former_type: Optional[str] = None
 
     @property
     def tie_strength(self) -> float:
@@ -180,6 +182,7 @@ class SocialGraph:
         self.archived_ties: List[Dict[str, Any]] = []
         self._archived_by_dead: Dict[int, List[Dict[str, Any]]] = {}
         self._deaths_retired = 0  # cursor into self.deaths
+        self._ties_to_retire: List[Tuple[int, int, int, str]] = []  # (a, b, day, reason), see retire_tie
 
     def record_recovery(self, resident_id: int, day: int, cause: str) -> None:
         # the counterpart of record_death, for anything that reacts to
@@ -243,6 +246,13 @@ class SocialGraph:
             self._adjacency.setdefault(key[0], []).append(key[1])
             self._adjacency.setdefault(key[1], []).append(key[0])
 
+    @staticmethod
+    def _archive_record(edge: "Edge", day: int, dead: Optional[int], reason: str) -> Dict[str, Any]:
+        return {"resident_a": edge.resident_a, "resident_b": edge.resident_b, "source_type": edge.source_type,
+                "time": edge.time, "intimacy": edge.intimacy, "services": edge.services,
+                "valence_a_to_b": edge.valence_a_to_b, "valence_b_to_a": edge.valence_b_to_a,
+                "former_type": edge.former_type, "retired_on_day": day, "on_death_of": dead, "reason": reason}
+
     def retire_ties_of_dead(self, before_day: int) -> int:
         """Move the ties of everyone who died before `before_day` out of the
         live graph into the archive; returns how many ties moved. Called by the
@@ -251,6 +261,16 @@ class SocialGraph:
         stress) has seen the ties first. Keeps the live graph from filling up
         with the dead (2026-09-29: runs had slowed from 19 to 35 minutes)."""
         moved = 0
+        for a, b, day, reason in self._ties_to_retire:
+            self.neighbors(a)  # the adjacency must exist (and include the tie) before editing it
+            edge = self.edges.pop(self._key(a, b), None)
+            if edge is None:
+                continue  # already gone with a death
+            self.archived_ties.append(self._archive_record(edge, day, None, reason))
+            self._adjacency[a].remove(b)
+            self._adjacency[b].remove(a)
+            moved += 1
+        self._ties_to_retire = []
         while self._deaths_retired < len(self.deaths) and self.deaths[self._deaths_retired]["day"] < before_day:
             dead = self.deaths[self._deaths_retired]["resident_id"]
             self._deaths_retired += 1
@@ -258,10 +278,7 @@ class SocialGraph:
             for other in self.neighbors(dead):
                 key = self._key(dead, other)
                 edge = self.edges.pop(key)
-                record = {"resident_a": edge.resident_a, "resident_b": edge.resident_b, "source_type": edge.source_type,
-                          "time": edge.time, "intimacy": edge.intimacy, "services": edge.services,
-                          "valence_a_to_b": edge.valence_a_to_b, "valence_b_to_a": edge.valence_b_to_a,
-                          "retired_on_day": before_day - 1, "on_death_of": dead}
+                record = self._archive_record(edge, before_day - 1, dead, "death")
                 self.archived_ties.append(record)
                 records.append(record)
                 if self._adjacency is not None:
@@ -270,6 +287,12 @@ class SocialGraph:
             if self._adjacency is not None:
                 self._adjacency.pop(dead, None)
         return moved
+
+    def retire_tie(self, a: int, b: int, day: int, reason: str) -> None:
+        """Queue a live tie between two living residents to leave the graph
+        (e.g. an acquaintance that faded); it moves to the archive with the
+        ties of the dead at the end of the day."""
+        self._ties_to_retire.append((a, b, day, reason))
 
     def archived_ties_of(self, dead: int) -> List[Dict[str, Any]]:
         """The archive records of every tie a dead resident had when it was retired."""
@@ -304,7 +327,18 @@ RELATIONSHIP_TYPE_BASELINES = {
     "coworker":  {"time": (0.45, 0.20), "intimacy": (0.20, 0.15), "services": (0.40, 0.20), "valence": (0.00, 0.35)},
     "neighbor":  {"time": (0.25, 0.15), "intimacy": (0.20, 0.15), "services": (0.30, 0.20), "valence": (0.00, 0.35)},
     "classmate": {"time": (0.45, 0.20), "intimacy": (0.20, 0.20), "services": (0.25, 0.20), "valence": (0.00, 0.40)},
+    # sim-only types (2026-09-29, FriendshipPhenomenon): someone met through a
+    # person you know; a friendship is normally a warmed-up tie of another type
+    "acquaintance": {"time": (0.15, 0.10), "intimacy": (0.10, 0.08), "services": (0.10, 0.10), "valence": (0.00, 0.30)},
+    "friend":    {"time": (0.45, 0.20), "intimacy": (0.55, 0.20), "services": (0.40, 0.20), "valence": (0.50, 0.25)},
 }
+
+# A non-family tie warm both ways at FRIEND_WARMTH or more is a friendship;
+# it goes back to what it was once either side cools below FRIEND_COOLED.
+# At 0.3 the reference town starts with ~2.8 friends a person.
+FRIEND_WARMTH = 0.3
+FRIEND_COOLED = 0.1
+FRIEND_INTIMACY = 0.5  # a friendship is at least this close
 
 FISKE_TAGS = {
     "spouse": "Communal Sharing",
@@ -315,7 +349,24 @@ FISKE_TAGS = {
     "neighbor": "Equality Matching",
     "classmate": "Communal Sharing",
     "shopkeeper_customer": "Market Pricing",
+    "acquaintance": "Equality Matching",
+    "friend": "Communal Sharing",
 }
+
+
+def befriend(edge: "Edge") -> None:
+    """A warm tie becomes a friendship, remembering what it was."""
+    edge.former_type = edge.source_type
+    edge.source_type, edge.fiske_type = "friend", FISKE_TAGS["friend"]
+    edge.intimacy = max(edge.intimacy, FRIEND_INTIMACY)
+
+
+def unfriend(edge: "Edge") -> None:
+    """A cooled friendship goes back to what it was (an acquaintance if it
+    started as one, or had no other type)."""
+    edge.source_type = edge.former_type or "acquaintance"
+    edge.fiske_type = FISKE_TAGS[edge.source_type]
+    edge.former_type = None
 
 
 def _clamp01(value: float) -> float:
@@ -768,6 +819,11 @@ def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float
         _load_resident_identity(conn, graph)
         if reshape:
             reshape_to_settled_town(graph, seed)
+            # TownShape has no friendships: warm ties both ways are ones
+            for edge in graph.edges.values():
+                if (edge.source_type not in ("spouse", "parent", "sibling")
+                        and min(edge.valence_a_to_b, edge.valence_b_to_a) >= FRIEND_WARMTH):
+                    befriend(edge)
         _mark_same_sex_spouses(graph)
         _load_districts(conn, graph)
     finally:

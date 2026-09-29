@@ -16,7 +16,7 @@ def test_shopkeeper_customer_edges_created_for_each_staff_member():
             residents=[(1, "poor", None), (2, "rich", 100), (3, "middling", 100)],
             shop_relationships=[(1, 100, 8.0, 5, 1)],
         )
-        graph = import_snapshot(db_path, seed=1)
+        graph = import_snapshot(db_path, seed=1, reshape=False)  # raw ties, before any become friendships
         assert graph.get_edge(1, 2) is not None
         assert graph.get_edge(1, 2).source_type == "shopkeeper_customer"
         assert graph.get_edge(1, 3) is not None

@@ -13,6 +13,7 @@ from phenomena import (
     EPIDEMIC_TIERS,
     ContagionPhenomenon,
     EverydayPhenomenon,
+    FriendshipPhenomenon,
     GuardPhenomenon,
     PopulationPhenomenon,
     QuarantinePhenomenon,
@@ -93,8 +94,9 @@ def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
     population = PopulationPhenomenon()
     everyday = EverydayPhenomenon()  # favors and scorn between people who know each other
     stress = StressPhenomenon()  # before theft, which reads it
+    friendship = FriendshipPhenomenon()  # people meeting, befriending, drifting apart
     phenomena = [contagion, quarantine, violence, romance, riot, guards, stress, theft, ailments, religion, everyday,
-                 population]
+                 friendship, population]
     return phenomena
 
 
