@@ -124,8 +124,48 @@ set the round (details: `docs/decisions.md`, 2026-09-27):
   (15.7%): the pull back must be sized per tie.
 - The user is writing a document on medieval markets, for class mobility
   and the rich tripling.
+- 2026-09-28: favors and scorn balanced per tie (neutral alone: warm share
+  flat at 8.57-8.59% for 25 years) and faith's correction measured as it
+  runs (0.49-0.50 for 25 years). Run D added to the comparison page. The
+  remaining warm-tie rise is tie composition, for the tie-formation design.
+- 2026-09-29: ties follow TownShape's rules as people come and go (newborn
+  neighbours, shop ties at 18 and at import, arrivals' shop ties fixed,
+  jobs always refilled); ties of the dead archived to a file (user). Runs
+  E-G: warm ties flat (8.0 -> 8.2%), ties per resident 83.5 -> 75.6 (was
+  -> 59.2), runs 24-30 min (were 35). Growth target kept: without it
+  +1.6%/yr. Friends proposed, awaiting the user.
+
+### 7. Run times and scaling (measured 2026-09-29, for later)
+
+The user asked how long runs take and how they scale; to be addressed in
+the future ("towns becoming too slow"). Full model, epidemics off, 60
+simulated days per town (`scratchpad/scaling.py`, rerun to re-measure):
+
+| Town | Residents | Ties | Import | Per simulated year |
+|---|---|---|---|---|
+| small_town.db | 800 | 40,732 | 0.4 s | ~0.3 min |
+| demo_riverport_town.db | 1,885 | 78,477 | 0.7 s | ~0.7 min (~1.2 min over a real 25-year run) |
+| my_town.db | 5,035 | 434,256 | 4.0 s | ~3.6 min |
+| test_town.db | 10,053 | 496,562 | 4.8 s | ~4.9 min |
+
+- **Time follows ties, roughly linearly** (~0.1 s per 1,000 ties per 60
+  days; ~1 min per simulated year per 100,000 ties), more than residents.
+  Ties per resident depend on TownShape's density (neighbours = everyone
+  in the 4 nearest buildings): ~80 in the reference town, ~170 in
+  my_town, ~100 in test_town.
+- Long runs cost ~1.5x a 60-day sample (year-end work, a growing town):
+  reference town 25 years ~30 min, 50 years ~1 h; 5-10k residents
+  25 years ~2-3 h, 50 years ~4-6 h.
+- History: runs slowed from 19 to 35 min (25 years) when the ties of the
+  dead piled up; retiring them to an archive brought them back to 24-30.
+- Likely wins when this is tackled: the daily passes over every tie (the
+  full scans some phenomena still do, favors' monthly pull back over all
+  ties), and arranged marriages' scan of all singles per match (grows
+  with the square of the population; not visible yet at 10k).
 
 ## Current repo state
 
 Committed: population turnover in `fe14d97`, docs in `8154288`; the
-2026-09-27 round in the commits after them. Tests: 223 passing.
+2026-09-27 round in `3c706df`/`82f11c8`; the 2026-09-28/29 work (favors
+per tie, faith measured, tie rules, archive, jobs refilled) in the
+commits after them. Tests: 229 passing.

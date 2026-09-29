@@ -124,6 +124,8 @@ level, set so the average push from recoveries brings them back to it.
 > **Update 2026-09-27 — Partly addressed:** the town starts where it was
 > (0.50); the fade now aims 0.08 below each start. Creep halved (0.58 ->
 > 0.54 at year 25) but still rising: the correction needs to be bigger.
+> **Update 2026-09-28 — Addressed:** the correction is now measured as the
+> town runs; religiousness holds at 0.49-0.50 for 25 years.
 
 > Feedback: So you would start from a higher average religious point? Let's try, if that is what you are thinking. 
 
@@ -208,6 +210,10 @@ scorn. Details in `01-network-simulation.md` under "Kinds of ties",
 > ties drift faster (15.7% at year 25) because family ties get far more
 > interactions than the average the pull back is sized on. Next: size it
 > per tie. Tie formation and fading still to design.
+> **Update 2026-09-28 — Favors balanced:** sized per tie, neutral on their
+> own. The remaining rise in warm ties (8.6% -> 13.0%) comes from the mix
+> of ties (newborns bring only warm family ties, the dead lose everything,
+> nobody gains neighbours): it needs tie formation and fading.
 
 > Feedback: I like what you described for ties formation and fading in 01-network-simulation.md, let's start from there. Ties formation is also very important for new people in the town. Also, we should add the Favor or Scorn interaction, which simply changes by a very, very small amount the affinity between people. The more favor, the higher the likelihood of an interaction even being a Favor event rather than scorn (and viceversa). 
 

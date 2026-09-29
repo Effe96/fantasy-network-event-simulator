@@ -80,6 +80,12 @@
     gain coworkers, classmates or friends; nobody meets anyone new; ties
     never fade or end, and a dead person's ties simply stop counting.
     See "Ties forming and fading" in the discussion tally below.
+  > **Update 2026-09-29:** a newborn now also gets the mother's neighbours;
+  > at 18 a resident gets their household's shop ties (also given at
+  > import to TownShape children the importer makes adults); arrivals now
+  > really inherit shop ties (they never had: a bug); a job is always
+  > refilled; and the ties of the dead leave the live graph for an archive
+  > (`ties_of_the_dead.jsonl`). See `docs/decisions.md`, 2026-09-29.
 
 ### Town-wide dynamic parameters
 
@@ -1125,6 +1131,12 @@ Topics the user flagged to talk through before building. Each is
   shopkeeper_customer derived at import. Every tie that isn't family,
   work, neighbours or shops is missing. Closely tied to "Ties forming and
   fading", below.
+- **Speed in bigger towns** (added 2026-09-29) — **Open, for later
+  (user).** Run time grows with the number of ties, about 1 minute per
+  simulated year per 100,000 ties: the 1,900-resident reference town runs
+  25 years in ~30 minutes, a 5,000-10,000-resident town would take 2-3
+  hours. Measurements and likely fixes: `Project-Memory/2026-09-24-...`,
+  section 7.
 - **Ties forming and fading** (added 2026-09-25) — **Open.** Today ties
   are only created at import, at birth, by an arrival taking over a dead
   person's ties, or by a wedding, and are never removed (see "Ties for

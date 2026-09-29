@@ -1,0 +1,145 @@
+{
+  "_meta": {
+    "description": "Calibration parameters for simulating the market of a medium Italian (Tuscan) city, c.1330-1430. Grades: A=archival/peer-reviewed, B=reputable secondary or chronicler, C=derived/assumed (edit freely), W=weak placeholder.",
+    "see_also": "medieval_city_sim_parameters.md",
+    "regimes": ["pre_plague_1330", "post_plague_1350_1430"]
+  },
+
+  "currency": {
+    "lira_in_soldi": 20,
+    "soldo_in_denari": 12,
+    "florin_in_soldi": [
+      {"year": 1330, "value": 60, "grade": "B"},
+      {"year": 1329, "value": 66, "grade": "A", "source": "Nanni/Pinto"},
+      {"year": 1349, "value": 64, "grade": "A", "source": "Caferro, communal budgets"}
+    ],
+    "florin_gold_grams": {"value": 3.5, "grade": "B"},
+    "note": "Wages/food priced in lire-soldi (silver); cloth, dowries, property, big contracts in florins (gold)."
+  },
+
+  "units": {
+    "staia_per_moggio": {"value": 24, "grade": "A"},
+    "kg_per_staio_wheat": {"value": 18, "grade": "B"},
+    "staia_per_salma_naples": {"value": 10.5, "grade": "A"}
+  },
+
+  "demography": {
+    "household_size": {"value": 4.0, "range": [3.8, 4.1], "grade": "C", "basis": "Florence 1427: ~37-40k people / 9,780 households"},
+    "age_first_marriage": {"men": 27, "women": 18, "grade": "A", "source": "Catasto 1427 via Barbiera & Dalla-Zuanna 2024"},
+    "life_expectancy_at_birth": {"value": 20, "grade": "A"},
+    "crude_birth_rate_per_1000": {"value": 50, "grade": "A"},
+    "prato_population": {"1339": 10559, "1372": 6504, "1428": 3533, "grade": "A", "source": "Alfani & Ammannati 2017"},
+    "template_city": {
+      "pre_plague_1330": {"population": 10000, "households": 2500, "grade": "C"},
+      "post_plague_1430": {"population": 4000, "households": 1000, "grade": "C"}
+    }
+  },
+
+  "wealth": {
+    "per_capita_florins_1427": {
+      "florence": 273, "medium_city_arezzo_pistoia_pisa": [70, 85], "small_city_prato_cortona_volterra": 45,
+      "village": 32, "sparse_rural": 14, "grade": "A", "source": "Herlihy via Alfani & Ammannati 2017"
+    },
+    "prato_decile_shares_pct_excl_propertyless": {
+      "grade": "A", "source": "Alfani & Ammannati 2017, Table 4",
+      "1300": {"deciles": [1.58, 1.82, 1.98, 2.14, 2.27, 2.49, 5.93, 6.69, 9.39, 65.72], "top5": 55.26, "top1": 29.18},
+      "1350": {"deciles": [2.26, 2.39, 2.62, 2.76, 3.06, 3.57, 6.44, 10.22, 18.58, 48.12], "top5": 31.99, "top1": 10.81},
+      "1450": {"deciles": [0.61, 0.61, 0.97, 1.81, 2.71, 3.82, 7.03, 11.46, 17.39, 53.59], "top5": 35.96, "top1": 13.04}
+    },
+    "gini": {
+      "prato_1325": 0.703, "prato_1428": 0.683, "prato_1487": 0.624, "prato_1450_incl_propertyless": 0.740,
+      "florence_1427": 0.788, "six_subject_cities_1427": 0.747, "pistoia_1427": 0.713,
+      "rural_villages_1450_range": [0.43, 0.52], "grade": "A"
+    },
+    "propertyless_share": {
+      "prato_1372": 0.376, "prato_1428_net_deductions": 0.179, "prato_1487_net_deductions": 0.322,
+      "florence_1427_net_deductions": [0.288, 0.31], "florence_1427_truly_nothing": 0.14, "grade": "A"
+    },
+    "florence_1427_top": {"households": 137, "share_of_city_households": 0.014, "share_of_wealth": 0.298, "total_florins": 3000672, "grade": "A"},
+    "florence_1427_bottom50_share": {"value": 0.0268, "grade": "A"},
+    "wealth_to_income_rate": {"value": 0.07, "grade": "A", "note": "Catasto capitalized declared income at 7%; house of residence excluded"}
+  },
+
+  "wages_daily_soldi": {
+    "unskilled_building": {"1349": 8.4, "1350": 10.0, "grade": "A", "source": "Goldthwaite via Caferro"},
+    "master_mason": {"1349": 13.4, "1350": 16.8, "grade": "A"},
+    "mason_scarperia_1350": {"value": 18, "grade": "A"},
+    "paymaster_1350": 90, "supply_officer_1350": 70, "troop_inspector_1350": 40,
+    "blacksmith_1350": [25, 50], "army_doctor_1350": 30, "town_crier_campaign_1349": 20, "musician_campaign_1349": 4,
+    "post_plague_jump_3yrs": {"masons_pct": 160, "unskilled_pct": 354, "grade": "A", "source": "de la Roncière via Caferro"},
+    "skill_premium": {"pre_plague": 1.0, "post_plague_range": [0.6, 0.8], "grade": "A", "note": "skilled/unskilled - 1"},
+    "placeholders_W": {"unskilled_early_1300s": [6, 8], "unskilled_1400": [12, 14]}
+  },
+
+  "salaries_monthly_soldi_1349": {
+    "_grade": "A", "_source": "Caferro, Camera del Comune budgets; 1 fl = 64 s",
+    "podesta_incl_38_staff": 26667, "executor_of_justice": 6667,
+    "german_cavalry_captain": 1920, "italian_cavalry_captain": [800, 1000], "chancellor": 533,
+    "german_cavalryman": 522, "notary_of_priors": 400, "italian_cavalryman": 400,
+    "ligurian_crossbowman": {"1349": 207, "1350": 256},
+    "public_doctor": 200, "camera_accountant": 200,
+    "local_crossbowman": {"1349": 138, "1350": 180},
+    "town_crier": 121, "shield_bearer": {"1349": 120, "1350": [140, 170]},
+    "domestic_bellringer_cook": 80, "judge": 60
+  },
+
+  "labour": {
+    "working_days_per_year": {"value": 250, "grade": "C", "note": "Allen convention"},
+    "secondary_income": {"grade": "A", "note": "Caferro: bell-ringer on 4 lire/month earned 180 lire on one 60-day embassy; model a side-income draw"},
+    "wool_industry_1338": {"firms": 200, "workers": 30000, "bolts": [70000, 80000], "value_florins": 1200000, "bolts_per_firm": 375, "grade": "B"},
+    "artisans_share_urban_pop": {"range": [0.04, 0.08], "grade": "A", "source": "Malanima via Caferro"}
+  },
+
+  "consumption_per_capita": {
+    "grain_kg_per_day": {"value": 0.9, "grade": "C", "basis": "1339: 230 moggia/day for ~110k (B)"},
+    "wine_litres_per_day": {"value": 0.55, "range": [0.5, 0.6], "grade": "C/W", "basis": "Villani ~5.9M gallons/yr, gallon unit from translation uncertain"},
+    "meat_kg_per_year": {"value": 30, "grade": "C", "basis": "Villani animals/yr (B) x assumed carcass kg: ox 150, sheep 15, goat 12, pig 50"},
+    "florence_animals_per_year": {"oxen_calves": 4000, "sheep": 60000, "goats": 20000, "pigs": 30000, "grade": "B"}
+  },
+
+  "prices": {
+    "wheat_soldi_per_staio": {
+      "normal_1331": {"value": 13, "grade": "B"},
+      "range_early_1330s": {"value": [10, 26], "grade": "B"},
+      "famine_1329_communal": {"set": 28, "net": 31, "grade": "A"},
+      "lesser_grains_1329": {"value": [6, 20], "grade": "A"},
+      "shock_1347": {"multiplier": 2.0, "grade": "B"}
+    },
+    "florentine_cloth_florins_per_bolt": {
+      "1308": [7.5, 8.6], "1338": [15, 17], "pisa_late_1300s": 55.9, "datini_spain_1390s": 64.43, "grade": "A/B"
+    },
+    "transport_cost_share_of_value": {"sea_bruges_barcelona_1398": 0.15, "overland": 0.22, "grade": "A"},
+    "missing": ["wine", "meat", "oil", "salt", "bread retail", "rent", "cloth for commoners", "interest rates", "florin rate post-1350"]
+  },
+
+  "elite_limits": {
+    "return_on_land": {"value": [0.05, 0.07], "grade": "C", "anchor": "Catasto 7% capitalization (A)"},
+    "partible_inheritance": {"grade": "A", "rule": "split estate equally among surviving sons"},
+    "dowry": {
+      "13th_c_normal_lire": 100, "13th_c_excessive_lire": [200, 300], "grade_13th": "B (Villani)",
+      "monte_delle_doti_avg_florins_1425_1442": 417, "n_brides": 1814, "deposit_60_to_max_500": true, "grade_monte": "A"
+    },
+    "bank_default_examples": {"bardi_loan_to_edward_iii": 900000, "peruzzi": 600000, "grade": "B"},
+    "catasto_deduction_per_family_member_florins": {"value": 200, "grade": "A"},
+    "top_household_wealth_florence_1427": {"value": 21900, "grade": "C", "basis": "3,000,672 fl / 137"},
+    "sanity_ratio_top_property_income_to_unskilled_wage": {"value": [30, 40], "grade": "C"}
+  },
+
+  "public_finance_scale": {
+    "duke_of_athens_revenue_10_5_months_florins": {"value": 400000, "grade": "B"},
+    "one_year_spending_1342_florins": {"value": 450000, "grade": "B"},
+    "flood_1333_repairs_florins": {"value": 150000, "grade": "B"},
+    "carraia_bridge_florins": {"value": 25000, "grade": "B"},
+    "famine_relief_1329_florins": {"value": 60000, "grade": "B"},
+    "famine_1346_47_people_fed": {"value": 94000, "grade": "B"},
+    "revenue_per_capita_florins_rule_of_thumb": {"value": [3, 5], "grade": "C"},
+    "wine_gate_toll_1504": {"value": "12 soldi 6 denari per barile", "grade": "B"}
+  },
+
+  "validation_targets": {
+    "welfare_ratio_unskilled_pre_plague": {"target": 1.0, "grade": "C"},
+    "welfare_ratio_unskilled_1400s": {"target": [1.5, 2.0], "grade": "C"},
+    "grain_share_of_unskilled_budget_normal_year": {"target": 0.45, "grade": "C"},
+    "gini_wealth_medium_city": {"pre_plague": 0.70, "post_plague": 0.62, "grade": "A-anchored"}
+  }
+}
