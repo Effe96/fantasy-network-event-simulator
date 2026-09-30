@@ -8,6 +8,28 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-01 — Slice 4: work draws people in; the stressed move out
+
+Plan in `Project_Vision/03-economy-design.md` (approved: "looks good").
+- The 0.5% a year growth target is gone: a dead person without a job is no
+  longer replaced (a dead worker's job still is). People come for work:
+  `WORK_ARRIVALS_PER_1000` (0.5) a month while work is easy to find, fewer
+  as unemployment nears 8%, and fewer as homes fill (none at 20% above the
+  start, `ROOM_GROWTH`, until new houses exist). They come without work and
+  look for it. The first try measured unfilled day labour instead: the
+  town's labourers always covered it, so nobody came.
+- Room also limits the families of newcomers taking a dead worker's job:
+  without it they pushed growth to 0.8% a year with no end.
+- Newcomers taking a master's, shopkeeper's or merchant's place bring the
+  trade's capital (100 fl, a merchant 500 fl), not 5 fl.
+- Moving out: a household averaging stress 0.7+ for a year, holding a year
+  of its basket, leaves with 2% a month and takes its money. At first a
+  single strained month sufficed: grief alone sent 282 people away in 25
+  years. Recorded as "moved away" deaths, without an estate.
+- Run (seed 1, 25 years): 1,866 -> 2,185 people, flattening from year 18
+  near the room limit; births 2,085 against 2,226 deaths (still a sink);
+  495 arrivals (162 came for work), 23 moved away; unemployment ~2%.
+
 ## 2026-10-01 — Fewer riots; killers face justice; assassins are real
 
 User: a riot a year is far too many for a normal town, and assassins

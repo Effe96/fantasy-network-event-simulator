@@ -43,6 +43,10 @@ RAW_WOOL_SHARE = 0.3  # C: of the cloth's price, spent on raw wool bought outsid
 PROPERTYLESS_BELOW = 10.0  # C: under this (a few weeks of wages in hand) counts as owning nothing
 DAY_LABOUR_SHARE = 0.3  # C: of local sellers' takings spent hiring day labour
 ARRIVAL_SAVINGS = 5.0  # C: what a newcomer brings
+# C: someone taking a master's, shopkeeper's or merchant's place brings the
+# trade's capital (slice 4, 2026-10-01): with 5 fl they started poor
+ARRIVAL_CAPITAL = {"master": 100.0, "shopkeep": 100.0, "barkeep": 100.0, "blacksmith": 100.0,
+                   "trader": 100.0, "merchant": 500.0}
 
 WEALTH_PER_PERSON = 45.0  # book §3a: small cities, 1427 (decided: Riverport is a small city)
 PROPERTYLESS_SHARE = 0.25  # between the book's 14% (Florence 1427) and 38% (Prato 1372)
@@ -403,8 +407,9 @@ class EconomyPhenomenon:
         state[resident_id] = {}
         key = household_key(graph.nodes[resident_id])
         if key not in graph.household_money:
-            graph.household_money[key] = ARRIVAL_SAVINGS
-            self._year["in: newcomers"] += ARRIVAL_SAVINGS
+            brought = ARRIVAL_CAPITAL.get(job_kind(graph.nodes[resident_id].occupation), ARRIVAL_SAVINGS)
+            graph.household_money[key] = brought
+            self._year["in: newcomers"] += brought
 
     def candidate_edges(self, graph, state):
         return []
@@ -425,6 +430,8 @@ class EconomyPhenomenon:
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Any]:
         for death in graph.deaths[self._deaths_seen:]:
+            if death["cause"] == "moved away":  # left with their money: no estate
+                continue
             outcome = settle_estate(graph, death["resident_id"])
             if outcome:
                 self._estates[outcome] += 1
@@ -863,7 +870,10 @@ class EconomyPhenomenon:
         and live off their household."""
         merchants = [n.resident_id for n in alive if n.occupation == "merchant"]
         self._unemployed = 0
+        seekers = 0  # adults who could look for work: the base of the unemployment rate
         for node in alive:
+            if not node.is_noble and (node.age or 0) >= 18 and node.ses not in RENTIER_CLASSES:
+                seekers += 1
             if node.occupation in PRECARIOUS and rng.random() < JOB_LOSS_PER_MONTH:
                 node.occupation = None
                 graph.employer.pop(node.resident_id, None)
@@ -879,6 +889,8 @@ class EconomyPhenomenon:
                     graph.employer[node.resident_id] = rng.choice(merchants)
                 else:
                     node.occupation = "day_labourer"
+        # how hard work is to find: what keeps people from coming (slice 4)
+        graph.unemployment_rate = self._unemployed / max(1, seekers)
 
     def _buy(self, graph, key, amount: float, sellers, rng: random.Random, income) -> None:
         """Bought in town: the seller's takings count as their income."""

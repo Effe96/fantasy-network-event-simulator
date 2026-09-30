@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from economy import follow_if_emptied, form_household, household_key, new_household_id
+from economy import BASKET_PER_PERSON, follow_if_emptied, form_household, household_key, new_household_id
 from graph import (FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, befriend, edge_from_relationship,
                    household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
@@ -2594,6 +2594,18 @@ class QuarantinePhenomenon:
         }
 
 
+# organic migration (slice 4, user 2026-10-01): work draws people in
+# C: arrivals a month per 1,000 residents when work is easy to find, fewer
+# as unemployment rises, none at UNEMPLOYMENT_DETERS. Unfilled day labour was
+# tried first: the town's labourers always covered it, so nobody came.
+WORK_ARRIVALS_PER_1000 = 0.5
+UNEMPLOYMENT_DETERS = 0.08  # C
+ROOM_GROWTH = 0.2  # C: no room left once the town is this much above its start (no new houses yet)
+MOVE_OUT_STRESS = 0.7  # C: a household this stressed on average may leave
+MOVE_OUT_AFTER_MONTHS = 12  # C: ...for this long (a year of grief alone sent 282 away in 25 years)
+MOVE_OUT_PER_MONTH = 0.02  # C: while it also holds a year of its basket
+
+
 class PopulationPhenomenon:
     """Population turnover, sim-side (pipeline step 4, option B in
     docs/townshape-integration.md; TownShape's advance_town replaces it once
@@ -2626,6 +2638,9 @@ class PopulationPhenomenon:
         self.family_share = family_share
         self._families = 0
         self._lodgers = 0
+        self._came_for_work = 0
+        self._moved_out = 0
+        self._strained_months: Dict[Any, int] = {}
         self._arrivals = 0
         self._inheritances = 0
         self._shop_ties = 0
@@ -2685,22 +2700,106 @@ class PopulationPhenomenon:
             # every customer's tie (2026-09-29: shop ties per adult fell 52 -> 35
             # in 10 years). The jobless are replaced only below the target.
             old = graph.nodes[dead]
-            if old.role == "civilian" and old.workplace_building_id is None and alive >= target:
+            if old.role == "civilian" and old.workplace_building_id is None:
+                # nobody comes for a place without work (slice 4): arrivals
+                # come for the town's unmet work, below (was: refilled while
+                # under a 0.5% a year growth target)
+                self._vacancies.remove(dead)
                 continue
             if rng.random() >= self.arrival_daily_chance:
                 continue
             self._vacancies.remove(dead)
             family = 0
-            if graph.nodes[dead].role != "priest" and rng.random() < self.family_share:  # priests are celibate
-                places = [v for v in self._vacancies
-                          if graph.nodes[v].role == "civilian" and graph.nodes[v].workplace_building_id is None]
-                family = min(len(places), 1 + rng.randint(0, 3))
-                for place in places[:family]:
-                    self._vacancies.remove(place)
+            # priests are celibate; a family needs room
+            if graph.nodes[dead].role != "priest" and rng.random() < self.family_share * self._room(alive):
+                family = 1 + rng.randint(0, 3)
             newcomer = self._arrive(graph, dead, day, rng, family)
             alive += 1 + family
             self._arrivals += 1 + family
             events.append(Event(day, self.name, "arrived", newcomer, dead, "took over the place of"))
+        if day % 30 == 0:
+            events += self._come_for_work(graph, day, rng, alive)
+            events += self._move_out(graph, day, rng)
+        return events
+
+    def _come_for_work(self, graph, day: int, rng: random.Random, alive: int) -> List[Event]:
+        """People come for work (user: wages and work are why they leave their
+        villages): WORK_ARRIVALS_PER_1000 a month while work is easy to find,
+        fewer as the town's unemployment (graph.unemployment_rate, set by the
+        economy) nears UNEMPLOYMENT_DETERS and as homes fill. They come
+        without work and look for it, so they raise unemployment themselves.
+        They lodge with a household, or come as a family (family_share) into
+        a home of their own in the same building."""
+        pull = max(0.0, 1.0 - getattr(graph, "unemployment_rate", 0.0) / UNEMPLOYMENT_DETERS)
+        expected = WORK_ARRIVALS_PER_1000 * alive / 1000 * pull * self._room(alive)
+        hosts = None
+        events = []
+        for _ in range(int(expected) + (1 if rng.random() < expected % 1 else 0)):
+            if hosts is None:
+                hosts = [n for n in graph.nodes.values()
+                         if n.alive and not n.is_noble and n.household_id is not None and n.role == "civilian"]
+            if not hosts:
+                break
+            host = rng.choice(hosts)
+            family = 1 + rng.randint(0, 3) if rng.random() < self.family_share else 0
+            age = rng.randint(*self.arrival_ages)
+            year = graph.reference_year + (day - 1) // 365 if graph.reference_year is not None else None
+            neighbours = [(o, "neighbor") for o in graph.neighbors(host.resident_id)
+                          if graph.get_edge(host.resident_id, o).source_type == "neighbor"] + [(host.resident_id, "neighbor")]
+            newcomer = graph.add_resident({
+                "ses": "poor", "gender": rng.choice(("female", "male")),
+                "birth_date": f"{year - age:04d}-01-01" if year is not None else None,
+                "occupation": None, "is_noble": 0,
+                "household_id": new_household_id(graph) if family else host.household_id,
+                "home_building_id": host.home_building_id, "workplace_building_id": None,
+            }, neighbours, rng)
+            graph.nodes[newcomer].age = age
+            self._shop_ties += household_shop_ties(graph, graph.nodes[newcomer], rng, model=host)
+            self._arrivals += 1 + family
+            self._came_for_work += 1 + family
+            if family:
+                self._families += 1
+                self._bring_family(graph, newcomer, family, year, rng)
+            else:
+                self._lodgers += 1
+            events.append(Event(day, self.name, "came_for_work", newcomer, host.resident_id,
+                                f"came for work{' with a family' if family else ''}"))
+        return events
+
+    def _room(self, alive: int) -> float:
+        """1 while the homes have room, down to 0 at ROOM_GROWTH above the start (no new houses yet)."""
+        return max(0.0, 1.0 - (alive / self._start_size - 1.0) / ROOM_GROWTH)
+
+    def _move_out(self, graph, day: int, rng: random.Random) -> List[Event]:
+        """A household under very high stress that can afford it may leave
+        (user: only in extreme situations, and only with the money), taking
+        its money: only after MOVE_OUT_AFTER_MONTHS of it. ponytail: recorded as deaths with cause "moved away" until
+        departures have their own record."""
+        households: Dict[Any, List[Any]] = {}
+        for node in graph.nodes.values():
+            if node.alive:
+                households.setdefault(household_key(node), []).append(node)
+        events = []
+        money = getattr(graph, "household_money", {})
+        strained = {}
+        for key, people in households.items():
+            if any(n.is_noble for n in people) or sum(n.stress for n in people) / len(people) < MOVE_OUT_STRESS:
+                continue
+            strained[key] = self._strained_months.get(key, 0) + 1
+            if strained[key] < MOVE_OUT_AFTER_MONTHS:
+                continue
+            held = money.get(key, 0.0) + getattr(graph, "household_property", {}).get(key, 0.0)
+            if held < BASKET_PER_PERSON * len(people) or rng.random() >= MOVE_OUT_PER_MONTH:
+                continue
+            money[key] = 0.0
+            if key in getattr(graph, "household_property", {}):
+                graph.household_property[key] = 0.0
+            for node in people:
+                graph.record_death(node.resident_id, day, "moved away")
+            self._moved_out += len(people)
+            events.append(Event(day, self.name, "moved_away", people[0].resident_id, people[0].resident_id,
+                                f"a household of {len(people)} left town"))
+        self._strained_months = strained  # months in a row each household has been this strained
         return events
 
     @staticmethod
@@ -2819,6 +2918,7 @@ class PopulationPhenomenon:
 
     def summarize(self, state) -> Dict[str, int]:
         return {"arrivals": self._arrivals, "arrived_as_families": self._families, "arrived_to_lodge": self._lodgers,
+                "came_for_work": self._came_for_work, "moved_away": self._moved_out,
                 "inheritances": self._inheritances,
                 "open_vacancies": len(self._vacancies), "shop_ties_on_coming_of_age": self._shop_ties}
 

@@ -79,6 +79,7 @@ def test_an_arrival_inherits_the_place_not_the_dead_person_s_friends():
     graph.add_edge(Edge(1, 3, "acquaintance", "Equality Matching", 0.1, 0.1, 0.1, 0.0, 0.0))
     from graph import befriend
     befriend(graph.get_edge(1, 2))  # 1 and 2: neighbours who became friends
+    graph.nodes[1].workplace_building_id = 20  # a job: someone comes to take it
     population = PopulationPhenomenon(arrival_daily_chance=1.0)
     state = population.init_state(graph)
     graph.record_death(1, day=1, cause="flu")

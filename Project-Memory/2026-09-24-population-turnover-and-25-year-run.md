@@ -235,6 +235,15 @@ ex-soldier who can hang and name the noble. 44 executions in 25 years, 34
 of them killers, follow from the user's own murder target: accepted by the
 user as it is.
 
+### 6h. Slice 4: organic migration (2026-10-01)
+
+Growth target replaced: people come while work is easy to find and homes
+have room; newcomers into trades bring capital; households under a year of
+very high stress with money move out. 1,866 -> 2,185 in 25 years, flat
+near the room limit from year 18. Wrong turns: unfilled day labour as the
+pull (never happened), one strained month enough to leave (282 left).
+The town now needs new houses to keep growing (TownShape).
+
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 
 The user asked how long runs take and how they scale; to be addressed in

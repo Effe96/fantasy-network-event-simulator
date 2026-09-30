@@ -164,16 +164,59 @@ def test_a_dead_guard_is_replaced_by_an_arrival_who_takes_over_the_post():
     assert graph.get_edge(newcomer.resident_id, 3).source_type == "neighbor"
 
 
-def test_a_civilian_place_stays_open_while_the_town_is_at_full_size():
+def test_a_place_without_work_is_not_refilled():
     graph = _guard_post()
-    graph.nodes[3].workplace_building_id = None  # jobless: replaced only below the target
-    population = PopulationPhenomenon(arrival_daily_chance=1.0, annual_growth=0.0)
+    graph.nodes[3].workplace_building_id = None  # jobless: nobody comes for a place without work
+    population = PopulationPhenomenon(arrival_daily_chance=1.0)
     state = population.init_state(graph)
     graph.record_death(3, day=1, cause="flu")
-    graph.add_node(Node(resident_id=4, ses="poor", alive=True, age=0))  # a birth made up the loss
     assert population.end_of_day(graph, state, day=1, rng=random.Random(0)) == []
-    graph.record_death(4, day=2, cause="diarrhea")  # now one short: the old place is filled
-    assert [e.resident_b for e in population.end_of_day(graph, state, day=2, rng=random.Random(0))] == [3]
+    assert population.summarize(state)["open_vacancies"] == 0
+
+
+def test_work_easy_to_find_draws_people_who_lodge():
+    graph = _guard_post()
+    for resident_id in (1, 2, 3):
+        graph.nodes[resident_id].household_id = 5
+    population = PopulationPhenomenon(family_share=0.0)
+    state = population.init_state(graph)
+    graph.unemployment_rate = 0.0  # work is easy to find
+    came = []
+    for month in range(1, 2000):  # 3 people: ~0.0015 arrivals a month
+        came += [e for e in population.end_of_day(graph, state, day=30 * month, rng=random.Random(month))
+                 if e.kind == "came_for_work"]
+        if came:
+            break
+    assert came and all(graph.nodes[e.resident_a].household_id == 5 for e in came)
+    assert all(graph.nodes[e.resident_a].occupation is None for e in came)  # they come looking for work
+
+
+def test_no_room_no_arrivals():
+    graph = _guard_post()
+    for resident_id in (1, 2, 3):
+        graph.nodes[resident_id].household_id = 5
+    population = PopulationPhenomenon(family_share=0.0)
+    state = population.init_state(graph)
+    graph.add_node(Node(resident_id=9, ses="poor", alive=True, age=0))  # 4 people where 3 lived: +33%
+    graph.unemployment_rate = 0.0
+    assert not any(e.kind == "came_for_work" for month in range(1, 2000)
+                   for e in population.end_of_day(graph, state, day=30 * month, rng=random.Random(month)))
+
+
+def test_a_desperate_household_that_can_afford_it_moves_out():
+    graph = _guard_post()
+    for resident_id in (1, 2, 3):
+        graph.nodes[resident_id].household_id = 5
+        graph.nodes[resident_id].stress = 0.9
+    graph.household_money = {5: 100.0}
+    population = PopulationPhenomenon()
+    state = population.init_state(graph)
+    for month in range(1, 200):
+        population.end_of_day(graph, state, day=30 * month, rng=random.Random(month))
+        if not graph.nodes[1].alive:
+            break
+    assert all(d["cause"] == "moved away" for d in graph.deaths) and len(graph.deaths) == 3
+    assert graph.household_money[5] == 0.0
 
 
 def test_a_job_is_refilled_even_when_the_town_is_at_full_size():
@@ -259,20 +302,16 @@ def test_a_single_arrival_lodges_with_the_household_that_lost_someone():
     assert graph.nodes[events[0].resident_a].household_id == 5
 
 
-def test_a_family_arrives_together_in_places_left_without_a_job():
+def test_a_family_arrives_together_into_a_dead_worker_s_place():
     graph = _guard_post()
-    for resident_id in (6, 7):
-        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, gender="male", age=40))
-    population = PopulationPhenomenon(arrival_daily_chance=1.0, family_share=1.0, annual_growth=0.0)
+    population = PopulationPhenomenon(arrival_daily_chance=1.0, family_share=1.0)
     state = population.init_state(graph)
-    for resident_id in (1, 6, 7):
-        graph.record_death(resident_id, day=1, cause="flu")
+    graph.record_death(1, day=1, cause="flu")
     events = population.end_of_day(graph, state, day=1, rng=random.Random(0))
     head = graph.nodes[events[0].resident_a]
     family = [n for n in graph.nodes.values() if n.alive and n.household_id == head.household_id]
-    assert head.household_id is not None and 2 <= len(family) <= 3
+    assert head.household_id is not None and 2 <= len(family) <= 5
     assert any(graph.get_edge(head.resident_id, n.resident_id).source_type == "spouse" for n in family if n is not head)
-    assert len(events) == 1  # the family filled the two jobless places
 
 
 def _run_all():
@@ -282,7 +321,10 @@ def _run_all():
     test_a_newborn_can_catch_the_disease_from_a_parent()
     test_a_phenomenon_without_add_resident_fails_loudly()
     test_a_dead_guard_is_replaced_by_an_arrival_who_takes_over_the_post()
-    test_a_civilian_place_stays_open_while_the_town_is_at_full_size()
+    test_a_place_without_work_is_not_refilled()
+    test_work_easy_to_find_draws_people_who_lodge()
+    test_no_room_no_arrivals()
+    test_a_desperate_household_that_can_afford_it_moves_out()
     test_a_job_is_refilled_even_when_the_town_is_at_full_size()
     test_the_town_may_grow_past_its_starting_size()
     test_everyone_ages_at_the_year_end()
@@ -290,7 +332,7 @@ def _run_all():
     test_with_no_children_a_sibling_then_a_nephew_takes_the_title()
     test_a_small_child_never_turns_thief()
     test_a_single_arrival_lodges_with_the_household_that_lost_someone()
-    test_a_family_arrives_together_in_places_left_without_a_job()
+    test_a_family_arrives_together_into_a_dead_worker_s_place()
     print("OK")
 
 

@@ -293,6 +293,47 @@ begging and deaths, then recovering.
 
 > Feedback: Good. 
 
+#### Slice 4 build plan (2026-10-01)
+
+Today (seed 1, 25 years): 2,070 births against 2,332 deaths and
+departures; 553 arrivals filled the gap. A dead worker's job is always
+refilled by a newcomer; a dead person without a job only while the town is
+below the 0.5% a year growth target (447 such places were still waiting).
+
+**A. Work draws people in (replaces the growth target).** Each month the
+economy measures the day labour households wanted but found nobody to do:
+the town's unmet demand, in jobs. Each unmet job draws an arrival with a
+monthly chance (C), fewer when many are unemployed (they take the work
+first) and none once homes are crowded (people per home building 20% above
+the start, C; new houses come with TownShape later). A dead person without
+a job is no longer replaced. Jobs left by the dead are still refilled.
+
+**B. Who arrives.** Most come alone (they lodge with a household), one in
+three as a family; they look for work as day labourers. Someone taking a
+dead master's, merchant's or shopkeeper's place brings the capital of the
+trade (C: a master or shopkeeper ~100 fl, a merchant ~500 fl), not the 5 fl
+a labourer brings. Opening a new shop needs a free building: later, with
+TownShape.
+
+**C. Moving out.** A household whose members' stress stays very high
+(average 0.7 or more, C) and that holds at least a year of its basket may
+leave, taking its money (5% a month while both hold, C). Nobles don't.
+Recorded like banishment (cause "moved away") until departures have their
+own record.
+
+**Check:** still a demographic sink; the town grows slowly because arrivals
+outnumber the gap, and stops growing when work or room runs out.
+
+> Feedback: looks good. 
+
+> **Built (2026-10-01).** Seed 1, 25 years: 1,866 -> 2,185 people,
+> flattening from year 18 as homes fill (no new houses yet); still a
+> demographic sink (2,085 births, 2,226 deaths); 162 came for work, 23
+> moved away. Two changes from the plan: the pull is how easy work is to
+> find (unfilled day labour never appeared: labourers always covered it),
+> and a household leaves only after a year of very high stress (a month
+> sent 282 away). Opening new shops waits for free buildings (TownShape).
+
 ### 4.5 Slice 5 — Merchants, homeowners and landlords — Open
 
 - Who owns each house; rent flowing from tenants to owners; some

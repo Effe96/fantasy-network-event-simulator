@@ -874,19 +874,20 @@ def reshape_to_settled_town(graph: SocialGraph, seed: int) -> None:
                 node.birth_date = f"{graph.reference_year - node.age:04d}-01-01"
 
 
-def household_shop_ties(graph: SocialGraph, node: Node, rng: random.Random) -> int:
+def household_shop_ties(graph: SocialGraph, node: Node, rng: random.Random, model: Optional[Node] = None) -> int:
     """TownShape gives shop ties to adults only; a resident coming of age
     starts buying where their household does: a tie to each shop staff member
     a living parent buys from (the parent's own buying pattern, fresh
     feelings). Used at 18 (PopulationPhenomenon) and by the importer for
-    TownShape children it makes adults. Returns how many ties were added."""
+    TownShape children it makes adults. `model`: whose shops to copy instead
+    of a parent's (a lodger takes up their host's). Returns how many ties were added."""
     resident_id = node.resident_id
     parents = sorted(other for other in graph.neighbors(resident_id)
                      if graph.get_edge(resident_id, other).source_type == "parent"
                      and graph.nodes[other].alive and (graph.nodes[other].age or 0) > (node.age or 0))
-    if not parents:
+    if model is None and not parents:
         return 0
-    parent = graph.nodes[parents[0]]
+    parent = model if model is not None else graph.nodes[parents[0]]
     added = 0
     for other in graph.neighbors(parent.resident_id):
         tie = graph.get_edge(parent.resident_id, other)
