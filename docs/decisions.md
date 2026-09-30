@@ -8,6 +8,20 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-01 — The commune sells heirless land and pays the guards
+
+User: land goes to whoever is rich enough to buy it; otherwise it stays
+with the commune, whose money pays the guards and keeps the city running.
+Each heirless estate's land becomes a lot; monthly the household with the
+most cash buys the oldest lot if it has the price. The commune's cash
+(sales, its land's 7%) pays public wages before any outside money. Run
+(PyPy, seed 1, 25 years): households' money 92k -> 90k (81k with the
+commune spending in town); the commune paid 20-40% of public wages; its
+land 4.8k (12.3k). Only ~40 fl of land sold: households keep little cash
+(a few months' income), so lots rarely find a buyer. Very poor 21% at year
+25 (16.5% in the previous run): one seed, needs more seeds before reading
+it as an effect.
+
 ## 2026-10-01 — Heirless estates stay in town; people left alone join family
 
 Economy findings 1 and 2 (`Project_Vision/03-economy-design.md` §5b).

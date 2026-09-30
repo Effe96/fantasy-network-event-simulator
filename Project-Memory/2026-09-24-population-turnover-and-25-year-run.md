@@ -203,8 +203,10 @@ Two crashes found on the way, both newcomers registering while tied to a
 newcomer not yet registered (romance, `_authority_ties`); the rule now:
 a pair is recorded by whichever registers second. The mid-run newcomer
 test covers it.
-Left: the commune's land grows (12k of ~95k fl by year 25, from 57
-estates) and would keep growing; very poor still rise from year 5 (10% ->
+Then, per the user, the commune sells heirless land to whoever can pay
+and its money pays the guards and public wages first (households' money
+92k -> 90k; commune land 4.8k; few lots sell, as cash is scarce).
+Left: very poor still rise from year 5 (10% ->
 16.5%); thefts +13%. Slice 3 (debt, charity, beggars) is next for poverty.
 
 ### 7. Run times and scaling (measured 2026-09-29, for later)

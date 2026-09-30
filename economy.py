@@ -421,8 +421,10 @@ class EconomyPhenomenon:
                 self._year["in: property"] += gain
         for node in alive:
             wage, payer = PAY.get(job_kind(node.occupation), (0.0, None))
-            if payer == "public":
-                gain = self._pay(graph, None, household_key(node), wage * month)
+            if payer == "public":  # the commune's own money first (user, 2026-10-01), the outside the rest
+                from_commune = self._pay(graph, COMMUNE, household_key(node), wage * month)
+                self._year["commune: paid wages"] += from_commune
+                gain = from_commune + self._pay(graph, None, household_key(node), wage * month - from_commune)
                 income[household_key(node)] += gain
                 self._year["in: public wages"] += gain
 
@@ -490,16 +492,26 @@ class EconomyPhenomenon:
             hire[key] = hire.get(key, 0.0) + local * DAY_LABOUR_OF_SPENDING  # builders, porters, carters
             self._buy(graph, key, local * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income)
 
-        # the commune spends what heirless estates left it: public works, purchases
-        public = COMMUNE_SPENT_PER_YEAR * month * max(0.0, graph.household_money.get(COMMUNE, 0.0))
-        if public > 0:
-            hire[COMMUNE] = public * DAY_LABOUR_OF_SPENDING
-            self._buy(graph, COMMUNE, public * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income)
-            self._year["out: commune spending"] += public
+        self._sell_commune_land(graph, members)
         self._hire_day_labour(graph, by_occupation["day_labourer"], hire, income, month, rng)
         for key in members:  # the month is complete: update each household's usual income
             usual = self._income.get(key, income.get(key, 0.0))
             self._income[key] = usual + (income.get(key, 0.0) - usual) * INCOME_MEMORY
+
+    def _sell_commune_land(self, graph, members) -> None:
+        """Land the commune got from heirless estates goes to whoever can pay
+        for it: the household with the most cash buys a lot if it has its
+        price (user, 2026-10-01). Unsold lots stay with the commune."""
+        lots = getattr(graph, "commune_lots", [])
+        for lot in list(lots):
+            buyer = max(members, key=lambda k: graph.household_money.get(k, 0.0), default=None)
+            if buyer is None or graph.household_money.get(buyer, 0.0) < lot:
+                break  # the richest can't pay for this one; later lots wait their turn
+            self._pay(graph, buyer, COMMUNE, lot)
+            graph.household_property[COMMUNE] -= lot
+            graph.household_property[buyer] = graph.household_property.get(buyer, 0.0) + lot
+            lots.remove(lot)
+            self._year["commune: land sold"] += lot
 
     def _hire_day_labour(self, graph, labourers, budget, income, month: float, rng: random.Random) -> None:
         """Households pay for day labour out of their budget (sellers a share of
@@ -721,8 +733,8 @@ def settle_estate(graph, dead: int) -> Optional[str]:
     live; with no children it stays with the household. A household left
     with nobody goes to the siblings, then the nephews and nieces, like a
     title (2026-10-01: 183 heirless estates in 25 years went out of town,
-    wealth 91k -> 70k fl); with no kin to the commune, which keeps it
-    and spends its income in town (COMMUNE). Returns what happened, for counting."""
+    wealth 91k -> 70k fl); with no kin to the commune (COMMUNE), which
+    sells the land to whoever can pay. Returns what happened, for counting."""
     node = graph.nodes[dead]
     key = household_key(node)
     if not hasattr(graph, "household_money") or (node.age or 0) < 18:
@@ -755,15 +767,18 @@ def settle_estate(graph, dead: int) -> Optional[str]:
                 _move_wealth(graph, key, household_key(heir), 1.0 / (len(heirs) - share))
             return outcome
     graph.household_money.setdefault(COMMUNE, 0.0)
+    lot = max(0.0, getattr(graph, "household_property", {}).get(key, 0.0))
     _move_wealth(graph, key, COMMUNE, 1.0)
+    if lot > 0:
+        graph.commune_lots = getattr(graph, "commune_lots", []) + [lot]
     return "to the commune"
 
 
-# the commune's household key. It keeps the land and houses it gets (like the
-# Church's mortmain) and spends their income: selling them for cash that was
-# then spent lost the 7% for good (2026-10-01 run: wealth 91k -> 74k fl)
+# The commune's household key (user, 2026-10-01). Land from heirless estates
+# is sold to a household that can pay (the monthly _sell_commune_land);
+# unsold it stays with the commune, earning its return. The commune's cash
+# pays the guards and the other public wages before any outside money.
 COMMUNE = "commune"
-COMMUNE_SPENT_PER_YEAR = EXCESS_CASH_SPENT_PER_YEAR  # C: on public works and purchases in town
 LEFT_ALONE_MOVES_IN_AGE = 50  # C: a widow(er) this old moves in with a grown child
 
 

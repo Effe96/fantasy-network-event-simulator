@@ -326,6 +326,12 @@ feelings and marriage hold; ties per resident 83 -> 78.
 > corresponding money is used to pay for the city guard and to keep the
 > city running.
 
+> **Built (2026-10-01):** heirless land becomes a lot the richest household
+> buys if it has the cash; the commune's money pays public wages first.
+> Households' money now holds (92k -> 90k in 25 years); the commune paid
+> 20-40% of public wages, and holds 4.8k of land. Few lots sell (~40 fl):
+> households keep only a few months' income in cash.
+
 > Feedback:
 
 ---

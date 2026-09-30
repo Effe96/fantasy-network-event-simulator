@@ -78,6 +78,26 @@ def test_a_household_left_with_nobody_goes_to_the_commune():
     assert graph.household_money[COMMUNE] == 50.0  # kept in town, spent there
 
 
+def test_the_commune_sells_land_to_whoever_can_pay_and_pays_the_guards():
+    graph = _town()
+    graph.record_death(1, day=1, cause="flu")
+    graph.record_death(2, day=1, cause="flu")
+    graph.record_death(3, day=1, cause="flu")
+    graph.nodes[4].household_id = graph.nodes[5].household_id = 3
+    settle_estate(graph, 2)  # household 1 (100 cash, 900 land), with no heir alive
+    assert graph.commune_lots == [900.0]
+    economy = EconomyPhenomenon()
+    economy.init_state(graph)
+    economy._sell_commune_land(graph, [3])
+    assert graph.household_property[COMMUNE] == 900.0  # household 3 can't pay: the commune keeps it
+    graph.household_money[3] = 1000.0
+    economy._sell_commune_land(graph, [3])
+    assert graph.household_property[3] == 900.0 and graph.household_money[COMMUNE] == 1000.0
+    graph.nodes[4].occupation = "guard"
+    economy._month(graph, random.Random(0))
+    assert graph.household_money[COMMUNE] < 1000.0  # the guard's pay came from the commune
+
+
 def test_a_heirless_estate_goes_to_the_siblings():
     graph = _town()
     graph.add_edge(Edge(3, 4, "sibling", "Communal Sharing", 0.7, 0.7, 0.7, 0.5, 0.5))
@@ -158,6 +178,7 @@ def _run_all():
     test_with_no_spouse_the_estate_goes_to_all_children()
     test_a_household_left_with_nobody_goes_to_the_commune()
     test_a_heirless_estate_goes_to_the_siblings()
+    test_the_commune_sells_land_to_whoever_can_pay_and_pays_the_guards()
     test_an_old_widow_left_alone_moves_in_with_her_daughter()
     test_orphans_go_to_their_grown_sibling()
     test_the_month_pays_wages_and_feeds_people()
