@@ -124,21 +124,36 @@ def test_a_debt_a_year_behind_cools_the_tie_and_costs_property():
     graph.household_property[2] = 30.0
     graph.debts = [{"debtor": 2, "creditor": 1, "debtor_person": 3, "creditor_person": 1, "amount": 50.0,
                     "rate": 0.1, "kind": "patron", "behind": 0}]
+    graph.get_edge(1, 3).valence_a_to_b = 0.0  # a creditor who doesn't care for them: no forgiving
     before = graph.get_edge(1, 3).valence_a_to_b
-    for _ in range(12):
-        economy._repay_debts(graph, needs, members)
+    for month in range(12):
+        economy._repay_debts(graph, needs, members, random.Random(month))
     assert graph.household_property[2] == 0.0 and graph.household_property[1] == 930.0
     assert graph.get_edge(1, 3).valence_a_to_b < before
     assert 20.0 < graph.debts[0]["amount"] < 50.0  # grew with interest, then 30 seized
 
 
-def test_family_forgives_a_debt_a_year_behind():
+def test_a_creditor_who_cares_forgives_a_debt_behind():
     graph, economy, members, needs = _lenders_and_borrower()
     graph.debts = [{"debtor": 2, "creditor": 1, "debtor_person": 3, "creditor_person": 1, "amount": 50.0,
                     "rate": 0.0, "kind": "family", "behind": 0}]
-    for _ in range(12):
-        economy._repay_debts(graph, needs, members)
-    assert graph.debts == [] and graph.household_property[2] == 0.0
+    graph.get_edge(1, 3).valence_a_to_b = 0.9  # a loving father
+    for month in range(60):
+        economy._repay_debts(graph, needs, members, random.Random(month))
+        if not graph.debts:
+            break
+    assert graph.debts == [] and month < 24 and graph.household_property[2] == 0.0  # forgiven, nothing seized
+
+
+def test_the_commune_repays_a_very_rich_lender_in_land():
+    graph, economy, members, needs = _lenders_and_borrower()
+    graph.nodes[1].ses = "very_rich"
+    graph.household_property[COMMUNE] = 40.0
+    graph.commune_lots = [40.0]
+    graph.debts = [{"debtor": COMMUNE, "creditor": 1, "debtor_person": None, "creditor_person": 1, "amount": 30.0,
+                    "rate": 0.05, "kind": "forced loan", "behind": 0}]
+    economy._repay_debts(graph, needs, members, random.Random(0))
+    assert graph.debts == [] and graph.household_property[1] == 930.0 and graph.commune_lots == [10.0]
 
 
 def test_devout_middling_people_give_alms_and_the_poor_don_t():
@@ -157,6 +172,36 @@ def test_a_commune_short_of_wages_borrows_from_the_richest():
     economy._commune_borrow(graph, 50.0, [n for n in graph.nodes.values() if n.alive])
     assert graph.household_money[COMMUNE] == 50.0 and graph.household_money[1] == 950.0
     assert graph.debts[0]["debtor"] == COMMUNE and graph.debts[0]["kind"] == "forced loan"
+
+
+def test_a_household_hungry_for_half_a_year_begs_and_people_it_knows_give():
+    graph, economy, members, needs = _lenders_and_borrower()
+    graph.household_money[3] = 0.0
+    for _ in range(6):
+        graph.hunger = {3: 0.5}
+        economy._hardship(graph, members, random.Random(1), day=30)
+    assert graph.nodes[4].beggar or graph.nodes[5].beggar
+    graph.add_edge(Edge(1, 4, "neighbor", "Equality Matching", 0.8, 0.8, 0.3, 0.9, 0.9))
+    graph.add_edge(Edge(1, 5, "neighbor", "Equality Matching", 0.8, 0.8, 0.3, 0.9, 0.9))
+    graph.nodes[1].religiousness = 1.0
+    graph.hunger = {3: 0.5}
+    economy._hardship(graph, members, random.Random(1), day=60)
+    assert graph.household_money[3] > 0  # a devout neighbour who likes them gave
+    for _ in range(3):
+        graph.hunger = {}
+        economy._hardship(graph, members, random.Random(1), day=90)
+    assert not graph.nodes[4].beggar and not graph.nodes[5].beggar  # fed again: they stop
+
+
+def test_the_old_can_die_of_hardship_while_hungry():
+    graph, economy, members, needs = _lenders_and_borrower()
+    graph.nodes[1].age = 80
+    for month in range(600):
+        graph.hunger = {1: 1.0}
+        economy._hardship(graph, members, random.Random(month), day=30 * month)
+        if not graph.nodes[1].alive:
+            break
+    assert graph.deaths and graph.deaths[0]["cause"] == "hardship"
 
 
 def test_an_estate_pays_its_debts_before_the_heirs():
@@ -252,9 +297,12 @@ def _run_all():
     test_a_short_household_borrows_from_family_without_interest()
     test_nobody_lends_to_a_stranger_without_a_moneylender()
     test_a_debt_a_year_behind_cools_the_tie_and_costs_property()
-    test_family_forgives_a_debt_a_year_behind()
+    test_a_creditor_who_cares_forgives_a_debt_behind()
+    test_the_commune_repays_a_very_rich_lender_in_land()
     test_devout_middling_people_give_alms_and_the_poor_don_t()
     test_a_commune_short_of_wages_borrows_from_the_richest()
+    test_a_household_hungry_for_half_a_year_begs_and_people_it_knows_give()
+    test_the_old_can_die_of_hardship_while_hungry()
     test_an_estate_pays_its_debts_before_the_heirs()
     test_the_commune_sells_land_to_whoever_can_pay_and_pays_the_guards()
     test_an_old_widow_left_alone_moves_in_with_her_daughter()

@@ -155,12 +155,23 @@ def test_low_loyalty_guards_execute_instead_of_arresting():
     phenomenon = TheftPhenomenon(discovery_chance=1.0, arrest_chance=1.0, execution_weight=1.0)
     state = phenomenon.init_state(graph)
     state[1]["is_thief"] = True
+    state[1]["convictions"] = 2  # the gallows only from the third conviction
 
     events = phenomenon.apply_effect(graph, state, 1, 2, day=5, rng=random.Random(0))
 
     assert graph.nodes[1].alive is False
     assert any(event.kind == "executed" for event in events)
     assert phenomenon.summarize(state)["thefts_executed"] == 1
+
+
+def test_a_first_conviction_never_hangs():
+    graph = _thief_victim_graph()
+    graph.add_node(Node(resident_id=3, ses="middling", alive=True, occupation="guard", loyalty=0.0))
+    phenomenon = TheftPhenomenon(discovery_chance=1.0, arrest_chance=1.0, execution_weight=1.0)
+    state = phenomenon.init_state(graph)
+    state[1]["is_thief"] = True
+    phenomenon.apply_effect(graph, state, 1, 2, day=5, rng=random.Random(0))
+    assert graph.nodes[1].alive and not state[1]["is_thief"] and state[1]["convictions"] == 1
 
 
 def test_recent_arrests_suppress_the_become_thief_probability():
@@ -229,6 +240,7 @@ def _run_all():
     test_arrested_thief_loses_thief_status_but_stays_alive()
     test_thief_can_be_arrested_with_no_guard_neighbor_at_all()
     test_low_loyalty_guards_execute_instead_of_arresting()
+    test_a_first_conviction_never_hangs()
     test_recent_arrests_suppress_the_become_thief_probability()
     test_nobles_never_become_thieves()
     test_more_stressed_residents_become_thieves_more_readily()

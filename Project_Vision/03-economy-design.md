@@ -247,6 +247,19 @@ begging and deaths, then recovering.
 > poor rise after year 5 (10% -> 21%), and unsold heirless land piles up
 > with the commune (10k fl by year 25).
 >
+> **Built (2026-10-01): D.** Beggars by household (6 months hungry, most
+> members join, stop after 3 months fed; alms from people who know them),
+> hunger making disease deadlier, hardship deaths for the very young and
+> old. Seed 1, 25 years: up to 49 beggars, 25 hardship deaths, very poor
+> 14.2% at year 25, hungry households 44.
+>
+> **Done (2026-10-01):** all four to-dos below. Executions 152 -> 10 in
+> 25 years (hanging only from a third conviction); debts forgiven by the
+> creditor's feeling; forced loans repaid in land to nobles and the very
+> rich; a famine year kills ~1% of the town (the commune finds 60% of the
+> grain the hungry lack). Newly seen: riot deaths ~9-14 a year, far above
+> medieval norms.
+>
 > **To do (user, 2026-10-01):**
 > - **Famine deaths:** some people should die in a famine; everyone
 >   surviving is very unlikely.

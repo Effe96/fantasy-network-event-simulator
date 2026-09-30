@@ -253,8 +253,13 @@ def child_fatality_factor(age: Optional[int]) -> float:
     return 20.0 if age < 1 else 3.0
 
 
+HUNGRY_FATALITY_AFTER_MONTHS = 3  # C: slice 3 D, death from hardship
+HUNGRY_FATALITY = 1.5  # C: a disease this much deadlier after months of hunger
+
+
 def disease_fatality_factor(node) -> float:
-    return SES_VULNERABILITY.get(node.ses, 1.0) * child_fatality_factor(node.age)
+    hunger = HUNGRY_FATALITY if node.hungry_months >= HUNGRY_FATALITY_AFTER_MONTHS else 1.0
+    return SES_VULNERABILITY.get(node.ses, 1.0) * child_fatality_factor(node.age) * hunger
 
 
 class CommonAilmentsPhenomenon:
@@ -1826,6 +1831,11 @@ THIEF_MIN_AGE = 12  # a child pickpocket is plausible; a toddler thief (hanged!)
 # only someone under real strain turns to theft (user, 2026-09-27): poverty
 # alone (0.4) never reaches it; a recent loss or illness on top does
 THIEF_STRESS_THRESHOLD = 0.6
+# the gallows only from the third conviction (user to-do, 2026-10-01: ~5
+# executions a year for ~2,100 people, where late-medieval Florence hanged
+# ~15-30 a year among 50-100k). Earlier convictions end in a fine or a
+# flogging: the thief goes straight for now. The common statute pattern.
+HANGED_FROM_CONVICTION = 3
 
 
 class TheftPhenomenon:
@@ -1989,7 +1999,8 @@ class TheftPhenomenon:
         execution_chance = self.execution_weight * (1.0 - self._avg_guard_loyalty) * self._params.strictness_factor()
 
         self._deterrence += 1.0
-        if rng.random() < execution_chance:
+        state[thief_id]["convictions"] = state[thief_id].get("convictions", 0) + 1
+        if state[thief_id]["convictions"] >= HANGED_FROM_CONVICTION and rng.random() < execution_chance:
             graph.record_death(thief_id, day, "execution")
             self._executions += 1
             events.append(Event(day, self.name, "executed", thief_id, thief_id, "killed after being caught stealing"))

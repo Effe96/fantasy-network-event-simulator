@@ -8,6 +8,39 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-01 — The user's four to-dos after slice 3
+
+- **Executions:** the gallows only from a thief's third conviction
+  (`HANGED_FROM_CONVICTION`); a first or second ends in a fine or a
+  flogging and the thief goes straight. 152 -> 10 executions in 25 years
+  (0.4 a year; late-medieval Florence ~15-30 a year for 50-100k).
+- **Forgiveness by feeling:** each month a debt is behind, the creditor
+  forgives it with chance 0.2 x their feeling for the debtor (replaces
+  "family forgives after a year"); unforgiven after a year, a creditor
+  other than the commune's lenders seizes property.
+- **Forced loans in land:** the commune repays noble and very rich lenders
+  with its heirless lots first.
+- **Famine deaths:** the commune finds only 60% of the grain the hungry
+  lack; a hungry person in a famine dies with 5% a month (under-5s and
+  over-60s; a fifth of that for others). A forced famine year (seed 1)
+  killed 21 people, ~1.1% of the town (0.015 a month killed 0.3%); Villani
+  gives ~4% of Florence in the severe 1346-47 famine.
+- Seen in the 25-year run: riot deaths 223-358 in 25 years (~9-14 a year)
+  are far above medieval norms: next to check.
+
+## 2026-10-01 — Slice 3 D: beggars and death from hardship
+
+A household hungry 6 months in a row begins to beg; each member 7 or older
+joins with 75% chance (user: when one begs, most of the household does);
+it stops after 3 months fed. A beggar asks up to 10 people they know each
+month; the devout and those who like them give most (not the very poor or
+other beggars). Hunger for 3+ months makes a disease 1.5x deadlier; under-5s
+and over-60s can die of hardship directly (1% a month at a whole basket
+short). "Kicked out" (evicted for unpaid rent) waits for rent, slice 5.
+Run (PyPy, seed 1, 25 years): 0-49 beggars (up to ~2% of the town),
+25 hardship deaths (~1 a year), very poor 14.2% at year 25 (20.6%),
+hungry households 44 (51); crime about the same (one seed).
+
 ## 2026-10-01 — Slice 3 B and C: debt, alms, the gabelle, harvests
 
 User's choices: debt from family and friends (no interest), then an

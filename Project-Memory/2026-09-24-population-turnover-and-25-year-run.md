@@ -217,9 +217,13 @@ stress, debt (family, patrons, moneylenders), alms, the gabelle (2.5%) with
 forced loans and public works, harvests and famine relief. Hungry
 households at year 25 went 136 (first run) -> 51. Wrong turns: resentment
 over unpaid debt had no end; a 6% gabelle made the commune hoard. Open:
-very poor still rise after year 5; executions ~5 a year, far above
-medieval norms; beggars and hardship deaths (D) next; eviction waits for
-rent (slice 5).
+executions ~5 a year, far above medieval norms; eviction waits for rent
+(slice 5). Then D: beggars by household and hardship deaths (up to 49
+beggars, 25 hardship deaths in 25 years; very poor 14.2% at year 25).
+The user's four to-dos, done: executions 152 -> 10 (third conviction),
+forgiveness by feeling, forced loans repaid in land, famine deaths ~1% of
+the town in a famine year (forced-famine check). Next seen: riot deaths
+~9-14 a year.
 
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 

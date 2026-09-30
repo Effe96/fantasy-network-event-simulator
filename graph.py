@@ -40,6 +40,10 @@ class Node:
     # 0..1, what they're going through (poverty, grief, illness), kept
     # current by StressPhenomenon; theft reads it
     stress: float = 0.0
+    # months in a row their household went hungry, and whether they beg
+    # (economy, slice 3 D)
+    hungry_months: int = 0
+    beggar: bool = False
     # TownShape home district (resident -> home building -> district) and
     # that district's zone_type, e.g. "poor_residential". None when the
     # snapshot has no buildings/districts (test fixtures).
