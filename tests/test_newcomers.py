@@ -75,6 +75,12 @@ class _BirthOnDay:
     def end_of_day(self, graph, state, day, rng):
         if day == self.day:
             self.baby = graph.add_resident(_baby_row(), [(1, "parent"), (2, "parent")], rng)
+            # newcomers tied to each other, each registered while the later ones are still
+            # new: a priest, their brother, the brother's wife
+            priest = graph.add_resident(dict(_baby_row(), birth_date=None, occupation="priest"), [(1, "neighbor")], rng)
+            first = graph.add_resident(dict(_baby_row(), birth_date=None), [(priest, "sibling")], rng)
+            second = graph.add_resident(dict(_baby_row(), birth_date=None), [(first, "spouse")], rng)
+            self.couple = (first, second, priest)
         return []
 
     def summarize(self, state):
@@ -92,7 +98,8 @@ def test_every_standard_phenomenon_takes_on_a_newcomer_mid_run():
     run_simulation(graph, phenomena, days=30, seed=1,
                    on_day_end=lambda day, g, states: captured.update(states=states))
     for phenomenon in phenomena:
-        assert births.baby in captured["states"][phenomenon.name], phenomenon.name
+        for newcomer in (births.baby,) + births.couple:
+            assert newcomer in captured["states"][phenomenon.name], phenomenon.name
 
 
 def test_a_newborn_can_catch_the_disease_from_a_parent():
@@ -242,6 +249,32 @@ def test_a_small_child_never_turns_thief():
     assert state[3]["is_thief"] and not state[4]["is_thief"]
 
 
+def test_a_single_arrival_lodges_with_the_household_that_lost_someone():
+    graph = _guard_post()
+    graph.nodes[1].household_id = graph.nodes[3].household_id = 5
+    population = PopulationPhenomenon(arrival_daily_chance=1.0, family_share=0.0)
+    state = population.init_state(graph)
+    graph.record_death(1, day=1, cause="riot")
+    events = population.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert graph.nodes[events[0].resident_a].household_id == 5
+
+
+def test_a_family_arrives_together_in_places_left_without_a_job():
+    graph = _guard_post()
+    for resident_id in (6, 7):
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, gender="male", age=40))
+    population = PopulationPhenomenon(arrival_daily_chance=1.0, family_share=1.0, annual_growth=0.0)
+    state = population.init_state(graph)
+    for resident_id in (1, 6, 7):
+        graph.record_death(resident_id, day=1, cause="flu")
+    events = population.end_of_day(graph, state, day=1, rng=random.Random(0))
+    head = graph.nodes[events[0].resident_a]
+    family = [n for n in graph.nodes.values() if n.alive and n.household_id == head.household_id]
+    assert head.household_id is not None and 2 <= len(family) <= 3
+    assert any(graph.get_edge(head.resident_id, n.resident_id).source_type == "spouse" for n in family if n is not head)
+    assert len(events) == 1  # the family filled the two jobless places
+
+
 def _run_all():
     test_a_newcomer_is_built_like_an_imported_resident()
     test_an_existing_id_is_rejected()
@@ -256,6 +289,8 @@ def _run_all():
     test_a_dead_noble_s_eldest_child_inherits_and_no_stranger_arrives()
     test_with_no_children_a_sibling_then_a_nephew_takes_the_title()
     test_a_small_child_never_turns_thief()
+    test_a_single_arrival_lodges_with_the_household_that_lost_someone()
+    test_a_family_arrives_together_in_places_left_without_a_job()
     print("OK")
 
 

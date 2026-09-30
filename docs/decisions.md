@@ -8,6 +8,42 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-01 — Heirless estates stay in town; people left alone join family
+
+Economy findings 1 and 2 (`Project_Vision/03-economy-design.md` §5b).
+- A household left with nobody passes to the siblings, then nephews and
+  nieces (the title rule); with no kin to the commune (`COMMUNE`, a
+  household key without members), which keeps the land and houses (like
+  the Church's mortmain) and spends half its cash a year in town (day
+  labour and purchases). Sending it "out of town" drained 91k -> 66k fl in
+  25 years; selling the property for cash to spend still drained it
+  (-> 74k): the 7% it earned was lost for good. Paying public wages from
+  the commune's cash was rejected: it only swaps outside money for the
+  estate, households end up the same.
+- `join_family`: orphans (everyone left under 18) go to an adult sibling, a
+  grandparent, then an aunt or uncle; a widow(er) of 50+ left alone to
+  their eldest grown child, with the household's wealth. Nobles stay put.
+- Arrivals (user chose "lodge + some families"): the 724 arrivals of 25
+  years each started a household of one, the main cause of 3.6 -> 2.2.
+  A single arrival lodges with the household of the person they replace
+  (a servant in the noble house, a lodger with the widow), else with one in
+  the same building; `family_share` 1/3 come with a spouse and up to three
+  children, filling open places without a job so the growth target still
+  rules. Never for a priest's post.
+- `follow_if_emptied`: a household everyone has left keeps nothing behind.
+- Result (PyPy, seed 1, year 25): 2.98 people per household (2.24), town
+  money holds with the commune's land (12k fl), hungry 81 (136), very
+  poor 16.5% (23.4%), Gini 0.72 (0.77).
+
+## 2026-10-01 — PyPy for long runs
+
+User, 2026-10-01: long runs use PyPy 3.11 (7.3.20, installed with winget;
+`python` stays CPython 3.12). CPU time per simulated year 27-29 s against
+45 s; tests pass under it. Results are deterministic and identical to
+CPython 3.11; they differ from 3.12 only because of the Python version
+(likely 3.12's more exact float `sum`), so compare runs made on the same
+interpreter.
+
 ## 2026-10-01 — Speed: 22% faster with identical results
 
 The user made speed the first priority after 25-year runs slowed to 42 min.

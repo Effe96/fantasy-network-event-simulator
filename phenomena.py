@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from economy import form_household
+from economy import follow_if_emptied, form_household, household_key, new_household_id
 from graph import (FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, befriend, edge_from_relationship,
                    household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
@@ -1126,7 +1126,7 @@ class RomancePhenomenon:
                       for other in graph.neighbors(resident_id))
         state[resident_id] = dict(self._resident_state(node), married=married)
         for other in graph.neighbors(resident_id):
-            if married and graph.get_edge(resident_id, other).source_type == "spouse":
+            if married and other in state and graph.get_edge(resident_id, other).source_type == "spouse":
                 state[other]["married"] = True
 
     @staticmethod
@@ -1409,6 +1409,8 @@ class RiotPhenomenon:
         state[resident_id] = None
         role = graph.nodes[resident_id].role
         for other in graph.neighbors(resident_id):
+            if other not in state:  # another newcomer: the pair is added when they register
+                continue
             other_role = graph.nodes[other].role
             if role == "civilian" and other_role in AUTHORITY_ROLES:
                 self._adjacency.append((resident_id, other))
@@ -2183,6 +2185,8 @@ class ReligionPhenomenon:
         if node.role == "civilian":
             self._baseline_religiousness[resident_id] = node.religiousness
         for other in graph.neighbors(resident_id):
+            if other not in state:  # another newcomer: the pair is added when they register
+                continue
             other_role = graph.nodes[other].role
             if node.role == "civilian" and other_role == "priest":
                 self._priest_ties.setdefault(resident_id, []).append(other)
@@ -2435,6 +2439,8 @@ class QuarantinePhenomenon:
         self._authority_ties[resident_id] = []
         is_authority = graph.nodes[resident_id].role in ("noble", "priest")
         for other in graph.neighbors(resident_id):
+            if other not in state:  # another newcomer: the pair is added when they register
+                continue
             if graph.nodes[other].role in ("noble", "priest"):
                 self._authority_ties[resident_id].append(other)
             if is_authority:
@@ -2540,13 +2546,19 @@ class PopulationPhenomenon:
     name = "population"
 
     def __init__(self, arrival_daily_chance: float = 1 / 60, adult_age: int = 18,
-                 arrival_ages: Tuple[int, int] = (18, 35), annual_growth: float = 0.005):
+                 arrival_ages: Tuple[int, int] = (18, 35), annual_growth: float = 0.005,
+                 family_share: float = 1 / 3):
         self.arrival_daily_chance = arrival_daily_chance  # per open vacancy: ~2 months on average
         self.adult_age = adult_age
         self.arrival_ages = arrival_ages
         # ponytail: ~0.5%/yr, a plausible 13th-century town rate; make it a
         # TownParameters dial if towns should grow at different speeds
         self.annual_growth = annual_growth
+        # C: share of arrivals who come as a family (user, 2026-10-01): a
+        # spouse and up to three children, filling open places without a job
+        self.family_share = family_share
+        self._families = 0
+        self._lodgers = 0
         self._arrivals = 0
         self._inheritances = 0
         self._shop_ties = 0
@@ -2599,6 +2611,8 @@ class PopulationPhenomenon:
         alive = sum(1 for node in graph.nodes.values() if node.alive)
         target = self._start_size * (1 + self.annual_growth) ** (day / 365)
         for dead in list(self._vacancies):
+            if dead not in self._vacancies:  # taken by an arriving family this pass
+                continue
             # a job is always refilled, like a guard's or a priest's post: people
             # come to town for work, and a shop that lost its staff would cut
             # every customer's tie (2026-09-29: shop ties per adult fell 52 -> 35
@@ -2609,9 +2623,16 @@ class PopulationPhenomenon:
             if rng.random() >= self.arrival_daily_chance:
                 continue
             self._vacancies.remove(dead)
-            newcomer = self._arrive(graph, dead, day, rng)
-            alive += 1
-            self._arrivals += 1
+            family = 0
+            if graph.nodes[dead].role != "priest" and rng.random() < self.family_share:  # priests are celibate
+                places = [v for v in self._vacancies
+                          if graph.nodes[v].role == "civilian" and graph.nodes[v].workplace_building_id is None]
+                family = min(len(places), 1 + rng.randint(0, 3))
+                for place in places[:family]:
+                    self._vacancies.remove(place)
+            newcomer = self._arrive(graph, dead, day, rng, family)
+            alive += 1 + family
+            self._arrivals += 1 + family
             events.append(Event(day, self.name, "arrived", newcomer, dead, "took over the place of"))
         return events
 
@@ -2640,16 +2661,26 @@ class PopulationPhenomenon:
                 break
         else:
             return None
+        left = household_key(heir)
         heir.household_id = old.household_id
+        follow_if_emptied(graph, left, old.household_id)
         # ponytail: phenomena that copied role at init (guards, theft, religion)
         # still see the heir as a civilian; add a role-change hook if heirs'
         # behaviour starts to matter
         heir.is_noble = True
         return heir.resident_id
 
-    def _arrive(self, graph, dead: int, day: int, rng: random.Random) -> int:
+    def _arrive(self, graph, dead: int, day: int, rng: random.Random, family: int = 0) -> int:
+        """A newcomer takes the dead person's place (job, home, the place's
+        ties). Alone, they live in (user, 2026-10-01: every arrival living
+        alone halved household size in 25 years): with the dead person's
+        household if it's still there (a servant in the noble house, a lodger
+        with the widow), else as a lodger with a household in the same
+        building, else alone. With `family` more people: a spouse and
+        children, their own household."""
         old = graph.nodes[dead]
         age = rng.randint(*self.arrival_ages)
+        home = None if family else self._lodging(graph, old)
         year = graph.reference_year + (day - 1) // 365 if graph.reference_year is not None else None
         # every living non-family tie of the dead person (coworkers, neighbours,
         # unit-mates, shop customers or shopkeepers); family doesn't pass to a
@@ -2669,10 +2700,15 @@ class PopulationPhenomenon:
         newcomer = graph.add_resident({
             "ses": old.ses, "gender": rng.choice(("female", "male")),
             "birth_date": f"{year - age:04d}-01-01" if year is not None else None,
-            "occupation": old.occupation, "is_noble": 0, "household_id": None,
+            "occupation": old.occupation, "is_noble": 0, "household_id": home if home is not None
+            else (new_household_id(graph) if family else None),
             "home_building_id": old.home_building_id, "workplace_building_id": old.workplace_building_id,
         }, [(other, record["source_type"]) for other, record in ties], rng)
         graph.nodes[newcomer].age = age
+        self._lodgers += home is not None
+        if family:
+            self._families += 1
+            self._bring_family(graph, newcomer, family, year, rng)
         # shop ties have their own shape (add_resident skips them): the newcomer
         # takes the dead person's side, customer or staff, at the same contact
         for other, record in shops:
@@ -2680,8 +2716,43 @@ class PopulationPhenomenon:
             graph.add_edge(shop_edge(graph, customer, staff, record["time"], record["services"], False, rng))
         return newcomer
 
+    @staticmethod
+    def _lodging(graph, old) -> Optional[int]:
+        def open_to(node):  # a noble house takes in only its servants
+            return node.alive and node.household_id is not None and (old.occupation == "servant" or not any(
+                n.is_noble and n.alive and n.household_id == node.household_id for n in graph.nodes.values()))
+        same = [n for n in graph.nodes.values() if n.household_id == old.household_id and open_to(n)]
+        if old.household_id is not None and same:
+            return old.household_id
+        building = [n for n in graph.nodes.values()
+                    if n.home_building_id == old.home_building_id and old.home_building_id is not None and open_to(n)]
+        return building[0].household_id if building else None
+
+    @staticmethod
+    def _bring_family(graph, newcomer: int, size: int, year: Optional[int], rng: random.Random) -> None:
+        head = graph.nodes[newcomer]
+        neighbours = [(o, "neighbor") for o in graph.neighbors(newcomer)
+                      if graph.get_edge(newcomer, o).source_type == "neighbor"]
+        base = {"ses": head.ses, "occupation": None, "is_noble": 0, "household_id": head.household_id,
+                "home_building_id": head.home_building_id, "workplace_building_id": None}
+        spouse_age = max(18, min(60, head.age + rng.randint(-6, 6)))
+        spouse = graph.add_resident(dict(base, gender="female" if head.gender == "male" else "male",
+                                         birth_date=f"{year - spouse_age:04d}-01-01" if year is not None else None),
+                                    [(newcomer, "spouse")] + neighbours, rng)
+        graph.nodes[spouse].age = spouse_age
+        children: List[int] = []
+        for _ in range(size - 1):
+            child_age = rng.randint(0, max(0, min(head.age, spouse_age) - 18))
+            child = graph.add_resident(dict(base, gender=rng.choice(("female", "male")),
+                                            birth_date=f"{year - child_age:04d}-01-01" if year is not None else None),
+                                       [(newcomer, "parent"), (spouse, "parent")]
+                                       + [(c, "sibling") for c in children] + neighbours, rng)
+            graph.nodes[child].age = child_age
+            children.append(child)
+
     def summarize(self, state) -> Dict[str, int]:
-        return {"arrivals": self._arrivals, "inheritances": self._inheritances,
+        return {"arrivals": self._arrivals, "arrived_as_families": self._families, "arrived_to_lodge": self._lodgers,
+                "inheritances": self._inheritances,
                 "open_vacancies": len(self._vacancies), "shop_ties_on_coming_of_age": self._shop_ties}
 
 

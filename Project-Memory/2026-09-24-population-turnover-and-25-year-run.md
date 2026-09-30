@@ -161,39 +161,51 @@ rich stop growing, but wealth drains through heirless estates, households
 shrink (3.6 -> 2.2 people) and poverty grows (design file section 5b).
 Runs slowed to 42 min for 25 years: **the user made speed the next priority.**
 
-### 6d. Speed work (2026-09-30/10-01) — committed; 58 -> 45 s a year
+### 6d. Speed work (2026-09-30/10-01) — 58 -> 45 s a year, then PyPy
 
-Summary in `docs/decisions.md` (2026-10-01). Next: PyPy (user approved the
-install, 2026-10-01). The notes below are the in-progress record.
+Details in `docs/decisions.md` (2026-10-01). Profile of one year before:
+violence ~25% (two daily scans of all ~80k ties), engine overhead ~29%,
+romance ~11%, favors ~8%, riots ~8%, guards ~7%. Exact speed-ups (a seed-1
+fingerprint of deaths, events, last summary and sampled feelings unchanged)
+took CPU time from 58 to 45 s per simulated year (commit `8eb5c53`).
+Timing lesson: measure CPU time on an idle machine, alternating versions.
 
-The user made speed the first priority (25 years had slowed to 42 min).
-Profiled one year: violence ~25% (two daily scans of all ~80k ties),
-engine overhead ~29% (per-tie rolls, daily summaries, counting the living),
-romance ~11% (daily scan of all ties), favors ~8%, riots ~8%, guards ~7%.
+PyPy 3.11 (7.3.20, via winget; `python` stays CPython 3.12): 27-29 s a
+year in the benchmark, ~20 s a year in a full run; a whole 25-year run
+takes ~8-10 min (42 min before the speed work). The user chose it for
+long runs. Its results equal CPython 3.11's; 3.12 differs (the version's
+float `sum`), so compare runs on one interpreter.
 
-Done, **uncommitted**, all meant to leave results identical: a
-bench on seed 1 (240 days) keeps fingerprint `d22971cdcffda801` (hash of
-deaths, events, last summary and sampled feelings) after each:
-1. per-resident tie tables in `graph.py` (`_links`, `ties_of`): tie lookup
-   without building a key, neighbours without re-scanning;
-2. violence's group check reuses the day's hateful ties (unless new
-   hatred appeared that day);
-3. riots: one lookup per civilian-authority pair;
-4. `graph.alive_count` kept by add_node/record_death instead of a daily count;
-5. the economy's summary recomputed only when something it reads changed.
-Tests: 246 passing.
+### 6e. Economy findings 1-2 (2026-10-01)
 
-Not yet measured reliably: the machine was at ~60% load from other programs,
-so wall-clock timings were noise. A CPU-time comparison (120 days, same
-fingerprint `27ff6d9cfd14bc5e` for both) gave committed 129 s/yr vs working
-tree 227 s/yr, but the import (which the changes barely touch) also went
-2.6 s -> 5.6 s between the two back-to-back runs: machine slowdown, not
-code. Repeat on an idle machine, alternating the two versions several times. Next: compare CPU time (time.process_time)
-of the committed code (`git archive HEAD` into a temp folder) against the
-working tree on the same 120-240 days, then continue with the bigger items:
-romance's and violence's daily full scans of every tie (need incremental
-candidate sets or a cheaper test), the engine's per-day position rebuild
-after retiring ties, favors' monthly pull back over all ties.
+From `Project_Vision/03-economy-design.md` §5b. Baseline and fixed runs
+are both PyPy, seed 1, 25 quiet years.
+
+| | baseline | fixed | book |
+|---|---|---|---|
+| people per household, year 25 | 2.24 | 2.98 | ~4 (Florence 1427) |
+| households' money, year 5 -> 25 | 92k -> 66k | 92k -> 81k (+14k commune) | steady |
+| hungry households, year 25 | 136 | 81 | |
+| very poor, year 25 | 23.4% | 16.5% | 15% at import |
+| Gini, year 25 | 0.772 | 0.719 | ~0.70 |
+
+What changed: heirless estates go to siblings, then nephews, else to the
+commune, which keeps the land and spends its income in town; old widows
+move in with a grown child and orphans with kin; single arrivals lodge
+(with the household that lost someone, or one in the same building), one
+in three arrives as a family (never a priest's replacement); a household
+everyone has left hands its money on. Money of such emptied households
+had been silently dropping out of every count.
+The first try sold the commune's land for cash: 74k at year 25, since the
+7% was lost. The main cause of shrinking households was the 724 arrivals,
+each starting a household of one.
+Two crashes found on the way, both newcomers registering while tied to a
+newcomer not yet registered (romance, `_authority_ties`); the rule now:
+a pair is recorded by whichever registers second. The mid-run newcomer
+test covers it.
+Left: the commune's land grows (12k of ~95k fl by year 25, from 57
+estates) and would keep growing; very poor still rise from year 5 (10% ->
+16.5%); thefts +13%. Slice 3 (debt, charity, beggars) is next for poverty.
 
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 

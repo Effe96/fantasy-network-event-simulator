@@ -377,6 +377,9 @@ class EconomyPhenomenon:
             outcome = settle_estate(graph, death["resident_id"])
             if outcome:
                 self._estates[outcome] += 1
+            moved = join_family(graph, death["resident_id"])
+            if moved:
+                self._estates[moved] += 1
         self._deaths_seen = len(graph.deaths)
         if day % 30 == 0:
             self._month(graph, rng)
@@ -487,6 +490,12 @@ class EconomyPhenomenon:
             hire[key] = hire.get(key, 0.0) + local * DAY_LABOUR_OF_SPENDING  # builders, porters, carters
             self._buy(graph, key, local * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income)
 
+        # the commune spends what heirless estates left it: public works, purchases
+        public = COMMUNE_SPENT_PER_YEAR * month * max(0.0, graph.household_money.get(COMMUNE, 0.0))
+        if public > 0:
+            hire[COMMUNE] = public * DAY_LABOUR_OF_SPENDING
+            self._buy(graph, COMMUNE, public * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income)
+            self._year["out: commune spending"] += public
         self._hire_day_labour(graph, by_occupation["day_labourer"], hire, income, month, rng)
         for key in members:  # the month is complete: update each household's usual income
             usual = self._income.get(key, income.get(key, 0.0))
@@ -615,6 +624,8 @@ class EconomyPhenomenon:
             **{f"economy_class_{c}": sum(1 for n in graph.nodes.values() if n.alive and n.ses == c) for c in CLASSES},
             "economy_dowries": round(getattr(graph, "dowries", 0.0), 1),
             "economy_households": len(living),
+            "economy_commune_cash": round(graph.household_money.get(COMMUNE, 0.0), 1),
+            "economy_commune_property": round(graph.household_property.get(COMMUNE, 0.0), 1),
             **{f"economy_estates_{k.replace(' ', '_')}": v for k, v in self._estates.items()},
             **{f"economy_{k}": round(v, 1) for k, v in self._last.items()},
         }
@@ -677,21 +688,41 @@ def form_household(graph, a: int, b: int) -> None:
                 share = DOWRY_SHARE if node.gender == "female" else 0.0
             if old != home and share:
                 graph.dowries = getattr(graph, "dowries", 0.0) + _move_wealth(graph, old, home, share)
-    if isinstance(home, tuple):  # an arrival living alone: give them a real household id
-        home_id = new_household_id(graph)
-        for store in (graph.household_money, getattr(graph, "household_property", {})):
-            if home in store:
-                store[home_id] = store.pop(home)
-        home = home_id
-    first.household_id = second.household_id = home
+    first.household_id = second.household_id = home = _real_household_id(graph, home)
+    for old in (old_first, old_second):
+        follow_if_emptied(graph, old, home)
+
+
+def follow_if_emptied(graph, old, home) -> None:
+    """A household everyone has left (someone living alone marries, an heir
+    moves into the noble house): what it still holds goes with them
+    (2026-10-01: it stayed under a household nobody lived in, out of every count)."""
+    if old != home and hasattr(graph, "household_money") \
+            and not any(n.alive and household_key(n) == old for n in graph.nodes.values()):
+        graph.household_money.setdefault(home, 0.0)
+        _move_wealth(graph, old, home, 1.0)
+
+
+def _real_household_id(graph, key):
+    """An arrival living alone has a stand-in key: give them a real household id."""
+    if not isinstance(key, tuple):
+        return key
+    home_id = new_household_id(graph)
+    for store in (graph.household_money, getattr(graph, "household_property", {})):
+        if key in store:
+            store[home_id] = store.pop(key)
+    return home_id
 
 
 def settle_estate(graph, dead: int) -> Optional[str]:
     """What happens to a dead adult's share of their household's wealth
     (2026-09-30, user: to all children). A surviving spouse at home keeps it;
     otherwise it is split equally among all living children wherever they
-    live; with no children it stays with the household; a household left
-    with nobody goes to the commune. Returns what happened, for counting."""
+    live; with no children it stays with the household. A household left
+    with nobody goes to the siblings, then the nephews and nieces, like a
+    title (2026-10-01: 183 heirless estates in 25 years went out of town,
+    wealth 91k -> 70k fl); with no kin to the commune, which keeps it
+    and spends its income in town (COMMUNE). Returns what happened, for counting."""
     node = graph.nodes[dead]
     key = household_key(node)
     if not hasattr(graph, "household_money") or (node.age or 0) < 18:
@@ -713,7 +744,69 @@ def settle_estate(graph, dead: int) -> Optional[str]:
             if household_key(child) != key and current > 0:
                 _move_wealth(graph, key, household_key(child), part / current)
         return "split among children"
-    if not others:
-        _move_wealth(graph, key, None, 1.0)
-        return "to the commune"
-    return "stays in the household"
+    if others:
+        return "stays in the household"
+    siblings = _kin(graph, dead, "sibling")
+    nephews = [n for s in graph.neighbors(dead) if graph.get_edge(dead, s).source_type == "sibling"
+               for n in _kin(graph, s, "parent", younger=True)]
+    for heirs, outcome in ((siblings, "to siblings"), (nephews, "to nephews and nieces")):
+        if heirs:
+            for share, heir in enumerate(heirs):  # equal parts: 1/n, then 1/(n-1) of what's left, ...
+                _move_wealth(graph, key, household_key(heir), 1.0 / (len(heirs) - share))
+            return outcome
+    graph.household_money.setdefault(COMMUNE, 0.0)
+    _move_wealth(graph, key, COMMUNE, 1.0)
+    return "to the commune"
+
+
+# the commune's household key. It keeps the land and houses it gets (like the
+# Church's mortmain) and spends their income: selling them for cash that was
+# then spent lost the 7% for good (2026-10-01 run: wealth 91k -> 74k fl)
+COMMUNE = "commune"
+COMMUNE_SPENT_PER_YEAR = EXCESS_CASH_SPENT_PER_YEAR  # C: on public works and purchases in town
+LEFT_ALONE_MOVES_IN_AGE = 50  # C: a widow(er) this old moves in with a grown child
+
+
+def _kin(graph, person: int, kind: str, younger: bool = False) -> List[Any]:
+    age = graph.nodes[person].age or 0
+    return [graph.nodes[o] for o in graph.neighbors(person)
+            if graph.get_edge(person, o).source_type == kind and graph.nodes[o].alive
+            and (not younger or (graph.nodes[o].age or 0) < age)]
+
+
+def join_family(graph, dead: int) -> Optional[str]:
+    """Who a death leaves alone moves in with family (2026-10-01: households
+    shrank 3.6 -> 2.2 people in 25 years; Florence 1427 about 4): children
+    all under 18 go to an adult sibling, a grandparent, then an aunt or uncle;
+    a lone widow(er) of LEFT_ALONE_MOVES_IN_AGE or more to their eldest grown
+    child. They bring the household's wealth. Nobles stay (their household
+    holds the title). Returns what happened, for counting."""
+    key = household_key(graph.nodes[dead])
+    left = [n for n in graph.nodes.values() if n.alive and household_key(n) == key]
+    if not left or any(n.is_noble for n in left):
+        return None
+    if all((n.age or 0) < 18 for n in left):
+        ids = {n.resident_id for n in left}
+        kin = ([s for n in left for s in _kin(graph, n.resident_id, "sibling") if (s.age or 0) >= 18],
+               [g for p in _kin(graph, left[0].resident_id, "parent") for g in _kin(graph, p.resident_id, "parent")],
+               [a for p in _kin(graph, left[0].resident_id, "parent") for a in _kin(graph, p.resident_id, "sibling")],
+               _kin(graph, dead, "parent"), _kin(graph, dead, "sibling"))
+        outcome = "orphans to family"
+    elif len(left) == 1 and (left[0].age or 0) >= LEFT_ALONE_MOVES_IN_AGE:
+        ids = {left[0].resident_id}
+        kin = ([c for c in _kin(graph, left[0].resident_id, "parent", younger=True) if (c.age or 0) >= 18],)
+        outcome = "widowed to a child"
+    else:
+        return None
+    for group in kin:
+        group = [n for n in group if n.resident_id not in ids and household_key(n) != key
+                 and not n.is_noble and (n.age or 0) >= 18]
+        if group:
+            host = max(group, key=lambda n: n.age or 0)
+            host.household_id = home = _real_household_id(graph, household_key(host))
+            graph.household_money.setdefault(home, 0.0)
+            _move_wealth(graph, key, home, 1.0)
+            for n in left:
+                n.household_id = home
+            return outcome
+    return None

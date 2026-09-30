@@ -304,6 +304,28 @@ feelings and marriage hold; ties per resident 83 -> 78.
 4. **Runs slowed** to 42 min for 25 years (24-30 before the economy;
    ~110 s a year by years 16-20). **First priority (user, 2026-09-30).**
 
+**Status (2026-10-01):**
+1. **Solved.** Heirless estates go to siblings, then nephews and nieces;
+   with no kin the commune keeps the land and spends its income in town.
+   Households' money 92k -> 81k fl in 25 years, plus 14k with the commune:
+   the town's total holds. A second leak closed: a household everyone had
+   left (someone living alone marrying) kept its money out of every count.
+   *New question:* the commune's land keeps growing (12k fl by year 25).
+   Should it sell or lease land, or is the Church and commune slowly
+   gathering land (as in history) acceptable?
+2. **Mostly solved.** 2.24 -> 2.98 people per household at year 25.
+   Single arrivals lodge, one in three comes as a family; old widows move
+   in with a child, orphans with kin. Still shrinking slowly from 3.7.
+3. **Better.** Hungry households 136 -> 81; very poor 23.4% -> 16.5%;
+   Gini 0.77 -> 0.72 (book ~0.70). Very poor still rise after year 5;
+   slice 3 next.
+4. **Solved.** A 25-year run is ~8-10 min with PyPy.
+
+> Feedback (user, 2026-10-01): land: if there is someone rich enough to
+> buy it, they should do so. Otherwise it stays with the commune, and the
+> corresponding money is used to pay for the city guard and to keep the
+> city running.
+
 > Feedback:
 
 ---

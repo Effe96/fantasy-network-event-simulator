@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from economy import (DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for, form_household, gini,
-                     settle_estate, setup_economy, wealth)
+from economy import (COMMUNE, DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for,
+                     form_household, gini, join_family, settle_estate, setup_economy, wealth)
 from graph import Edge, Node, SocialGraph
 
 
@@ -75,6 +75,33 @@ def test_a_household_left_with_nobody_goes_to_the_commune():
     graph.household_money[2] = 50.0
     assert settle_estate(graph, 3) == "to the commune"
     assert wealth(graph, 2) == 0.0
+    assert graph.household_money[COMMUNE] == 50.0  # kept in town, spent there
+
+
+def test_a_heirless_estate_goes_to_the_siblings():
+    graph = _town()
+    graph.add_edge(Edge(3, 4, "sibling", "Communal Sharing", 0.7, 0.7, 0.7, 0.5, 0.5))
+    graph.household_money[2] = 50.0
+    graph.record_death(3, day=1, cause="flu")
+    assert settle_estate(graph, 3) == "to siblings"
+    assert wealth(graph, 3) == 50.0
+
+
+def test_an_old_widow_left_alone_moves_in_with_her_daughter():
+    graph = _town()
+    graph.record_death(1, day=1, cause="old age")  # 2 (55) is left alone in household 1
+    assert join_family(graph, 1) == "widowed to a child"
+    assert graph.nodes[2].household_id == 2 and wealth(graph, 2) == 1000.0
+
+
+def test_orphans_go_to_their_grown_sibling():
+    graph = _town()
+    graph.add_node(Node(resident_id=6, ses="poor", alive=True, gender="male", age=10, household_id=1))
+    graph.add_edge(Edge(3, 6, "sibling", "Communal Sharing", 0.7, 0.7, 0.7, 0.5, 0.5))
+    graph.record_death(1, day=1, cause="flu")
+    graph.record_death(2, day=1, cause="flu")
+    assert join_family(graph, 2) == "orphans to family"
+    assert graph.nodes[6].household_id == 2
 
 
 def test_the_month_pays_wages_and_feeds_people():
@@ -130,6 +157,9 @@ def _run_all():
     test_a_widow_keeps_the_estate()
     test_with_no_spouse_the_estate_goes_to_all_children()
     test_a_household_left_with_nobody_goes_to_the_commune()
+    test_a_heirless_estate_goes_to_the_siblings()
+    test_an_old_widow_left_alone_moves_in_with_her_daughter()
+    test_orphans_go_to_their_grown_sibling()
     test_the_month_pays_wages_and_feeds_people()
     test_adults_lose_and_find_work()
     test_five_classes_at_import_follow_the_town_s_shares()
