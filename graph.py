@@ -67,6 +67,46 @@ class Node:
         return "civilian"
 
 
+# Which ties changed (speed-up 2026-09-30): phenomena that need "every tie
+# where ..." keep that set up to date from these reports (TieFilter) instead
+# of scanning all ~80,000 ties every day. Each graph keeps its listeners'
+# logs (SocialGraph._tie_listeners); a tie joining a graph points at them.
+_TRACKED_TIE_FIELDS = frozenset(("valence_a_to_b", "valence_b_to_a", "source_type"))
+
+
+class TieFilter:
+    """The keys of every live tie matching `predicate(edge)`, in the order the
+    ties were added (graph.edge_serial) -- what a full scan of graph.edges
+    would give, kept up to date from tie change reports."""
+
+    def __init__(self, predicate):
+        self.predicate = predicate
+        self._log: List["Edge"] = []
+        self._keys = None
+        self._graph = None
+
+    def keys(self, graph) -> List[Tuple[int, int]]:
+        edges, predicate = graph.edges, self.predicate
+        if self._keys is None or self._graph is not graph:
+            self._graph = graph
+            graph._tie_listeners.append(self._log)
+            self._keys = {key for key, edge in edges.items() if predicate(edge)}
+        else:
+            keys = self._keys
+            for edge in self._log:
+                a, b = edge.resident_a, edge.resident_b
+                key = (a, b) if a < b else (b, a)
+                current = edges.get(key)  # the live tie there now, if any (it may be another graph's edge)
+                if current is not None and predicate(current):
+                    keys.add(key)
+                else:
+                    keys.discard(key)
+            for key in [key for key in keys if key not in edges]:  # retired since
+                keys.discard(key)
+        self._log.clear()
+        return sorted(self._keys, key=graph.edge_serial.__getitem__)
+
+
 @dataclass
 class Edge:
     resident_a: int
@@ -80,6 +120,14 @@ class Edge:
     valence_b_to_a: float
     # what a friendship was before (neighbor, coworker, ...), see befriend
     former_type: Optional[str] = None
+
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+        if name in _TRACKED_TIE_FIELDS:  # feelings or type changed: tell whoever is listening
+            listeners = self.__dict__.get("_listeners")
+            if listeners:
+                for log in listeners:
+                    log.append(self)
 
     @property
     def tie_strength(self) -> float:
@@ -169,9 +217,15 @@ class SocialGraph:
         # district_id -> "priest" or "noble" (who sealed it). Mutated in place,
         # never reassigned: ContagionPhenomenon holds a reference to it.
         self.quarantined_districts: Dict[int, str] = {}
-        # resident -> neighbor ids, built lazily in edge order (the same order
-        # the old full-scan neighbors() returned), extended by add_edge
-        self._adjacency: Optional[Dict[int, List[int]]] = None
+        # resident -> {other resident -> their tie}, built lazily in edge order
+        # (so neighbors() keeps the order it always had) and kept in step by
+        # add_edge and the retire methods. A tie lookup is two dict reads,
+        # no key to build (2026-09-30 speed-up: 8.5M lookups a year)
+        self._links: Optional[Dict[int, Dict[int, Edge]]] = None
+        # each live tie's number in the order ties were added (= graph.edges order)
+        self.edge_serial: Dict[Tuple[int, int], int] = {}
+        self._next_serial = 0
+        self._tie_listeners: List[List[Edge]] = []  # change logs of this graph's TieFilters
         # Residents added mid-run (births, arrivals) enter through the same
         # code path as import (node_from_resident_row / edge_from_relationship),
         # fed TownShape-shaped rows. These keep what that needs after import:
@@ -181,6 +235,9 @@ class SocialGraph:
         self.family_baselines: Dict[int, Dict[str, float]] = {}  # family root -> shared trait centres
         # added but not yet registered with the phenomena; the engine drains it
         self.newcomers: List[int] = []
+        # living residents, kept by add_node and record_death (speed-up
+        # 2026-09-30: the engine counted everyone every day)
+        self.alive_count = 0
         # Ties of the dead, moved out of `edges` once every phenomenon has
         # read them (retire_ties_of_dead): kept for safekeeping (user,
         # 2026-09-29) -- whose grandparents knew each other may matter one
@@ -197,10 +254,14 @@ class SocialGraph:
         self.recoveries.append({"resident_id": resident_id, "day": day, "cause": cause})
 
     def record_death(self, resident_id: int, day: int, cause: str, killed_by: Optional[int] = None) -> None:
+        if self.nodes[resident_id].alive:
+            self.alive_count -= 1
         self.nodes[resident_id].alive = False
         self.deaths.append({"resident_id": resident_id, "day": day, "cause": cause, "killed_by": killed_by})
 
     def add_node(self, node: Node) -> None:
+        old = self.nodes.get(node.resident_id)
+        self.alive_count += (1 if node.alive else 0) - (1 if old is not None and old.alive else 0)
         self.nodes[node.resident_id] = node
 
     def next_resident_id(self) -> int:
@@ -247,11 +308,17 @@ class SocialGraph:
         if existing is not None and existing.tie_strength >= edge.tie_strength:
             return
         self.edges[key] = edge
-        # a new key is appended to the edge order, so appending keeps the
-        # lazily built adjacency in that same order; a replaced one changes nothing
-        if existing is None and self._adjacency is not None:
-            self._adjacency.setdefault(key[0], []).append(key[1])
-            self._adjacency.setdefault(key[1], []).append(key[0])
+        if existing is None:
+            self.edge_serial[key] = self._next_serial
+            self._next_serial += 1
+        object.__setattr__(edge, "_listeners", self._tie_listeners)  # not a field: no effect on ==
+        for log in self._tie_listeners:  # a tie joining the graph is news too
+            log.append(edge)
+        # a new key goes to the end, like the edge order; a replaced one keeps
+        # its place and only swaps in the stronger tie
+        if self._links is not None:
+            self._links.setdefault(key[0], {})[key[1]] = edge
+            self._links.setdefault(key[1], {})[key[0]] = edge
 
     @staticmethod
     def _archive_record(edge: "Edge", day: int, dead: Optional[int], reason: str) -> Dict[str, Any]:
@@ -268,31 +335,35 @@ class SocialGraph:
         stress) has seen the ties first. Keeps the live graph from filling up
         with the dead (2026-09-29: runs had slowed from 19 to 35 minutes)."""
         moved = 0
+        links = self._ensure_links()
+        self.last_retired_keys = []  # the engine drops these from its tie order
         for a, b, day, reason in self._ties_to_retire:
-            self.neighbors(a)  # the adjacency must exist (and include the tie) before editing it
-            edge = self.edges.pop(self._key(a, b), None)
+            key = self._key(a, b)
+            edge = self.edges.pop(key, None)
             if edge is None:
                 continue  # already gone with a death
             self.archived_ties.append(self._archive_record(edge, day, None, reason))
-            self._adjacency[a].remove(b)
-            self._adjacency[b].remove(a)
+            del links[a][b]
+            del links[b][a]
+            del self.edge_serial[key]
+            self.last_retired_keys.append(key)
             moved += 1
         self._ties_to_retire = []
         while self._deaths_retired < len(self.deaths) and self.deaths[self._deaths_retired]["day"] < before_day:
             dead = self.deaths[self._deaths_retired]["resident_id"]
             self._deaths_retired += 1
             records = self._archived_by_dead.setdefault(dead, [])
-            for other in self.neighbors(dead):
+            for other in list(links.get(dead, ())):
                 key = self._key(dead, other)
                 edge = self.edges.pop(key)
+                del self.edge_serial[key]
+                self.last_retired_keys.append(key)
                 record = self._archive_record(edge, before_day - 1, dead, "death")
                 self.archived_ties.append(record)
                 records.append(record)
-                if self._adjacency is not None:
-                    self._adjacency[other].remove(dead)
+                del links[other][dead]
                 moved += 1
-            if self._adjacency is not None:
-                self._adjacency.pop(dead, None)
+            links.pop(dead, None)
         return moved
 
     def retire_tie(self, a: int, b: int, day: int, reason: str) -> None:
@@ -305,17 +376,26 @@ class SocialGraph:
         """The archive records of every tie a dead resident had when it was retired."""
         return list(self._archived_by_dead.get(dead, []))
 
+    def _ensure_links(self) -> Dict[int, Dict[int, Edge]]:
+        if self._links is None:
+            links: Dict[int, Dict[int, Edge]] = {}
+            for (a, b), edge in self.edges.items():
+                links.setdefault(a, {})[b] = edge
+                links.setdefault(b, {})[a] = edge
+            self._links = links
+        return self._links
+
     def get_edge(self, a: int, b: int) -> Optional[Edge]:
-        return self.edges.get(self._key(a, b))
+        ties = self._ensure_links().get(a)
+        return ties.get(b) if ties is not None else None
 
     def neighbors(self, resident_id: int) -> List[int]:
-        if self._adjacency is None:
-            adjacency: Dict[int, List[int]] = {}
-            for a, b in self.edges:
-                adjacency.setdefault(a, []).append(b)
-                adjacency.setdefault(b, []).append(a)
-            self._adjacency = adjacency
-        return list(self._adjacency.get(resident_id, ()))
+        return list(self._ensure_links().get(resident_id, ()))
+
+    def ties_of(self, resident_id: int) -> Dict[int, Edge]:
+        """The live {other resident: tie} table: read it, don't change it (a
+        copy-free neighbors() plus get_edge, for the hot loops)."""
+        return self._ensure_links().get(resident_id, {})
 
     def edge_keys_of(self, resident_ids) -> List[Tuple[int, int]]:
         """Keys of every tie touching any of these residents, deduplicated."""

@@ -337,6 +337,7 @@ class EconomyPhenomenon:
         self._deaths_seen = 0
         self._estates = defaultdict(int)
         self._unemployed = 0
+        self._months = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         self._graph = graph  # summarize reads the town's money
@@ -396,6 +397,7 @@ class EconomyPhenomenon:
         return amount
 
     def _month(self, graph, rng: random.Random) -> None:
+        self._months += 1
         month = 30 / 365
         alive = [n for n in graph.nodes.values() if n.alive]
         self._give_work(graph, alive, rng)
@@ -586,7 +588,17 @@ class EconomyPhenomenon:
                 node.ses = _capped(node, class_for(per_person.get(household_key(node), 0.0), node.ses, lines))
 
     def summarize(self, state) -> Dict[str, float]:
+        # recomputed only when something it reads changed (speed-up 2026-09-30:
+        # sorting every household's money every day cost more than the month)
         graph = self._graph
+        signature = (self._months, len(graph.deaths), graph.alive_count, getattr(graph, "dowries", 0.0),
+                     len(graph.household_money), self._unemployed, self._hungry)
+        if signature != getattr(self, "_summary_signature", None):
+            self._summary = self._compute_summary(graph)
+            self._summary_signature = signature
+        return self._summary
+
+    def _compute_summary(self, graph) -> Dict[str, float]:
         living = {household_key(n) for n in graph.nodes.values() if n.alive}
         money = [max(0.0, wealth(graph, key)) for key in living]
         total = sum(money)

@@ -18,8 +18,10 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
     rng = random.Random(seed)
     states = {phenomenon.name: phenomenon.init_state(graph) for phenomenon in phenomena}
     result = SimulationResult()
-    # ties are only ever added (newcomers, arranged marriages), never removed,
-    # so each tie keeps its place in the order and new ones go at the end
+    # every live tie's place in the order ties were added: new ties go at the
+    # end, retired ones leave a gap (speed-up 2026-09-30: renumbering all ~80k
+    # after every retirement cost more than the ties' own phenomena), so the
+    # order always matches graph.edges
     edge_order = list(graph.edges)
     position = {key: index for index, key in enumerate(edge_order)}
 
@@ -38,9 +40,18 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                 # tie eligible mid-pass (violence's grief) reports it via
                 # drain_new_candidates, and it's queued if still ahead.
                 # a phenomenon's cached ties can include ties since retired with the dead
-                heap = sorted({position[key] for key in candidates if key in position})
-                queued = set(heap)
+                ordered = sorted({position[key] for key in candidates if key in position})
                 drain = getattr(phenomenon, "drain_new_candidates", None)
+                if drain is None:  # nothing can join mid-pass: walk the list, no heap
+                    edges = graph.edges
+                    for current in ordered:
+                        _roll_edge(graph, phenomenon, state, edges[edge_order[current]], day, rng, result)
+                    result.events.extend(phenomenon.end_of_day(graph, state, day, rng))
+                    if graph.newcomers or len(graph.edges) > len(position):
+                        _register_newcomers(graph, phenomena, states, edge_order, position)
+                    continue
+                heap = ordered
+                queued = set(heap)
                 while heap:
                     current = heapq.heappop(heap)
                     fired = _roll_edge(graph, phenomenon, state, graph.edges[edge_order[current]], day, rng, result)
@@ -53,21 +64,20 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                                 queued.add(later)
                                 heapq.heappush(heap, later)
             result.events.extend(phenomenon.end_of_day(graph, state, day, rng))
-            if graph.newcomers or len(graph.edges) > len(edge_order):
+            if graph.newcomers or len(graph.edges) > len(position):
                 _register_newcomers(graph, phenomena, states, edge_order, position)
 
         # everyone has now read yesterday's deaths: their ties go to the archive
         if graph.retire_ties_of_dead(before_day=day):
-            edge_order[:] = list(graph.edges)
-            position.clear()
-            position.update((key, index) for index, key in enumerate(edge_order))
+            for key in graph.last_retired_keys:
+                del position[key]
 
         summary = {"day": day}
         for phenomenon in phenomena:
             summary.update(phenomenon.summarize(states[phenomenon.name]))
         # alive/dead is a graph-wide fact (any phenomenon can kill), not a single
         # phenomenon's own bookkeeping -- always wins over a per-phenomenon guess.
-        alive_count = sum(1 for node in graph.nodes.values() if node.alive)
+        alive_count = graph.alive_count
         summary["alive"] = alive_count
         summary["dead"] = len(graph.nodes) - alive_count
         result.daily_summaries.append(summary)
@@ -89,8 +99,15 @@ def _register_newcomers(graph, phenomena, states, edge_order, position) -> None:
             if not hasattr(phenomenon, "add_resident"):
                 raise TypeError(f"{type(phenomenon).__name__} can't take a resident added mid-run")
             phenomenon.add_resident(graph, states[phenomenon.name], resident_id)
-    # new ties are only ever appended to graph.edges, so they extend the order
-    for key in list(graph.edges)[len(edge_order):]:
+    # new ties are only ever appended to graph.edges (a re-made tie too: its old
+    # place was dropped when it was retired), so they are the ones after the
+    # last known tie; walk back from the end to find them
+    fresh = []
+    for key in reversed(graph.edges):
+        if key in position:
+            break
+        fresh.append(key)
+    for key in reversed(fresh):
         position[key] = len(edge_order)
         edge_order.append(key)
 

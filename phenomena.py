@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
 from economy import form_household
-from graph import (FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TownParameters, befriend, edge_from_relationship,
+from graph import (FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, befriend, edge_from_relationship,
                    household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
 
@@ -694,11 +694,19 @@ class ViolencePhenomenon:
         # more past it, reported through drain_new_candidates
         self._new_candidates = []
         floor = self.hatred_floor
-        return [key for key, edge in graph.edges.items()
-                if -edge.valence_a_to_b > floor or -edge.valence_b_to_a > floor]
+        if getattr(self, "_hateful", None) is None:
+            self._hateful = TieFilter(lambda edge: -edge.valence_a_to_b > floor or -edge.valence_b_to_a > floor)
+        # kept for the group check at the end of the day (speed-up 2026-09-30):
+        # every tie past group_hate_threshold (0.7) is among these (past 0.6)
+        # unless the day's violence pushed new ones past the floor
+        self._day_candidates = self._hateful.keys(graph)
+        self._candidates_complete = self.group_hate_threshold >= floor
+        return self._day_candidates
 
     def drain_new_candidates(self):
         keys, self._new_candidates = self._new_candidates, []
+        if keys:
+            self._candidates_complete = False
         return keys
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
@@ -949,7 +957,11 @@ class ViolencePhenomenon:
         # is hated by several different people at once" without scanning
         hostile_toward: Dict[int, List[int]] = {}
         nodes, threshold = graph.nodes, self.group_hate_threshold
-        for edge in graph.edges.values():
+        if getattr(self, "_candidates_complete", False) and not self._new_candidates:
+            ties = [graph.edges[key] for key in self._day_candidates if key in graph.edges]
+        else:
+            ties = graph.edges.values()
+        for edge in ties:
             a, b = edge.resident_a, edge.resident_b
             # direct attribute reads, not valence_from(): same values, ~1/3 the
             # cost on a scan of every tie every day
@@ -1150,10 +1162,11 @@ class RomancePhenomenon:
         # spouse ties (births) and non-family ties already past the love
         # threshold on both sides; a marriage only ever removes eligibility
         threshold = self.love_threshold
-        return [key for key, edge in graph.edges.items()
-                if edge.source_type == "spouse"
-                or (edge.source_type not in ("parent", "sibling")
-                    and edge.valence_a_to_b > threshold and edge.valence_b_to_a > threshold)]
+        if getattr(self, "_eligible", None) is None:  # kept from tie change reports (speed-up 2026-09-30)
+            self._eligible = TieFilter(lambda edge: edge.source_type == "spouse"
+                                       or (edge.source_type not in ("parent", "sibling")
+                                           and edge.valence_a_to_b > threshold and edge.valence_b_to_a > threshold))
+        return self._eligible.keys(graph)
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
         if edge.source_type == "spouse":
@@ -1424,18 +1437,23 @@ class RiotPhenomenon:
         return total
 
     def _start_riot(self, graph, day: int, rng: random.Random) -> List[Event]:
-        # the cached pairs can outlive a tie that has since faded (2026-09-29)
-        hostile_links = [
-            (civ, member) for civ, member in self._adjacency
-            if graph.nodes[civ].alive and graph.nodes[member].alive
-            and graph.get_edge(civ, member) is not None
-            and graph.get_edge(civ, member).valence_from(civ) < 0
-        ]
+        # the cached pairs can outlive a tie that has since faded (2026-09-29);
+        # one lookup per pair (speed-up 2026-09-30)
+        nodes = graph.nodes
+        hostile_links, hostility_of = [], {}
+        for civ, member in self._adjacency:
+            if not (nodes[civ].alive and nodes[member].alive):
+                continue
+            edge = graph.ties_of(civ).get(member)
+            if edge is None:
+                continue
+            feeling = edge.valence_a_to_b if edge.resident_a == civ else edge.valence_b_to_a
+            if feeling < 0:
+                hostile_links.append((civ, member))
+                hostility_of[(civ, member)] = -feeling
         if not hostile_links:
             return []
-        avg_hostility = sum(-graph.get_edge(civ, member).valence_from(civ) for civ, member in hostile_links) / len(
-            hostile_links
-        )
+        avg_hostility = sum(hostility_of[link] for link in hostile_links) / len(hostile_links)
         factor = self._params.aggression_factor()
         unrest_threshold = self.unrest_threshold / factor
         if avg_hostility <= unrest_threshold:
@@ -1447,7 +1465,7 @@ class RiotPhenomenon:
         # what might drag them into the streets
         worst_grievance: Dict[int, float] = {}
         for civ, member in hostile_links:
-            hostility = -graph.get_edge(civ, member).valence_from(civ)
+            hostility = hostility_of[(civ, member)]
             worst_grievance[civ] = max(worst_grievance.get(civ, 0.0), hostility)
 
         participants = [
@@ -1676,10 +1694,15 @@ class GuardPhenomenon:
         self._guard_ties = None  # rebuilt with the newcomer's ties on the next pass
 
     def candidate_edges(self, graph, state):
-        # civilian-guard ties; roles never change, so built once
+        # civilian-guard ties, rebuilt when a newcomer arrives; the list is kept
+        # current from tie change reports and only read at those moments, so it
+        # is exactly what a full scan would have given (speed-up 2026-09-30: a
+        # full scan on nearly every day, as someone arrives or is born most days)
+        if getattr(self, "_guard_filter", None) is None:
+            self._guard_filter = TieFilter(
+                lambda edge: {state[edge.resident_a]["role"], state[edge.resident_b]["role"]} == {"civilian", "guard"})
         if self._guard_ties is None:
-            self._guard_ties = [key for key, edge in graph.edges.items()
-                                if {state[edge.resident_a]["role"], state[edge.resident_b]["role"]} == {"civilian", "guard"}]
+            self._guard_ties = self._guard_filter.keys(graph)
         return self._guard_ties
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:
@@ -2766,12 +2789,16 @@ class EverydayPhenomenon:
 
     def _pull_back(self, graph) -> None:
         self._register_ties(graph)  # ties created since (births, weddings, arrivals)
+        pull, targets, listeners = self._pull_per_month, self._target, graph._tie_listeners
         for key, edge in graph.edges.items():
-            a, b = key
-            for feeler, _other in ((a, b), (b, a)):
-                target = self._target[(key, feeler)]
-                current = edge.valence_from(feeler)
-                edge.set_valence_from(feeler, current + (target - current) * self._pull_per_month)
+            # both feelings written directly, then one change report for the tie
+            # (speed-up 2026-09-30: 160,000 writes a month, each reported)
+            to_b = targets[(key, edge.resident_a)]
+            to_a = targets[(key, edge.resident_b)]
+            object.__setattr__(edge, "valence_a_to_b", edge.valence_a_to_b + (to_b - edge.valence_a_to_b) * pull)
+            object.__setattr__(edge, "valence_b_to_a", edge.valence_b_to_a + (to_a - edge.valence_b_to_a) * pull)
+            for log in listeners:
+                log.append(edge)
 
     def summarize(self, state) -> Dict[str, int]:
         return {"favors": self._favors, "scorns": self._scorns}

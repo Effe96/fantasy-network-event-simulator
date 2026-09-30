@@ -8,6 +8,31 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-01 — Speed: 22% faster with identical results
+
+The user made speed the first priority after 25-year runs slowed to 42 min.
+Every change is a pure speed-up: a benchmark (seed 1, 120 and 240 days)
+fingerprints deaths, events, the last summary and sampled feelings, and
+stayed `27ff6d9cfd14bc5e` / `d22971cdcffda801` throughout. CPU time per
+simulated year on an idle machine: 58 s -> 45 s.
+- Per-resident tie tables (`graph._links`, `ties_of`): a tie lookup without
+  building a key, neighbours without a scan.
+- Tie change reports (`Edge.__setattr__` -> the graph's listeners) and
+  `TieFilter`: violence's hateful ties, romance's couples and guards'
+  civilian-guard ties are kept current instead of scanning all ~80k ties
+  daily (guards' list is still only handed over when a newcomer arrives,
+  as before). `graph.edge_serial` keeps them in the original order.
+- Engine: no heap unless a phenomenon can add candidates mid-pass; retired
+  ties just leave the order (no renumbering); new ties found from the end.
+- Violence's group check reuses the day's hateful ties; riots look each
+  pair up once; `graph.alive_count` kept instead of counted; the economy's
+  summary recomputed only when something it reads changed; favors' monthly
+  pull back reports each tie once.
+Measurement lesson: timings taken while other programs loaded the machine
+were noise (even the untouched import doubled); compare CPU time, alternate
+versions, on an idle machine. Python 3.14 ran slower than 3.12 (63 vs 45 s
+a year). Next: try PyPy.
+
 ## 2026-09-30 — The economy, slice 1 and parts of slice 2
 
 Built from `Project_Vision/03-economy-design.md` with the user's decisions
