@@ -179,6 +179,91 @@ The book's section 7, each as a rule:
 > debtor into theft or begging. Beggars and death from hardship go into this
 > slice, as you said.
 
+
+#### Slice 3 build plan (2026-10-01) — for comments
+
+Built in this order, a 25-year run after each part. "C" marks my
+calibration; the numbers are first guesses to check against the book.
+
+**A. Hunger (building now).** Each month the economy records how much of
+its basket each household could not buy. Stress adds `0.3 x` that
+shortfall on top of the class pressure (class now follows money, so it
+already reflects a long spell without work). A household short for months
+stays stressed; a very poor one (0.55) that goes hungry crosses theft's
+0.6 threshold, so hard times raise theft.
+
+**B. Debt, from the four lenders in the reply above.** Before going
+hungry, a household borrows the month's shortfall, trying in order:
+1. family and friends with cash to spare (a warm tie): no interest (C);
+2. the employer or a rich household it knows: 10% a year (C; Florentine
+   commercial loans 8-12%);
+3. a moneylender: 25% a year (C; licensed pawnbrokers 20-33%). The town
+   has none today: the importer would make one or two merchants lenders.
+Each debt is a record (debtor, creditor, amount, rate, since) on their tie.
+The debtor repays from income above needs, a share each month. Months
+behind cool the tie on both sides; after about a year behind, the
+creditor seizes property if there is any. A household nobody will lend
+to goes hungry (A).
+> Feeback: good. 
+
+**C. Charity and famine.**
+- The Church collects alms (a small share of spending, more from the
+  pious) and gives to hungry households through the priests.
+  > Feedback: rich and medium very religious people should donate abit of money to the church. 
+- Grain price shocks: a yearly harvest draw, about 2.5x between good and
+  bad years (book §5c, §6), with a famine year every 10-20 years (C).
+- In a famine the commune buys grain from its cash (the land money) for
+  the hungry, as Florence did in 1329 and 1346-47.
+  > Feedback: commune cash should also come from the taxes, right? 
+
+**D. Beggars and death from hardship.**
+- An adult hungry for 6 months (C) with no lender left becomes a beggar:
+  no work, small alms from people who know them. They stop begging once
+  the household eats again or finds work.
+  > Feedback: it should be possible for a beggar to be kicked out. If a person in a household becomes a beggare, most of the poeple in the household should become beggars as well. 
+- Chronic hunger raises disease fatality (x1.5 after 3 hungry months, C).
+  The old and the very young can die of hardship directly (a small monthly
+  chance while hungry, C).
+
+**Checks:** very poor near 15%, hungry households not growing in quiet
+years, debt mostly small and family-held, a famine visibly raising theft,
+begging and deaths, then recovering.
+
+> **Decided (user, 2026-10-01):**
+> - **Alms:** rich and middling people who are very religious donate a
+>   little to the Church; the poor don't.
+> - **Taxes:** a gabelle (tax on what households buy in town and import,
+>   about 0.7 fl per person a year, C, scaled from Florence's 3-5 fl on
+>   ~6x the wealth per person; book §9) goes to the commune, which pays all
+>   public wages. The outside money stops. When the commune runs short (a
+>   famine), the richest households lend to it (*prestanze*), repaid later
+>   with interest.
+> **Built (2026-10-01): A, B and C.** Hunger adds stress (thefts +18%).
+> Debt is a bridge only: the hungry earn less than their basket, so most
+> debts go behind; family forgives after a year. The gabelle is 2.5% (6%
+> made the commune hoard 35k fl); the commune keeps a year of wages and
+> spends the rest on public works. Hungry households at year 25: 51 (136
+> in the first run); no one hungry in the famine year. Still open: very
+> poor rise after year 5 (10% -> 21%), and unsold heirless land piles up
+> with the commune (10k fl by year 25).
+>
+> **To do (user, 2026-10-01):**
+> - **Famine deaths:** some people should die in a famine; everyone
+>   surviving is very unlikely.
+> - **Debt forgiveness by feeling:** whether a debt is forgiven should
+>   depend on the tie's affinity, not only on it being family.
+> - **Forced loans repaid in land:** the commune can pay nobles and the
+>   very rich back for forced loans with land (its heirless lots).
+> - **Executions:** ~5 a year for ~2,100 people, far above medieval norms
+>   (late-medieval Florence ~15-30 a year for 50-100k); tone down.
+>
+> - **Beggars and rent:** "kicked out" means evicted: anyone, beggar or
+>   not, who can't pay rent for a while loses their home unless they earn
+>   enough; food comes before rent. Rent is still hidden in the basket, so
+>   eviction comes with slice 5 (homeowners, landlords, rent). Begging is
+>   by household: when one member begs, most of the household does.
+
+
 ### 4.4 Slice 4 — Jobs and organic migration — Proposed
 
 - **Jobs as places:** each workplace has a number of posts (from TownShape's

@@ -53,6 +53,36 @@ PRATO_1300_TOP1 = 29.18
 MERCHANT_PER_RESIDENTS = 150  # C: ~13 merchants in a town of 1,900
 PUTTING_OUT_SHARE = 0.5  # C: of the otherwise jobless, work at home for a merchant
 RENTIER_HOUSEHOLD_SHARE = 0.1  # C: the richest tenth of households live off property, not wages
+# the commune's and the Church's money (slice 3 C, user 2026-10-01)
+# C: tax on what's bought in town and imported, about what public wages cost
+# (~0.4 fl a person a year; Florence 3-5 fl, book §9, paid for wars and debt
+# too). 6% raised 2,000 fl a year against 850 of wages: the commune hoarded
+# 35k fl in 25 years, drawn from households (2026-10-01 run)
+GABELLE = 0.025
+COMMUNE_FUND_MONTHS = 12  # C: the commune keeps a year of public wages against famine
+COMMUNE_WORKS_SHARE = 0.5  # C: of cash above that fund, spent each month on public works
+COMMUNE_RESERVE_MONTHS = 2  # C: the commune keeps this many months of public wages before repaying loans
+FORCED_LOAN_RATE = 0.05  # C: prestanze, repaid with interest (the Monte paid about 5%)
+DEVOUT = 0.7  # C: religiousness at which a middling or rich adult gives alms
+ALMS_SHARE = 0.03  # C: of a devout member's share of the household's usual income, each month
+CHURCH_GIVES_PER_MONTH = 0.5  # C: share of the Church's money it can give out in a month
+# harvests: grain's price each year (book §5c, §6: about 2.5x between good and bad years)
+HARVEST_RANGE = (0.8, 1.25)  # C: an ordinary year
+FAMINE_CHANCE = 1 / 15  # C: a famine year every 10-20 years
+FAMINE_PRICE = (2.0, 2.5)  # C
+FAMINE_AT = 1.8  # a year priced this high is a famine: the commune feeds the hungry
+
+# debt (slice 3 B, user 2026-10-01): who lends, at what rate
+DEBT_FAMILY_WARMTH = 0.3  # C: a relative or friend this warm lends, without interest
+DEBT_PATRON_RATE = 0.10  # C: an employer or rich acquaintance, a year (Florentine commercial loans 8-12%)
+DEBT_LENDER_RATE = 0.25  # C: a moneylender, a year (licensed pawnbrokers 20-33%)
+DEBT_MONEYLENDERS = 2  # C: the merchant houses with the most cash lend to anyone
+DEBT_LENDER_LIMIT_MONTHS = 6  # C: a moneylender lends up to this many months of usual income
+DEBT_LENDER_KEEPS_MONTHS = 3  # C: a lender keeps this many months of its own basket
+DEBT_TERM_MONTHS = 24  # C: a debt is meant to be repaid over two years
+DEBT_CUTOFF_MONTHS = 3  # C: nobody lends to a household this many months behind
+DEBT_SEIZE_MONTHS = 12  # C: a year behind, a creditor (not family) seizes property
+DEBT_RESENTMENT = 0.02  # C: each month behind cools the tie, on both sides
 RENTIER_CLASSES = ("rich", "very_rich")  # a young adult of these classes lives off property too
 SERVANT_CLASS_CAP = "poor"  # a live-in servant isn't rich because the household is
 UNEMPLOYED_AT_START = 0.05  # C: of the otherwise jobless, still looking for work at import
@@ -338,12 +368,15 @@ class EconomyPhenomenon:
         self._estates = defaultdict(int)
         self._unemployed = 0
         self._months = 0
+        self._harvest = 1.0  # this year's grain price, times normal
+        self._famines = 0
+        self._public_bill = 0.0
 
     def init_state(self, graph) -> Dict[int, Any]:
         self._graph = graph  # summarize reads the town's money
         self._deaths_seen = len(graph.deaths)
         for name, empty in (("household_money", dict), ("household_property", dict), ("employer", dict),
-                            ("merchants", list), ("building_types", dict)):
+                            ("merchants", list), ("building_types", dict), ("debts", list)):
             if not hasattr(graph, name):  # a town imported without the economy (test fixtures)
                 setattr(graph, name, empty())
         return {resident_id: {} for resident_id in graph.nodes}
@@ -402,6 +435,10 @@ class EconomyPhenomenon:
     def _month(self, graph, rng: random.Random) -> None:
         self._months += 1
         month = 30 / 365
+        if self._months % 12 == 1:  # a new harvest year
+            famine = rng.random() < FAMINE_CHANCE
+            self._harvest = rng.uniform(*(FAMINE_PRICE if famine else HARVEST_RANGE))
+            self._famines += famine
         alive = [n for n in graph.nodes.values() if n.alive]
         self._give_work(graph, alive, rng)
         by_occupation = defaultdict(list)
@@ -419,14 +456,18 @@ class EconomyPhenomenon:
                 gain = self._pay(graph, None, key, owned * PROPERTY_RETURN * month)
                 income[key] += gain
                 self._year["in: property"] += gain
-        for node in alive:
-            wage, payer = PAY.get(job_kind(node.occupation), (0.0, None))
-            if payer == "public":  # the commune's own money first (user, 2026-10-01), the outside the rest
-                from_commune = self._pay(graph, COMMUNE, household_key(node), wage * month)
-                self._year["commune: paid wages"] += from_commune
-                gain = from_commune + self._pay(graph, None, household_key(node), wage * month - from_commune)
-                income[household_key(node)] += gain
-                self._year["in: public wages"] += gain
+        # public wages come from the commune (user, 2026-10-01: its gabelle,
+        # its land); when it runs short the richest lend to it (prestanze)
+        public = [(node, PAY[job_kind(node.occupation)][0] * month) for node in alive
+                  if PAY.get(job_kind(node.occupation), (0.0, None))[1] == "public"]
+        bill = sum(wage for _, wage in public)
+        self._public_bill = bill
+        self._commune_borrow(graph, bill - graph.household_money.get(COMMUNE, 0.0), alive)
+        for node, wage in public:
+            gain = self._pay(graph, COMMUNE, household_key(node), wage)
+            income[household_key(node)] += gain
+            self._year["in: public wages"] += gain
+            self._year["public wages unpaid"] += wage - gain
 
         # employers pay their workers; merchants sell the cloth outside
         for node in alive:
@@ -453,14 +494,31 @@ class EconomyPhenomenon:
         members = defaultdict(list)
         for node in alive:
             members[household_key(node)].append(node)
-        needs = {}
+        basket = BASKET_PER_PERSON * (1 - GRAIN_SHARE_OF_BASKET + GRAIN_SHARE_OF_BASKET * self._harvest)
+        needs = {key: sum(CHILD_BASKET if (n.age or 0) < 12 else 1.0 for n in people) * basket * month
+                 for key, people in members.items()}
+        church_budget = CHURCH_GIVES_PER_MONTH * max(0.0, graph.household_money.get(CHURCH, 0.0))
+        famine = self._harvest >= FAMINE_AT
         self._hungry = 0
+        graph.hunger = {}  # household -> share of this month's basket it couldn't buy (stress reads it)
         for key, people in members.items():
-            need = sum(CHILD_BASKET if (n.age or 0) < 12 else 1.0 for n in people) * BASKET_PER_PERSON * month
-            needs[key] = need
+            need = needs[key]
+            if graph.household_money.get(key, 0.0) < need:  # borrow before going hungry (slice 3 B)
+                self._borrow(graph, key, people, need - max(0.0, graph.household_money.get(key, 0.0)),
+                             needs, members, merchants)
+            short = need - max(0.0, graph.household_money.get(key, 0.0))
+            if short > 0 and church_budget > 0:  # alms, through the priests
+                given = self._pay(graph, CHURCH, key, min(short, church_budget))
+                church_budget -= given
+                short -= given
+                self._year["church: gave to the hungry"] += given
+            if short > 0 and famine:  # public grain, as in 1329 and 1346-47
+                self._commune_borrow(graph, short - graph.household_money.get(COMMUNE, 0.0), alive)
+                self._year["commune: famine relief"] += self._pay(graph, COMMUNE, key, short)
             spend = min(need, max(0.0, graph.household_money.get(key, 0.0)))
             if spend < need * 0.999:
                 self._hungry += 1
+                graph.hunger[key] = 1.0 - spend / need
             grain = spend * GRAIN_SHARE_OF_BASKET
             self._buy(graph, key, grain * LOCAL_GRAIN_SHARE, farmers, rng, income)
             self._import(graph, key, grain * (1 - LOCAL_GRAIN_SHARE), merchants, rng, income)
@@ -492,11 +550,165 @@ class EconomyPhenomenon:
             hire[key] = hire.get(key, 0.0) + local * DAY_LABOUR_OF_SPENDING  # builders, porters, carters
             self._buy(graph, key, local * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income)
 
+        # public works keep the city running: walls, streets, bridges (day
+        # labour and purchases in town), from what the commune holds beyond its fund
+        works = COMMUNE_WORKS_SHARE * max(0.0, graph.household_money.get(COMMUNE, 0.0)
+                                          - COMMUNE_FUND_MONTHS * self._public_bill)
+        if works > 0:
+            hire[COMMUNE] = works * DAY_LABOUR_OF_SPENDING
+            self._buy(graph, COMMUNE, works * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income)
+            self._year["commune: public works"] += works
+        self._collect_alms(graph, members)
+        needs[COMMUNE] = COMMUNE_RESERVE_MONTHS * self._public_bill
+        self._repay_debts(graph, needs, members)
         self._sell_commune_land(graph, members)
         self._hire_day_labour(graph, by_occupation["day_labourer"], hire, income, month, rng)
         for key in members:  # the month is complete: update each household's usual income
             usual = self._income.get(key, income.get(key, 0.0))
             self._income[key] = usual + (income.get(key, 0.0) - usual) * INCOME_MEMORY
+
+    def _commune_borrow(self, graph, amount: float, alive) -> None:
+        """Prestanze: the commune borrows what it lacks from the households
+        with the most cash, each keeping a year of its own basket, at FORCED_LOAN_RATE."""
+        if amount <= 1e-9:
+            return
+        heads = {}
+        for node in alive:  # one person per household, to hang the debt on
+            heads.setdefault(household_key(node), node.resident_id)
+        for key in sorted(heads, key=lambda k: -graph.household_money.get(k, 0.0))[:10]:
+            size = sum(1 for n in alive if household_key(n) == key)
+            spare = graph.household_money.get(key, 0.0) - BASKET_PER_PERSON * size  # keeps a year of its basket
+            if spare <= 1e-9:
+                break  # sorted by cash: nobody further down can lend either
+            lent = self._pay(graph, key, COMMUNE, min(amount, spare))
+            graph.debts.append({"debtor": COMMUNE, "creditor": key, "debtor_person": None,
+                                "creditor_person": heads[key], "amount": lent, "rate": FORCED_LOAN_RATE,
+                                "kind": "forced loan", "behind": 0})
+            self._year["commune: forced loans"] += lent
+            amount -= lent
+            if amount <= 1e-9:
+                return
+
+    def _collect_alms(self, graph, members) -> None:
+        """Devout middling and rich adults give a little to the Church each month (user, 2026-10-01)."""
+        for key, people in members.items():
+            usual = self._income.get(key, 0.0)
+            if usual <= 0:
+                continue
+            adults = [n for n in people if (n.age or 0) >= 18]
+            devout = [n for n in adults if n.ses in ("middling", "rich", "very_rich") and n.religiousness >= DEVOUT]
+            if devout:
+                given = self._pay(graph, key, CHURCH, ALMS_SHARE * usual * len(devout) / len(adults))
+                self._year["church: alms"] += given
+
+    def _spare(self, graph, key, needs) -> float:
+        """Cash a household can lend: what it holds beyond DEBT_LENDER_KEEPS_MONTHS of its basket."""
+        return graph.household_money.get(key, 0.0) - DEBT_LENDER_KEEPS_MONTHS * needs.get(key, 0.0)
+
+    def _borrow(self, graph, key, people, shortfall: float, needs, members, merchants) -> None:
+        """A household short of its basket borrows (user, 2026-10-01): from
+        family and friends who care for it, without interest; then from an
+        employer or a rich household it knows; then from a moneylender (the
+        two merchant houses with the most cash). None lends to a household
+        behind on a debt; a moneylender only up to DEBT_LENDER_LIMIT_MONTHS of
+        its usual income. Each debt sits on the tie between the two people."""
+        debts = graph.debts
+        if any(d["debtor"] == key and d["behind"] >= DEBT_CUTOFF_MONTHS for d in debts):
+            return
+        family, patrons = [], []
+        for person in people:
+            pid = person.resident_id
+            boss = graph.employer.get(pid)
+            if boss is not None and graph.nodes[boss].alive:
+                patrons.append((boss, pid))
+            for other, edge in graph.ties_of(pid).items():
+                lender = graph.nodes[other]
+                if not lender.alive or household_key(lender) == key:
+                    continue
+                feeling = edge.valence_a_to_b if edge.resident_a == other else edge.valence_b_to_a
+                if edge.source_type in ("parent", "sibling", "spouse", "friend") and feeling >= DEBT_FAMILY_WARMTH:
+                    family.append((other, pid))
+                elif lender.ses in RENTIER_CLASSES and feeling >= 0:
+                    patrons.append((other, pid))
+        houses = sorted({household_key(n) for n in merchants}, key=lambda k: -graph.household_money.get(k, 0.0))
+        lenders = [(k, None) for k in houses[:DEBT_MONEYLENDERS]]
+        owed_to_lenders = sum(d["amount"] for d in debts if d["debtor"] == key and d["kind"] == "moneylender")
+        limit = DEBT_LENDER_LIMIT_MONTHS * max(0.0, self._income.get(key, 0.0)) - owed_to_lenders
+        for group, kind, rate in ((family, "family", 0.0), (patrons, "patron", DEBT_PATRON_RATE),
+                                  (lenders, "moneylender", DEBT_LENDER_RATE)):
+            for lender, borrower in group:
+                if shortfall <= 1e-9:
+                    return
+                lender_key = household_key(graph.nodes[lender]) if kind != "moneylender" else lender
+                if lender_key == key:
+                    continue
+                amount = min(shortfall, self._spare(graph, lender_key, needs))
+                if kind == "moneylender":
+                    amount = min(amount, limit)
+                if amount <= 1e-9:
+                    continue
+                if kind == "moneylender":
+                    limit -= amount
+                    lender = next(n.resident_id for n in members[lender_key] if n.occupation == "merchant")
+                self._pay(graph, lender_key, key, amount)
+                shortfall -= amount
+                debts.append({"debtor": key, "creditor": lender_key, "debtor_person": borrower,
+                              "creditor_person": lender, "amount": amount, "rate": rate, "kind": kind, "behind": 0})
+                self._year[f"debt: lent by {kind}"] += amount
+
+    def _repay_debts(self, graph, needs, members) -> None:
+        """Monthly: interest accrues; the debtor pays what it holds beyond
+        next month's basket, up to the debt. A month that pays less than the
+        interest and a 24th of the debt counts as behind: the tie between the
+        two cools on both sides, for a year at most; a year behind, family
+        forgives what's left and any other creditor seizes property.
+        Debts of a household with nobody left are settled by its estate
+        (settle_estate) or written off."""
+        kept = []
+        for debt in graph.debts:
+            key, creditor = debt["debtor"], debt["creditor"]
+            if (key not in members and key != COMMUNE) or (creditor not in members and creditor != COMMUNE):
+                self._year["debt: written off"] += debt["amount"]
+                continue
+            interest = debt["amount"] * debt["rate"] / 12
+            debt["amount"] += interest
+            due = interest + debt["amount"] / DEBT_TERM_MONTHS
+            paid = self._pay(graph, key, creditor,
+                             min(debt["amount"], max(0.0, graph.household_money.get(key, 0.0) - needs.get(key, 0.0))))
+            debt["amount"] -= paid
+            self._year["debt: repaid"] += paid
+            if paid + 1e-9 < due:
+                debt["behind"] += 1
+                if debt["behind"] <= DEBT_SEIZE_MONTHS:  # resentment builds for a year, then settles
+                    self._cool(graph, debt)
+                if debt["behind"] >= DEBT_SEIZE_MONTHS and debt["kind"] == "family":
+                    self._year["debt: forgiven by family"] += debt["amount"]  # a year behind: let it go
+                    continue
+                if debt["behind"] >= DEBT_SEIZE_MONTHS and debt["kind"] != "forced loan":
+                    owned = max(0.0, graph.household_property.get(key, 0.0))
+                    seized = min(owned, debt["amount"])
+                    if seized > 0:
+                        graph.household_property[key] -= seized
+                        graph.household_property[creditor] = graph.household_property.get(creditor, 0.0) + seized
+                        debt["amount"] -= seized
+                        self._year["debt: property seized"] += seized
+            else:
+                debt["behind"] = 0
+            if debt["amount"] > 0.01:
+                kept.append(debt)
+        graph.debts = kept
+
+    @staticmethod
+    def _cool(graph, debt) -> None:
+        a, b = debt["debtor_person"], debt["creditor_person"]
+        edge = graph.get_edge(a, b) if a is not None and b is not None else None
+        if edge is None:
+            return
+        for person, change in ((a, DEBT_RESENTMENT), (b, DEBT_RESENTMENT)):
+            if edge.resident_a == person:
+                edge.valence_a_to_b = max(-1.0, edge.valence_a_to_b - change)
+            else:
+                edge.valence_b_to_a = max(-1.0, edge.valence_b_to_a - change)
 
     def _sell_commune_land(self, graph, members) -> None:
         """Land the commune got from heirless estates goes to whoever can pay
@@ -581,7 +793,9 @@ class EconomyPhenomenon:
         if amount <= 0 or not sellers:
             return
         seller = household_key(sellers[rng.randrange(len(sellers))])
-        income[seller] += self._pay(graph, key, seller, amount)
+        tax = self._pay(graph, key, COMMUNE, amount * GABELLE)
+        self._year["commune: gabelle"] += tax
+        income[seller] += self._pay(graph, key, seller, amount - tax)
 
     def _import(self, graph, key, amount: float, merchants, rng: random.Random, income) -> None:
         """Bought from outside through a merchant, who keeps a margin."""
@@ -591,7 +805,9 @@ class EconomyPhenomenon:
             self._year["out: imports"] += self._pay(graph, key, None, amount)
             return
         merchant = household_key(merchants[rng.randrange(len(merchants))])
-        paid = self._pay(graph, key, merchant, amount)
+        tax = self._pay(graph, key, COMMUNE, amount * GABELLE)  # at the gates
+        self._year["commune: gabelle"] += tax
+        paid = self._pay(graph, key, merchant, amount - tax)
         cost = self._pay(graph, merchant, None, paid * (1 - IMPORT_MARGIN))
         income[merchant] += paid - cost
         self._year["out: imports"] += cost
@@ -637,6 +853,14 @@ class EconomyPhenomenon:
             "economy_dowries": round(getattr(graph, "dowries", 0.0), 1),
             "economy_households": len(living),
             "economy_commune_cash": round(graph.household_money.get(COMMUNE, 0.0), 1),
+            "economy_church_cash": round(graph.household_money.get(CHURCH, 0.0), 1),
+            "economy_grain_price": round(self._harvest, 2),
+            "economy_famines": self._famines,
+            "economy_debt_total": round(sum(d["amount"] for d in graph.debts), 1),
+            "economy_debts": len(graph.debts),
+            "economy_debts_behind": sum(1 for d in graph.debts if d["behind"] > 0),
+            **{f"economy_debt_{kind}": round(sum(d["amount"] for d in graph.debts if d["kind"] == kind), 1)
+               for kind in ("family", "patron", "moneylender", "forced loan")},
             "economy_commune_property": round(graph.household_property.get(COMMUNE, 0.0), 1),
             **{f"economy_estates_{k.replace(' ', '_')}": v for k, v in self._estates.items()},
             **{f"economy_{k}": round(v, 1) for k, v in self._last.items()},
@@ -713,6 +937,15 @@ def follow_if_emptied(graph, old, home) -> None:
             and not any(n.alive and household_key(n) == old for n in graph.nodes.values()):
         graph.household_money.setdefault(home, 0.0)
         _move_wealth(graph, old, home, 1.0)
+        _retarget_debts(graph, old, home)
+
+
+def _retarget_debts(graph, old, new) -> None:
+    """Debts owed by or to a household go with its money when it moves."""
+    for debt in getattr(graph, "debts", []):
+        for side in ("debtor", "creditor"):
+            if debt[side] == old:
+                debt[side] = new
 
 
 def _real_household_id(graph, key):
@@ -723,6 +956,7 @@ def _real_household_id(graph, key):
     for store in (graph.household_money, getattr(graph, "household_property", {})):
         if key in store:
             store[home_id] = store.pop(key)
+    _retarget_debts(graph, key, home_id)
     return home_id
 
 
@@ -758,6 +992,7 @@ def settle_estate(graph, dead: int) -> Optional[str]:
         return "split among children"
     if others:
         return "stays in the household"
+    _pay_debts_from_estate(graph, key)
     siblings = _kin(graph, dead, "sibling")
     nephews = [n for s in graph.neighbors(dead) if graph.get_edge(dead, s).source_type == "sibling"
                for n in _kin(graph, s, "parent", younger=True)]
@@ -774,11 +1009,25 @@ def settle_estate(graph, dead: int) -> Optional[str]:
     return "to the commune"
 
 
+def _pay_debts_from_estate(graph, key) -> None:
+    """A household left with nobody pays what it owes before heirs or the commune get the rest."""
+    for debt in getattr(graph, "debts", []):
+        if debt["debtor"] != key:
+            continue
+        for store in (graph.household_money, graph.household_property):
+            paid = min(debt["amount"], max(0.0, store.get(key, 0.0)))
+            store[key] = store.get(key, 0.0) - paid
+            store[debt["creditor"]] = store.get(debt["creditor"], 0.0) + paid
+            debt["amount"] -= paid
+    graph.debts = [d for d in getattr(graph, "debts", []) if d["debtor"] != key or d["amount"] > 0.01]
+
+
 # The commune's household key (user, 2026-10-01). Land from heirless estates
 # is sold to a household that can pay (the monthly _sell_commune_land);
 # unsold it stays with the commune, earning its return. The commune's cash
 # pays the guards and the other public wages before any outside money.
 COMMUNE = "commune"
+CHURCH = "church"  # the Church's household key: alms in, gifts to the hungry out
 LEFT_ALONE_MOVES_IN_AGE = 50  # C: a widow(er) this old moves in with a grown child
 
 
@@ -821,6 +1070,7 @@ def join_family(graph, dead: int) -> Optional[str]:
             host.household_id = home = _real_household_id(graph, household_key(host))
             graph.household_money.setdefault(home, 0.0)
             _move_wealth(graph, key, home, 1.0)
+            _retarget_debts(graph, key, home)
             for n in left:
                 n.household_id = home
             return outcome

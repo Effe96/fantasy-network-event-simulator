@@ -1744,6 +1744,10 @@ class GuardPhenomenon:
 # adults no occupation, so joblessness can't be a pressure yet (see the
 # market discussion); add hunger, debt, unemployment once the economy exists
 STRESS_POVERTY = {"very_poor": 0.55, "poor": 0.4, "middling": 0.2, "rich": 0.05, "very_rich": 0.0}
+# C: on top of class, times the share of the household's basket it couldn't
+# buy this month (slice 3 A, 2026-10-01): a very poor household going
+# hungry crosses theft's 0.6, so hard times raise theft
+STRESS_HUNGER = 0.3
 STRESS_GRIEF_PER_LOSS = 0.4   # losing a spouse, parent, child or sibling
 STRESS_GRIEF_CAP = 0.6
 STRESS_GRIEF_DAYS = 365       # grief fades to nothing over a year
@@ -1755,7 +1759,8 @@ FAMILY_TIES = ("spouse", "parent", "sibling")
 
 class StressPhenomenon:
     """Keeps every resident's Node.stress moving toward the sum of their
-    pressures: poverty (always there), grief after losing close family
+    pressures: poverty (always there), hunger (the share of the household's
+    basket it couldn't buy this month), grief after losing close family
     (fading over a year, several losses add up), and a month of strain after
     an illness. Runs before theft, which reads it."""
     name = "stress"
@@ -1769,12 +1774,12 @@ class StressPhenomenon:
         self._recoveries_seen = len(graph.recoveries)
         state = {resident_id: {"grief": 0.0, "ill_until": 0} for resident_id in graph.nodes}
         for resident_id, node in graph.nodes.items():
-            node.stress = self._pressure(node, state[resident_id], 0)  # start settled
+            node.stress = self._pressure(graph, node, state[resident_id], 0)  # start settled
         return state
 
     def add_resident(self, graph, state, resident_id: int) -> None:
         state[resident_id] = {"grief": 0.0, "ill_until": 0}
-        graph.nodes[resident_id].stress = self._pressure(graph.nodes[resident_id], state[resident_id], 0)
+        graph.nodes[resident_id].stress = self._pressure(graph, graph.nodes[resident_id], state[resident_id], 0)
 
     def candidate_edges(self, graph, state):
         return []
@@ -1786,9 +1791,10 @@ class StressPhenomenon:
         return []
 
     @staticmethod
-    def _pressure(node, resident_state, day: int) -> float:
+    def _pressure(graph, node, resident_state, day: int) -> float:
         illness = STRESS_ILLNESS if day < resident_state["ill_until"] else 0.0
-        return min(1.0, STRESS_POVERTY.get(node.ses, 0.2) + resident_state["grief"] + illness)
+        hunger = STRESS_HUNGER * graph.hunger.get(household_key(node), 0.0) if getattr(graph, "hunger", None) else 0.0
+        return min(1.0, STRESS_POVERTY.get(node.ses, 0.2) + hunger + resident_state["grief"] + illness)
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         for death in graph.deaths[self._deaths_seen:]:
@@ -1809,7 +1815,7 @@ class StressPhenomenon:
                 continue
             if resident_state["grief"]:
                 resident_state["grief"] = max(0.0, resident_state["grief"] - fade)
-            node.stress += (self._pressure(node, resident_state, day) - node.stress) / STRESS_CATCH_UP_DAYS
+            node.stress += (self._pressure(graph, node, resident_state, day) - node.stress) / STRESS_CATCH_UP_DAYS
         return []
 
     def summarize(self, state) -> Dict[str, int]:

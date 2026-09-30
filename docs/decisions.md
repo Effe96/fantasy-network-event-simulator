@@ -8,6 +8,43 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-01 — Slice 3 B and C: debt, alms, the gabelle, harvests
+
+User's choices: debt from family and friends (no interest), then an
+employer or rich acquaintance (10%), then a moneylender (the two merchant
+houses with most cash, 25%, up to 6 months of income); alms from devout
+middling and rich people; a gabelle funds the commune, with forced loans
+(prestanze, 5%) from the richest when it runs short; the outside money for
+public wages stops.
+- Debt alone barely helped: the hungry earn less than their basket every
+  month, so nearly every debt went behind (~270 debts, ~200 fl in total,
+  almost all family). Resentment from a debt behind builds for a year at
+  most (it had no end, and would have turned families hostile); family
+  forgives after a year; other creditors seize property.
+- A 6% gabelle raised ~2,000 fl a year against ~850 of public wages: the
+  commune hoarded 35k fl in 25 years, drawn from households (very poor
+  25%). Now 2.5%, about the wage bill; the commune keeps a year of wages
+  against famine and spends half of anything beyond it each month on
+  public works (day labour and purchases in town).
+- Harvests: grain 0.8-1.25x in ordinary years, 2-2.5x in a famine (1 in 15
+  years); in a famine the commune pays the hungry's grain.
+- Run (PyPy, seed 1, 25 years, against the debt run): hungry households
+  23-51 (41-76); very poor 10% -> 20.6% (12% -> 17.9%, one seed);
+  households' money 91k -> 83k plus 10k of unsold commune land; no
+  household hungry in the famine year; forced loans in years 1-8, repaid;
+  the Church gives ~100 fl a year. Crime unchanged.
+
+## 2026-10-01 — Slice 3 A: hunger adds stress
+
+Class pressure stays (class follows money now, so it already reflects a
+long spell without work, as the user wanted); on top, `STRESS_HUNGER` 0.3
+x the share of the basket the household couldn't buy that month
+(`graph.hunger`, set by the economy). Run (PyPy, seed 1, 25 years, against
+the land run): thefts 2256 -> 2657, new thieves 460 -> 585, executions
+103 -> 149 (6 a year for ~2,100 people, far above medieval norms: to
+check), murders 85 -> 104, riots 30 -> 28; hungry households still rise
+(35 -> 97): debt and charity (B, C) are what should hold them.
+
 ## 2026-10-01 — The commune sells heirless land and pays the guards
 
 User: land goes to whoever is rich enough to buy it; otherwise it stays

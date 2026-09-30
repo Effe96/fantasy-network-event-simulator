@@ -209,6 +209,18 @@ and its money pays the guards and public wages first (households' money
 Left: very poor still rise from year 5 (10% ->
 16.5%); thefts +13%. Slice 3 (debt, charity, beggars) is next for poverty.
 
+### 6f. Slice 3 A-C (2026-10-01)
+
+Plan and the user's decisions in `Project_Vision/03-economy-design.md`
+("Slice 3 build plan"); reasons in `docs/decisions.md`. Built: hunger in
+stress, debt (family, patrons, moneylenders), alms, the gabelle (2.5%) with
+forced loans and public works, harvests and famine relief. Hungry
+households at year 25 went 136 (first run) -> 51. Wrong turns: resentment
+over unpaid debt had no end; a 6% gabelle made the commune hoard. Open:
+very poor still rise after year 5; executions ~5 a year, far above
+medieval norms; beggars and hardship deaths (D) next; eviction waits for
+rent (slice 5).
+
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 
 The user asked how long runs take and how they scale; to be addressed in

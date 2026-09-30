@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from economy import (COMMUNE, DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for,
+from economy import (CHURCH, COMMUNE, DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for,
                      form_household, gini, join_family, settle_estate, setup_economy, wealth)
 from graph import Edge, Node, SocialGraph
 
@@ -98,6 +98,77 @@ def test_the_commune_sells_land_to_whoever_can_pay_and_pays_the_guards():
     assert graph.household_money[COMMUNE] < 1000.0  # the guard's pay came from the commune
 
 
+def _lenders_and_borrower():
+    graph = _town()
+    economy = EconomyPhenomenon()
+    economy.init_state(graph)
+    members = {1: [graph.nodes[1], graph.nodes[2]], 2: [graph.nodes[3]], 3: [graph.nodes[4], graph.nodes[5]]}
+    return graph, economy, members, {1: 1.0, 2: 1.0, 3: 1.0}
+
+
+def test_a_short_household_borrows_from_family_without_interest():
+    graph, economy, members, needs = _lenders_and_borrower()
+    economy._borrow(graph, 2, members[2], 5.0, needs, members, [])
+    assert graph.household_money[2] == 5.0 and graph.household_money[1] == 95.0
+    assert [(d["creditor"], d["kind"], d["rate"]) for d in graph.debts] == [(1, "family", 0.0)]
+
+
+def test_nobody_lends_to_a_stranger_without_a_moneylender():
+    graph, economy, members, needs = _lenders_and_borrower()
+    economy._borrow(graph, 3, members[3], 5.0, needs, members, [])  # household 3 knows nobody
+    assert graph.debts == [] and graph.household_money[3] == 0.0
+
+
+def test_a_debt_a_year_behind_cools_the_tie_and_costs_property():
+    graph, economy, members, needs = _lenders_and_borrower()
+    graph.household_property[2] = 30.0
+    graph.debts = [{"debtor": 2, "creditor": 1, "debtor_person": 3, "creditor_person": 1, "amount": 50.0,
+                    "rate": 0.1, "kind": "patron", "behind": 0}]
+    before = graph.get_edge(1, 3).valence_a_to_b
+    for _ in range(12):
+        economy._repay_debts(graph, needs, members)
+    assert graph.household_property[2] == 0.0 and graph.household_property[1] == 930.0
+    assert graph.get_edge(1, 3).valence_a_to_b < before
+    assert 20.0 < graph.debts[0]["amount"] < 50.0  # grew with interest, then 30 seized
+
+
+def test_family_forgives_a_debt_a_year_behind():
+    graph, economy, members, needs = _lenders_and_borrower()
+    graph.debts = [{"debtor": 2, "creditor": 1, "debtor_person": 3, "creditor_person": 1, "amount": 50.0,
+                    "rate": 0.0, "kind": "family", "behind": 0}]
+    for _ in range(12):
+        economy._repay_debts(graph, needs, members)
+    assert graph.debts == [] and graph.household_property[2] == 0.0
+
+
+def test_devout_middling_people_give_alms_and_the_poor_don_t():
+    graph, economy, members, needs = _lenders_and_borrower()
+    for resident_id, ses in ((1, "middling"), (2, "middling"), (4, "poor"), (5, "poor")):
+        graph.nodes[resident_id].ses, graph.nodes[resident_id].religiousness = ses, 0.9
+    economy._income = {1: 10.0, 3: 10.0}
+    economy._collect_alms(graph, members)
+    assert graph.household_money[CHURCH] > 0 and graph.household_money[1] < 100.0
+    assert graph.household_money[3] == 0.0
+
+
+def test_a_commune_short_of_wages_borrows_from_the_richest():
+    graph, economy, members, needs = _lenders_and_borrower()
+    graph.household_money[1] = 1000.0
+    economy._commune_borrow(graph, 50.0, [n for n in graph.nodes.values() if n.alive])
+    assert graph.household_money[COMMUNE] == 50.0 and graph.household_money[1] == 950.0
+    assert graph.debts[0]["debtor"] == COMMUNE and graph.debts[0]["kind"] == "forced loan"
+
+
+def test_an_estate_pays_its_debts_before_the_heirs():
+    graph = _town()
+    graph.household_money[2] = 50.0
+    graph.debts = [{"debtor": 2, "creditor": 3, "debtor_person": 3, "creditor_person": 4, "amount": 20.0,
+                    "rate": 0.0, "kind": "family", "behind": 0}]
+    graph.record_death(3, day=1, cause="flu")
+    settle_estate(graph, 3)
+    assert graph.household_money[3] == 20.0 and graph.debts == []
+
+
 def test_a_heirless_estate_goes_to_the_siblings():
     graph = _town()
     graph.add_edge(Edge(3, 4, "sibling", "Communal Sharing", 0.7, 0.7, 0.7, 0.5, 0.5))
@@ -178,6 +249,13 @@ def _run_all():
     test_with_no_spouse_the_estate_goes_to_all_children()
     test_a_household_left_with_nobody_goes_to_the_commune()
     test_a_heirless_estate_goes_to_the_siblings()
+    test_a_short_household_borrows_from_family_without_interest()
+    test_nobody_lends_to_a_stranger_without_a_moneylender()
+    test_a_debt_a_year_behind_cools_the_tie_and_costs_property()
+    test_family_forgives_a_debt_a_year_behind()
+    test_devout_middling_people_give_alms_and_the_poor_don_t()
+    test_a_commune_short_of_wages_borrows_from_the_richest()
+    test_an_estate_pays_its_debts_before_the_heirs()
     test_the_commune_sells_land_to_whoever_can_pay_and_pays_the_guards()
     test_an_old_widow_left_alone_moves_in_with_her_daughter()
     test_orphans_go_to_their_grown_sibling()

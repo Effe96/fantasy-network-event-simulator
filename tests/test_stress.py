@@ -50,10 +50,25 @@ def test_an_illness_adds_a_month_of_strain():
     assert graph.nodes[3].stress > before
 
 
+def test_a_very_poor_household_going_hungry_crosses_the_thief_threshold():
+    graph = _widow()
+    graph.nodes[3].ses = "very_poor"
+    graph.nodes[3].household_id = 7
+    stress = StressPhenomenon()
+    state = stress.init_state(graph)
+    assert graph.nodes[3].stress < THIEF_STRESS_THRESHOLD
+    graph.hunger = {7: 0.5}  # bought only half its basket this month
+    for day in range(1, 61):
+        stress.end_of_day(graph, state, day, random.Random(day))
+    assert graph.nodes[3].stress > THIEF_STRESS_THRESHOLD
+    assert graph.nodes[1].stress < THIEF_STRESS_THRESHOLD  # a household that ate
+
+
 def _run_all():
     test_poverty_alone_is_below_the_thief_threshold()
     test_losing_a_spouse_raises_stress_past_the_threshold_then_it_fades()
     test_an_illness_adds_a_month_of_strain()
+    test_a_very_poor_household_going_hungry_crosses_the_thief_threshold()
     print("OK")
 
 
