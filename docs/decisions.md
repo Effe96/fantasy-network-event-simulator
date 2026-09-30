@@ -8,6 +8,32 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-01 — Slice 5: houses, landlords, rent, eviction
+
+User's answers: a tenant who can pay buys its house from the owner;
+eviction after 3 to 6 months behind, longer the better tenants and landlord
+get on; the Church and the commune can be landlords; the homeless beg.
+- At import each TownShape home building gets an owner: the richest
+  household living there if its property covers the whole building, else a
+  rich household, merchant or noble elsewhere (weighted by property), else
+  the Church. Its value (17.6 fl a person, x1.5-6 for richer households,
+  from the 7% rule and a 15% lodging share, C) comes out of the owner's
+  property and still counts in its wealth. Reference town: 226 buildings
+  of ~8 people (tenements), 41 owner-occupied, 91% of people renting.
+- Rent (7% of the value a year, split among the households in the
+  building) is paid after food, from the lodging part of the basket.
+- Fixes on the way: a co-tenant could force the resident owner to sell (648
+  sales of 226 houses; now only a landlord living elsewhere sells); every
+  short month counted as a whole month behind (59 evictions in year 1; now
+  arrears in florins, part-payments count); the homeless needed 3 months'
+  rent to find a room (now one) and stopped begging once fed (now they beg
+  until housed).
+- Run (seed 1, 25 years): money holds (86.5k -> 89.4k), Gini 0.72,
+  household size ~4.3 (Florence ~4; the evicted move in with family),
+  very poor 10.4%, no hungry households (food first, rent after), 517
+  evictions (~20 a year), 37-142 homeless (2-6%), up to 88 beggars,
+  25 houses bought, owner-occupied 41 -> 61.
+
 ## 2026-10-01 — Slice 4: work draws people in; the stressed move out
 
 Plan in `Project_Vision/03-economy-design.md` (approved: "looks good").

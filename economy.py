@@ -57,6 +57,18 @@ PRATO_1300_TOP1 = 29.18
 MERCHANT_PER_RESIDENTS = 150  # C: ~13 merchants in a town of 1,900
 PUTTING_OUT_SHARE = 0.5  # C: of the otherwise jobless, work at home for a merchant
 RENTIER_HOUSEHOLD_SHARE = 0.1  # C: the richest tenth of households live off property, not wages
+# houses and rent (slice 5, user 2026-10-01). Rents are missing from the
+# research notes: a house earns its owner PROPERTY_RETURN of its value a
+# year (the book's 7% rule), and lodging is RENT_SHARE of the basket
+# (de la Roncière's budget shares, C), now paid as rent instead of to shops.
+RENT_SHARE = 0.15  # C
+HOUSE_VALUE_PER_PERSON = BASKET_PER_PERSON * RENT_SHARE / PROPERTY_RETURN  # ~17.6 fl
+HOUSE_CLASS_FACTOR = {"very_poor": 1.0, "poor": 1.0, "middling": 1.5, "rich": 3.0, "very_rich": 6.0}  # C: bigger houses
+EVICT_AFTER_MONTHS = (3, 6)  # user: 3 to 6 months behind, longer the better landlord and tenants get on
+HOST_MAX = 8  # C: kin or friends take in the evicted while their household has room
+BUY_CUSHION_MONTHS = 3  # C: a tenant buys their house when it can pay and keep this many months of its basket
+LANDLORD_CLASSES = ("rich", "very_rich")
+
 # the commune's and the Church's money (slice 3 C, user 2026-10-01)
 # C: tax on what's bought in town and imported, about what public wages cost
 # (~0.4 fl a person a year; Florence 3-5 fl, book §9, paid for wars and debt
@@ -172,7 +184,45 @@ def setup_economy(graph, building_types: Dict[int, str], townshape_wealth: Dict[
     graph.employer = {}
     _assign_jobs(graph, townshape_wealth, rng)
     _seed_wealth(graph, townshape_wealth, rng)
+    _assign_houses(graph, rng)
     _set_class_lines(graph, rng)
+
+
+def _assign_houses(graph, rng) -> None:
+    """Who owns each home building (slice 5): the richest household living
+    there if its property covers the house (owner-occupiers), else a rich
+    household elsewhere, weighted by property (landlords: the user's
+    merchants and rich owning the homes of the poor and middling); with
+    nobody able to, the Church. A house's value comes out of its owner's
+    property, so no wealth is invented, except the Church's."""
+    graph.houses, graph.house_wealth = {}, {}
+    living = defaultdict(list)
+    for node in graph.nodes.values():
+        if node.alive and node.home_building_id is not None:
+            living[node.home_building_id].append(node)
+    prop = graph.household_property
+    pool = _landlord_pool(graph)
+    for building in sorted(living):
+        people = living[building]
+        top = max(people, key=lambda n: CLASSES.index(n.ses) if n.ses in CLASSES else 1).ses
+        value = HOUSE_VALUE_PER_PERSON * len(people) * HOUSE_CLASS_FACTOR.get(top, 1.0)
+        residents = sorted({household_key(n) for n in people}, key=lambda k: -prop.get(k, 0.0))
+        owner = next((k for k in residents if prop.get(k, 0.0) >= value), None)
+        if owner is None:
+            landlords = [k for k in pool if prop.get(k, 0.0) >= value and k not in residents]
+            owner = rng.choices(landlords, weights=[prop[k] for k in landlords])[0] if landlords else CHURCH
+        if owner != CHURCH:
+            prop[owner] -= value
+        graph.houses[building] = {"owner": None, "value": value}
+        set_house_owner(graph, building, owner)
+
+
+def _landlord_pool(graph) -> List[Any]:
+    keys = set()
+    for node in graph.nodes.values():
+        if node.alive and (node.ses in LANDLORD_CLASSES or node.occupation == "merchant" or node.is_noble):
+            keys.add(household_key(node))
+    return sorted(keys, key=str)
 
 
 CLASSES = ("very_poor", "poor", "middling", "rich", "very_rich")
@@ -351,9 +401,30 @@ def _decile_shares(count: int) -> List[float]:
     return [s / total for s in shares]
 
 
+def house_wealth(graph, key) -> float:
+    return getattr(graph, "house_wealth", {}).get(key, 0.0)
+
+
+def set_house_owner(graph, building, owner) -> None:
+    """Change who owns a house, keeping each owner's total house value current."""
+    house = graph.houses[building]
+    totals = graph.house_wealth
+    if house["owner"] is not None:
+        totals[house["owner"]] = totals.get(house["owner"], 0.0) - house["value"]
+    house["owner"] = owner
+    totals[owner] = totals.get(owner, 0.0) + house["value"]
+
+
+def pass_houses(graph, old, new) -> None:
+    for building, house in getattr(graph, "houses", {}).items():
+        if house["owner"] == old:
+            set_house_owner(graph, building, new)
+
+
 def wealth(graph, key) -> float:
     """A household's cash plus property."""
-    return graph.household_money.get(key, 0.0) + getattr(graph, "household_property", {}).get(key, 0.0)
+    return (graph.household_money.get(key, 0.0) + getattr(graph, "household_property", {}).get(key, 0.0)
+            + house_wealth(graph, key))
 
 
 def gini(values: List[float]) -> float:
@@ -391,6 +462,8 @@ class EconomyPhenomenon:
         self._harvest = 1.0  # this year's grain price, times normal
         self._fed_months: Dict[Any, int] = {}  # household -> months fed in a row, while it begs
         self._hardship_deaths = 0
+        self._evictions = 0
+        self._houses_bought = 0
         self._famines = 0
         self._public_bill = 0.0
 
@@ -398,7 +471,8 @@ class EconomyPhenomenon:
         self._graph = graph  # summarize reads the town's money
         self._deaths_seen = len(graph.deaths)
         for name, empty in (("household_money", dict), ("household_property", dict), ("employer", dict),
-                            ("merchants", list), ("building_types", dict), ("debts", list)):
+                            ("merchants", list), ("building_types", dict), ("debts", list),
+                            ("houses", dict), ("house_wealth", dict), ("rent_behind", dict)):
             if not hasattr(graph, name):  # a town imported without the economy (test fixtures)
                 setattr(graph, name, empty())
         return {resident_id: {} for resident_id in graph.nodes}
@@ -520,6 +594,8 @@ class EconomyPhenomenon:
         for node in alive:
             members[household_key(node)].append(node)
         basket = BASKET_PER_PERSON * (1 - GRAIN_SHARE_OF_BASKET + GRAIN_SHARE_OF_BASKET * self._harvest)
+        if graph.houses:  # lodging is paid as rent (slice 5), after food
+            basket -= BASKET_PER_PERSON * RENT_SHARE
         needs = {key: sum(CHILD_BASKET if (n.age or 0) < 12 else 1.0 for n in people) * basket * month
                  for key, people in members.items()}
         church_budget = CHURCH_GIVES_PER_MONTH * max(0.0, graph.household_money.get(CHURCH, 0.0))
@@ -585,6 +661,7 @@ class EconomyPhenomenon:
             self._year["commune: public works"] += works
         self._collect_alms(graph, members)
         needs[COMMUNE] = COMMUNE_RESERVE_MONTHS * self._public_bill
+        self._housing(graph, members, needs, income, rng)
         self._repay_debts(graph, needs, members, rng)
         self._sell_commune_land(graph, members)
         self._hire_day_labour(graph, by_occupation["day_labourer"], hire, income, month, rng)
@@ -592,6 +669,113 @@ class EconomyPhenomenon:
         for key in members:  # the month is complete: update each household's usual income
             usual = self._income.get(key, income.get(key, 0.0))
             self._income[key] = usual + (income.get(key, 0.0) - usual) * INCOME_MEMORY
+
+    def _housing(self, graph, members, needs, income, rng: random.Random) -> None:
+        """Once food is bought (user: food first): tenants pay rent; a tenant
+        who can buy its house does; a household behind on rent for 3 to 6
+        months (longer the better it gets on with its landlord) is evicted,
+        to kin or friends with room, or onto the street as beggars; the
+        homeless who can pay rent find a home again."""
+        if not graph.houses:
+            return
+        # houses whose owners are gone go to the commune (moved away, died out)
+        for building, house in graph.houses.items():
+            if house["owner"] not in members and house["owner"] not in (COMMUNE, CHURCH):
+                set_house_owner(graph, building, COMMUNE)
+        home = {}  # household -> the building it lives in
+        in_building = defaultdict(list)
+        for key, people in members.items():
+            buildings = [n.home_building_id for n in people if n.home_building_id in graph.houses]
+            if buildings:
+                home[key] = max(set(buildings), key=buildings.count)
+                in_building[home[key]].append(key)
+        month = 30 / 365
+        for key, people in members.items():
+            building = home.get(key)
+            if building is None:
+                if all(n.home_building_id is None for n in people):
+                    self._rehouse(graph, key, people, needs, rng)
+                continue
+            house = graph.houses[building]
+            if house["owner"] == key:
+                continue
+            cash = graph.household_money.get(key, 0.0)
+            # a landlord living elsewhere sells to a tenant who can pay; one who
+            # lives there keeps it (a co-tenant forcing sales made houses change
+            # hands back and forth: 648 sales of 226 houses in 25 years)
+            if house["owner"] not in in_building[building] and                     cash >= house["value"] + BUY_CUSHION_MONTHS * needs.get(key, 0.0):
+                self._pay(graph, key, house["owner"], house["value"])  # bought from the owner (user)
+                set_house_owner(graph, building, key)
+                self._houses_bought += 1
+                graph.rent_behind.pop(key, None)
+                continue
+            due = house["value"] * PROPERTY_RETURN * month / len(in_building[building])
+            owed = graph.rent_behind.get(key, 0.0) + due  # this month's rent and any arrears
+            paid = self._pay(graph, key, house["owner"], owed)
+            income[house["owner"]] += paid
+            income[key] -= paid
+            self._year["rent: paid"] += paid
+            if paid + 1e-9 >= owed:
+                graph.rent_behind.pop(key, None)
+                continue
+            # what's still owed, in months of rent: part-payments count (every
+            # short month counted as a whole month behind: 59 evictions in year 1)
+            graph.rent_behind[key] = owed - paid
+            grace = EVICT_AFTER_MONTHS[0] + round((EVICT_AFTER_MONTHS[1] - EVICT_AFTER_MONTHS[0])
+                                                  * max(0.0, self._affinity(graph, people, members.get(house["owner"], ()))))
+            if graph.rent_behind[key] >= grace * due:
+                graph.rent_behind.pop(key, None)
+                self._evict(graph, key, people, members)
+
+    @staticmethod
+    def _affinity(graph, tenants, owners) -> float:
+        """How well tenants and landlord get on: their warmest tie, both ways averaged (0 without one)."""
+        best = 0.0
+        for owner in owners:
+            ties = graph.ties_of(owner.resident_id)
+            for tenant in tenants:
+                edge = ties.get(tenant.resident_id)
+                if edge is not None:
+                    best = max(best, (edge.valence_a_to_b + edge.valence_b_to_a) / 2)
+        return best
+
+    def _evict(self, graph, key, people, members) -> None:
+        self._evictions += 1
+        hosts = []
+        for person in people:
+            for other, edge in graph.ties_of(person.resident_id).items():
+                host = graph.nodes[other]
+                feeling = edge.valence_a_to_b if edge.resident_a == other else edge.valence_b_to_a
+                if (host.alive and household_key(host) != key and host.home_building_id is not None
+                        and (edge.source_type in FAMILY_TIES or edge.source_type == "friend") and feeling >= 0.3
+                        and len(members.get(household_key(host), ())) + len(people) <= HOST_MAX):
+                    hosts.append((feeling, other))
+        if hosts:
+            host = graph.nodes[max(hosts)[1]]
+            new = _real_household_id(graph, household_key(host))
+            host.household_id = new
+            graph.household_money.setdefault(new, 0.0)
+            _move_wealth(graph, key, new, 1.0)
+            _retarget_debts(graph, key, new)
+            for node in people:
+                node.household_id, node.home_building_id = new, host.home_building_id
+            self._year["evicted: taken in"] += len(people)
+            return
+        for node in people:  # onto the street: homeless people beg (user)
+            node.home_building_id = None
+            if (node.age or 0) >= BEG_MIN_AGE and not node.is_noble:
+                node.beggar = True
+        self._year["evicted: onto the street"] += len(people)
+
+    def _rehouse(self, graph, key, people, needs, rng: random.Random) -> None:
+        """The homeless find a home again once they hold a month's rent and food."""
+        building = rng.choice(sorted(graph.houses))
+        rent = graph.houses[building]["value"] * PROPERTY_RETURN / 12
+        if graph.household_money.get(key, 0.0) >= rent + needs.get(key, 0.0):  # a month's rent and food
+            for node in people:
+                node.home_building_id = building
+                node.beggar = False
+            self._year["homeless: found a home"] += len(people)
 
     def _commune_borrow(self, graph, amount: float, alive) -> None:
         """Prestanze: the commune borrows what it lacks from the households
@@ -641,7 +825,8 @@ class EconomyPhenomenon:
                     if chance and rng.random() < chance:
                         graph.record_death(node.resident_id, day, "famine" if famine else "hardship")
                         self._hardship_deaths += 1
-            elif any(n.beggar for n in people):
+            elif any(n.beggar for n in people) and not (graph.houses and all(n.home_building_id is None for n in people)):
+                # fed again, and not homeless: the homeless beg until they have a home (user)
                 self._fed_months[key] = self._fed_months.get(key, 0) + 1
                 if self._fed_months[key] >= BEG_STOP_AFTER_FED:
                     for node in people:
@@ -959,6 +1144,15 @@ class EconomyPhenomenon:
             "economy_commune_cash": round(graph.household_money.get(COMMUNE, 0.0), 1),
             "economy_church_cash": round(graph.household_money.get(CHURCH, 0.0), 1),
             "economy_beggars": sum(1 for n in graph.nodes.values() if n.alive and n.beggar),
+            "economy_homeless": sum(1 for n in graph.nodes.values()
+                                    if n.alive and n.home_building_id is None and graph.houses),
+            "economy_evictions": self._evictions,
+            "economy_houses_bought": self._houses_bought,
+            "economy_houses_owner_occupied": len({(n.home_building_id, household_key(n)) for n in graph.nodes.values()
+                                                  if n.alive} & {(b, h["owner"]) for b, h in graph.houses.items()}),
+            "economy_houses_church": sum(1 for h in graph.houses.values() if h["owner"] == CHURCH),
+            "economy_houses_commune": sum(1 for h in graph.houses.values() if h["owner"] == COMMUNE),
+            "economy_houses": len(graph.houses),
             "economy_hardship_deaths": self._hardship_deaths,
             "economy_grain_price": round(self._harvest, 2),
             "economy_famines": self._famines,
@@ -1047,7 +1241,8 @@ def follow_if_emptied(graph, old, home) -> None:
 
 
 def _retarget_debts(graph, old, new) -> None:
-    """Debts owed by or to a household go with its money when it moves."""
+    """Debts owed by or to a household, and the houses it owns, go with its money when it moves."""
+    pass_houses(graph, old, new)
     for debt in getattr(graph, "debts", []):
         for side in ("debtor", "creditor"):
             if debt[side] == old:
@@ -1089,10 +1284,13 @@ def settle_estate(graph, dead: int) -> Optional[str]:
                 and (graph.nodes[o].age or 0) < (node.age or 0)]
     if children:
         # the dead adult's share of the household, split equally; children
-        # still living in the household keep theirs where it is
-        part = wealth(graph, key) / adults / len(children)
+        # still living in the household keep theirs where it is. Houses
+        # aren't split: with nobody left at home they go to the eldest child
+        if not others:
+            pass_houses(graph, key, household_key(max(children, key=lambda n: n.age or 0)))
+        part = (wealth(graph, key) - house_wealth(graph, key)) / adults / len(children)
         for child in children:
-            current = wealth(graph, key)
+            current = wealth(graph, key) - house_wealth(graph, key)
             if household_key(child) != key and current > 0:
                 _move_wealth(graph, key, household_key(child), part / current)
         return "split among children"
@@ -1104,10 +1302,12 @@ def settle_estate(graph, dead: int) -> Optional[str]:
                for n in _kin(graph, s, "parent", younger=True)]
     for heirs, outcome in ((siblings, "to siblings"), (nephews, "to nephews and nieces")):
         if heirs:
+            pass_houses(graph, key, household_key(max(heirs, key=lambda n: n.age or 0)))
             for share, heir in enumerate(heirs):  # equal parts: 1/n, then 1/(n-1) of what's left, ...
                 _move_wealth(graph, key, household_key(heir), 1.0 / (len(heirs) - share))
             return outcome
     graph.household_money.setdefault(COMMUNE, 0.0)
+    pass_houses(graph, key, COMMUNE)  # the commune becomes the landlord (user: it can be one)
     lot = max(0.0, getattr(graph, "household_property", {}).get(key, 0.0))
     _move_wealth(graph, key, COMMUNE, 1.0)
     if lot > 0:

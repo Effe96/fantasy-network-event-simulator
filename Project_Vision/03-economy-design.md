@@ -350,6 +350,62 @@ outnumber the gap, and stops growing when work or room runs out.
 > makes and sell it outside, and bring in what it lacks (grain above all).
 > Their trade is the inflow; imports are the outflow.
 
+#### Slice 5 build plan (2026-10-01) — for comments
+
+Rents are missing from the research notes (book §9 points to Goldthwaite).
+The first guesses below come from the book's own 7% rule: a house earns its
+owner about 7% of its value a year, and that is its rent.
+
+**A. Who owns each house.** At import, each TownShape home building gets an
+owner:
+- the household living there, if it can afford the house (owner-occupiers:
+  most middling, rich and noble households);
+- otherwise a landlord: mostly merchants and the rich (the user's point:
+  merchants own the homes of the poor and middling), some the Church and
+  the commune.
+A house's value comes out of its owner's property, which already exists as
+a number. Nothing new is invented; part of it becomes named houses.
+
+**B. Rent.** Tenants pay rent to the owner each month (C: 7% of the house's
+value a year, split among the households living in it). Rent is carved out
+of today's basket (C: about 15% of an unskilled household's spending, de la
+Roncière's budget shares), so a household's total costs stay the same.
+Food comes first, then rent (user, 2026-10-01).
+
+**C. Eviction.** A household behind on rent for 3 months (C) is evicted,
+unless its landlord forgives the arrears: the chance grows with how the
+landlord feels about them, as for debts. The evicted then:
+1. move in with kin, or with friends who like them, if any have room;
+2. otherwise sleep rough: homeless, beggars (slice 3 D), and likelier to
+   leave town;
+3. a lodger evicted with their host goes the same way.
+
+**D. Buying and building.** A household with enough cash can buy a house
+that comes free (an heirless estate, a household that moved away), like
+the commune's land lots today. New houses and free buildings wait for
+TownShape.
+
+**Questions for you:**
+1. Eviction after 3 months behind: right, or longer (6)?
+2. Can the Church and the commune be landlords, or only households?
+3. Do homeless people stay in town as beggars, or do most of them leave?
+
+> Feedback: D. If they have enough money, they can buy the house directly from the renter. Eviction should be after 3,4,5, or 6 moonths, depending on the affinity between the people in the household and the owner. Church and commune can be landlords. Homeless people can become beggars. 
+
+> **Built (2026-10-01).** Seed 1, 25 years: money holds, Gini 0.72,
+> household size ~4.3, very poor 10.4%, nobody hungry (food first). Rent
+> is where hardship shows now: ~20 evictions a year (517), most taken in
+> by family, 2-6% of the town homeless at a time, up to 88 beggars.
+> Owner-occupied houses 41 -> 61. Knobs if that's too harsh: the lodging
+> share (15%), the grace (3-6 months), and how much cash rehousing needs.
+
+> **User (2026-10-01):** keep an eye on how few people go hungry; 2-6%
+> homeless is a lot; in medieval times several single people often
+> clubbed together to rent a small house. **Next:** check why nobody goes
+> hungry (rent absorbing the shortfall, evicted households pooling income),
+> then let evicted singles move in with singles they know, and homeless
+> singles pool their cash to rent a room together.
+
 ---
 
 ## 5. Open questions

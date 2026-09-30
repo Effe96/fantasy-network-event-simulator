@@ -244,6 +244,15 @@ near the room limit from year 18. Wrong turns: unfilled day labour as the
 pull (never happened), one strained month enough to leave (282 left).
 The town now needs new houses to keep growing (TownShape).
 
+### 6i. Slice 5: houses and rent (2026-10-01)
+
+Buildings get owners at import (41 of 226 owner-occupied), tenants pay
+rent after food, fall behind, get evicted (3-6 months by affinity) to
+family or the street, and beg until housed; tenants who can pay buy from
+absentee landlords. Wrong turns: co-tenants forcing sales (648 sales),
+every short month a month behind, homeless not begging. Result: ~20
+evictions a year, 2-6% homeless, household size ~4.3, nobody hungry.
+
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 
 The user asked how long runs take and how they scale; to be addressed in

@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from economy import (CHURCH, COMMUNE, DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for,
+from economy import (CHURCH, COMMUNE, house_wealth, set_house_owner, DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for,
                      form_household, gini, join_family, settle_estate, setup_economy, wealth)
 from graph import Edge, Node, SocialGraph
 
@@ -204,6 +204,70 @@ def test_the_old_can_die_of_hardship_while_hungry():
     assert graph.deaths and graph.deaths[0]["cause"] == "hardship"
 
 
+def _tenement():
+    """Building 10: household 1 (1, 2) owns it; household 3 (4, 5) rents there.
+    Building 11: household 2 (3, the daughter)."""
+    graph, economy, members, needs = _lenders_and_borrower()
+    for resident_id, building in ((1, 10), (2, 10), (4, 10), (5, 10), (3, 11)):
+        graph.nodes[resident_id].home_building_id = building
+    graph.houses, graph.house_wealth = {10: {"owner": None, "value": 120.0}, 11: {"owner": None, "value": 60.0}}, {}
+    set_house_owner(graph, 10, 1)
+    set_house_owner(graph, 11, 1)
+    return graph, economy, members, needs
+
+
+def test_tenants_pay_rent_to_their_landlord():
+    graph, economy, members, needs = _tenement()
+    graph.household_money[3] = 10.0
+    economy._housing(graph, members, needs, __import__("collections").defaultdict(float), random.Random(0))
+    rent_share = 120.0 * 0.07 * 30 / 365 / 2  # two households in building 10
+    assert abs(graph.household_money[3] - (10.0 - rent_share)) < 1e-9
+    assert house_wealth(graph, 1) == 180.0
+
+
+def test_a_tenant_who_can_pay_buys_its_house():
+    graph, economy, members, needs = _tenement()
+    graph.household_money[2] = 100.0  # the daughter's household, alone in building 11
+    economy._housing(graph, members, needs, __import__("collections").defaultdict(float), random.Random(0))
+    assert graph.houses[11]["owner"] == 2 and graph.household_money[2] == 40.0 and graph.household_money[1] == 160.0
+
+
+def test_a_landlord_living_in_the_house_is_not_bought_out():
+    graph, economy, members, needs = _tenement()
+    graph.household_money[3] = 1000.0  # rich tenants sharing building 10 with its owner
+    economy._housing(graph, members, needs, __import__("collections").defaultdict(float), random.Random(0))
+    assert graph.houses[10]["owner"] == 1
+
+
+def test_a_tenant_behind_on_rent_is_evicted_onto_the_street():
+    graph, economy, members, needs = _tenement()
+    graph.household_money[3] = 0.0
+    for month in range(6):
+        economy._housing(graph, members, needs, __import__("collections").defaultdict(float), random.Random(month))
+    assert graph.nodes[4].home_building_id is None and graph.nodes[4].beggar  # nobody who likes them to go to
+
+
+def test_the_evicted_move_in_with_family_who_like_them():
+    graph, economy, members, needs = _tenement()
+    graph.household_money[3] = 0.0
+    graph.household_money[2] = 10.0  # the sister pays her own rent (and can't buy)
+    graph.add_edge(Edge(4, 3, "sibling", "Communal Sharing", 0.7, 0.7, 0.7, 0.8, 0.8))
+    for month in range(6):
+        members = __import__("collections").defaultdict(list)
+        for node in graph.nodes.values():
+            members[node.household_id].append(node)
+        economy._housing(graph, members, needs, __import__("collections").defaultdict(float), random.Random(month))
+    assert graph.nodes[4].home_building_id == 11 and graph.nodes[4].household_id == graph.nodes[3].household_id
+
+
+def test_an_heirless_landlord_s_houses_go_to_the_commune():
+    graph, economy, members, needs = _tenement()
+    for resident_id in (1, 2, 3):
+        graph.record_death(resident_id, day=1, cause="flu")
+    settle_estate(graph, 2)
+    assert graph.houses[10]["owner"] == COMMUNE and house_wealth(graph, COMMUNE) == 180.0
+
+
 def test_an_estate_pays_its_debts_before_the_heirs():
     graph = _town()
     graph.household_money[2] = 50.0
@@ -303,6 +367,12 @@ def _run_all():
     test_a_commune_short_of_wages_borrows_from_the_richest()
     test_a_household_hungry_for_half_a_year_begs_and_people_it_knows_give()
     test_the_old_can_die_of_hardship_while_hungry()
+    test_tenants_pay_rent_to_their_landlord()
+    test_a_tenant_who_can_pay_buys_its_house()
+    test_a_landlord_living_in_the_house_is_not_bought_out()
+    test_a_tenant_behind_on_rent_is_evicted_onto_the_street()
+    test_the_evicted_move_in_with_family_who_like_them()
+    test_an_heirless_landlord_s_houses_go_to_the_commune()
     test_an_estate_pays_its_debts_before_the_heirs()
     test_the_commune_sells_land_to_whoever_can_pay_and_pays_the_guards()
     test_an_old_widow_left_alone_moves_in_with_her_daughter()
