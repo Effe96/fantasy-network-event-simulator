@@ -161,6 +161,40 @@ rich stop growing, but wealth drains through heirless estates, households
 shrink (3.6 -> 2.2 people) and poverty grows (design file section 5b).
 Runs slowed to 42 min for 25 years: **the user made speed the next priority.**
 
+### 6d. Speed work (2026-09-30/10-01) — committed; 58 -> 45 s a year
+
+Summary in `docs/decisions.md` (2026-10-01). Next: PyPy (user approved the
+install, 2026-10-01). The notes below are the in-progress record.
+
+The user made speed the first priority (25 years had slowed to 42 min).
+Profiled one year: violence ~25% (two daily scans of all ~80k ties),
+engine overhead ~29% (per-tie rolls, daily summaries, counting the living),
+romance ~11% (daily scan of all ties), favors ~8%, riots ~8%, guards ~7%.
+
+Done, **uncommitted**, all meant to leave results identical: a
+bench on seed 1 (240 days) keeps fingerprint `d22971cdcffda801` (hash of
+deaths, events, last summary and sampled feelings) after each:
+1. per-resident tie tables in `graph.py` (`_links`, `ties_of`): tie lookup
+   without building a key, neighbours without re-scanning;
+2. violence's group check reuses the day's hateful ties (unless new
+   hatred appeared that day);
+3. riots: one lookup per civilian-authority pair;
+4. `graph.alive_count` kept by add_node/record_death instead of a daily count;
+5. the economy's summary recomputed only when something it reads changed.
+Tests: 246 passing.
+
+Not yet measured reliably: the machine was at ~60% load from other programs,
+so wall-clock timings were noise. A CPU-time comparison (120 days, same
+fingerprint `27ff6d9cfd14bc5e` for both) gave committed 129 s/yr vs working
+tree 227 s/yr, but the import (which the changes barely touch) also went
+2.6 s -> 5.6 s between the two back-to-back runs: machine slowdown, not
+code. Repeat on an idle machine, alternating the two versions several times. Next: compare CPU time (time.process_time)
+of the committed code (`git archive HEAD` into a temp folder) against the
+working tree on the same 120-240 days, then continue with the bigger items:
+romance's and violence's daily full scans of every tie (need incremental
+candidate sets or a cheaper test), the engine's per-day position rebuild
+after retiring ties, favors' monthly pull back over all ties.
+
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 
 The user asked how long runs take and how they scale; to be addressed in
