@@ -164,9 +164,24 @@ def test_summarize_counts_alive_and_dead():
     state = phenomenon.init_state(graph)
     state[1]["alive"] = False
     assert phenomenon.summarize(state) == {
-        "alive": 1, "dead": 1, "group_kills": 0, "hired_assassinations": 0, "mercenaries_hired": 0,
+        "alive": 1, "dead": 1, "group_kills": 0, "killers_caught": 0, "killers_hanged": 0, "killers_banished": 0,
+        "hired_assassinations": 0, "mercenaries_hired": 0,
         "coups_attempted": 0, "coups_succeeded": 0, "coup_mercenaries_hired": 0,
     }
+
+
+def test_a_caught_killer_hangs_or_is_banished():
+    graph = _graph_with_valence(-0.9)
+    phenomenon = ViolencePhenomenon()
+    state = phenomenon.init_state(graph)
+    outcomes = set()
+    for seed in range(40):
+        events = phenomenon._pursue_killer(graph, state, 1, 2, day=1, rng=random.Random(seed))
+        if events:
+            outcomes.add(events[0].kind)
+            assert not graph.nodes[1].alive and graph.deaths[-1]["cause"] in ("execution", "banished")
+            graph.nodes[1].alive = state[1]["alive"] = True  # back for the next try
+    assert outcomes == {"killer_hanged", "killer_banished"}
 
 
 def test_noble_culprit_hires_an_assassin_with_reduced_grief_shock():
@@ -751,6 +766,7 @@ def _run_all():
     test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse()
     test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit()
     test_summarize_counts_alive_and_dead()
+    test_a_caught_killer_hangs_or_is_banished()
     test_noble_culprit_hires_an_assassin_with_reduced_grief_shock()
     test_non_noble_culprit_gets_full_grief_shock_not_the_hired_discount()
     test_noble_culprit_failed_attempt_gets_reduced_discovery_shock()

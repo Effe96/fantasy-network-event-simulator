@@ -8,6 +8,25 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-01 — Fewer riots; killers face justice; assassins are real
+
+User: a riot a year is far too many for a normal town, and assassins
+should be criminals who can be put to death.
+- All 42 riots of the last run (~1.7 a year, ~8 dead each) started from
+  the town's grievance against authorities, none from group violence. The
+  daily riot rate 0.03 -> 0.0012 (`demo.py`): 1 riot in 25 years, 8 riot
+  deaths (358 before). Aggressive towns still riot more (aggression factor).
+- Every killing (a murder, a band's ringleader, a hired assassin) is
+  pursued: caught with 50% (C), hanged with 50% x strictness (C), else
+  banished, the Italian communes' usual sentence for homicide (recorded as
+  a death with cause "banished" until emigration exists).
+- A noble's assassin is an ex-soldier they can reach, who can hang; caught,
+  they name the noble half the time and the victim's people turn on them.
+- Run (seed 1, 25 years): 64 killers caught, 34 hanged, 30 banished;
+  executions 44 in all (~1.8 a year, 34 of them killers). Murders ~4 a
+  year stay at the user's 2026-09-23 target (a rougher town than the
+  medieval ~20-100 per 100,000), so hangings follow from them.
+
 ## 2026-10-01 — The user's four to-dos after slice 3
 
 - **Executions:** the gallows only from a thief's third conviction

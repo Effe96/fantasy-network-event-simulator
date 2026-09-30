@@ -650,6 +650,7 @@ class ViolencePhenomenon:
         self.riot_phenomenon = riot_phenomenon
         self.noble_hired_assassin_shock_factor = noble_hired_assassin_shock_factor
         self._hired_assassinations = 0
+        self._killers_caught = self._killers_hanged = self._killers_banished = 0
         self.mercenary_enemy_threshold = mercenary_enemy_threshold
         self.mercenary_min_enemies = mercenary_min_enemies
         self.mercenary_hire_rate = mercenary_hire_rate
@@ -750,6 +751,11 @@ class ViolencePhenomenon:
         culprit = self._pick_aggressor(graph, edge, a, b, rng)
         victim = b if culprit == a else a
         hired = graph.nodes[culprit].is_noble
+        # the hand that strikes: a noble pays an ex-soldier they can reach
+        # (user, 2026-10-01: assassins are criminals who can hang); with
+        # nobody to hire, an outsider nobody can catch
+        assassins = [c for c in self._mercenary_candidates(graph, state, culprit) if c != victim] if hired else []
+        killer = rng.choice(assassins) if assassins else (None if hired else culprit)
         shock_factor = self.noble_hired_assassin_shock_factor if hired else 1.0
 
         victim_vulnerability = SES_VULNERABILITY.get(graph.nodes[victim].ses, 1.0)
@@ -774,6 +780,9 @@ class ViolencePhenomenon:
 
         kind = "hired_assassination" if hired else "violence"
         events = [Event(day, self.name, kind, culprit, victim, "escalated conflict")]
+        if killer is not None:
+            events.extend(self._pursue_killer(graph, state, killer, victim, day, rng,
+                                              patron=culprit if hired else None))
 
         for neighbor_id in graph.neighbors(victim):
             if neighbor_id == culprit:
@@ -988,6 +997,34 @@ class ViolencePhenomenon:
             return self._resolve_group_violence(graph, state, victim, band, day, rng)
         return []
 
+    def _pursue_killer(self, graph, state, killer: int, victim: int, day: int, rng: random.Random,
+                       patron: Optional[int] = None) -> List[Event]:
+        """The commune pursues a killing: caught, the killer hangs or is
+        banished. A caught hired assassin may name the noble who paid: the
+        victim's people then turn on the noble, whom rank keeps from the rope."""
+        if not graph.nodes[killer].alive or rng.random() >= KILLER_CAUGHT:
+            return []
+        self._killers_caught += 1
+        events = []
+        hanged = rng.random() < KILLER_HANGED * self._params.strictness_factor()
+        graph.record_death(killer, day, "execution" if hanged else "banished")
+        state[killer]["alive"] = False
+        if hanged:
+            self._killers_hanged += 1
+        else:
+            self._killers_banished += 1
+        events.append(Event(day, self.name, "killer_hanged" if hanged else "killer_banished", killer, victim,
+                            "caught for the killing"))
+        if patron is not None and graph.nodes[patron].alive and rng.random() < ASSASSIN_NAMES_PATRON:
+            events.append(Event(day, self.name, "patron_named", killer, patron, "the assassin named who paid"))
+            for neighbor_id in graph.neighbors(victim):
+                edge_to_patron = graph.get_edge(neighbor_id, patron)
+                if neighbor_id == patron or edge_to_patron is None:
+                    continue
+                shock = self.grief_shock * graph.get_edge(neighbor_id, victim).tie_strength
+                edge_to_patron.set_valence_from(neighbor_id, max(-1.0, edge_to_patron.valence_from(neighbor_id) - shock))
+        return events
+
     def _find_band(self, graph, haters: List[int]) -> List[int]:
         # union-find over the haters: two of them only band together if they
         # also know and like each other (group_affinity_threshold), not just
@@ -1056,6 +1093,7 @@ class ViolencePhenomenon:
         graph.record_death(victim, day, "violence", killed_by=ringleader)
         self._group_kills += 1
         events = [Event(day, self.name, "group_violence", ringleader, victim, f"killed by a {len(band)}-strong band")]
+        events.extend(self._pursue_killer(graph, state, ringleader, victim, day, rng))
 
         for neighbor_id in graph.neighbors(victim):
             if neighbor_id in band:
@@ -1078,6 +1116,9 @@ class ViolencePhenomenon:
             "alive": alive,
             "dead": len(state) - alive,
             "group_kills": self._group_kills,
+            "killers_caught": self._killers_caught,
+            "killers_hanged": self._killers_hanged,
+            "killers_banished": self._killers_banished,
             "hired_assassinations": self._hired_assassinations,
             "mercenaries_hired": mercenaries_hired,
             "coups_attempted": self._coups_attempted,
@@ -1831,6 +1872,15 @@ THIEF_MIN_AGE = 12  # a child pickpocket is plausible; a toddler thief (hanged!)
 # only someone under real strain turns to theft (user, 2026-09-27): poverty
 # alone (0.4) never reaches it; a recent loss or illness on top does
 THIEF_STRESS_THRESHOLD = 0.6
+# justice for killings (user, 2026-10-01: killers never faced any). A killer
+# is caught with KILLER_CAUGHT; caught, hanged with KILLER_HANGED (times the
+# town's strictness), else banished -- the Italian communes' usual sentence
+# for homicide. ponytail: banishment is recorded as a death with cause
+# "banished" (the resident leaves for good) until emigration exists.
+KILLER_CAUGHT = 0.5  # C
+KILLER_HANGED = 0.5  # C
+ASSASSIN_NAMES_PATRON = 0.5  # C: a caught hired assassin names the noble who paid
+
 # the gallows only from the third conviction (user to-do, 2026-10-01: ~5
 # executions a year for ~2,100 people, where late-medieval Florence hanged
 # ~15-30 a year among 50-100k). Earlier convictions end in a fine or a

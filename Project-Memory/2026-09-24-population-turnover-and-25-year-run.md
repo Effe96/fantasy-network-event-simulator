@@ -225,6 +225,16 @@ forgiveness by feeling, forced loans repaid in land, famine deaths ~1% of
 the town in a famine year (forced-famine check). Next seen: riot deaths
 ~9-14 a year.
 
+### 6g. Riots and justice for killers (2026-10-01)
+
+Riots cut from ~1.7 a year to 1 in 25 years (daily rate 0.03 -> 0.0012):
+the one riot, year 4, drew 78 people (~4% of the town), lasted two days,
+killed 7 rioters and 1 guard, and broke against the guards. Killers are now
+pursued (half caught; hanged or banished); a noble's assassin is a real
+ex-soldier who can hang and name the noble. 44 executions in 25 years, 34
+of them killers, follow from the user's own murder target: accepted by the
+user as it is.
+
 ### 7. Run times and scaling (measured 2026-09-29, for later)
 
 The user asked how long runs take and how they scale; to be addressed in

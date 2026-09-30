@@ -59,7 +59,9 @@ def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
     # constructed before violence so it can be wired into it below (group
     # violence's riot-escalation path calls straight into this instance)
     # riot and violence scale these by graph.params' aggression while running
-    riot = RiotPhenomenon(unrest_threshold=0.15, riot_base_rate=0.03)
+    # 0.03 gave ~1.7 riots a year (user, 2026-10-01: far too many for a
+    # normal town); aim about one in 10-20 years at average aggression
+    riot = RiotPhenomenon(unrest_threshold=0.15, riot_base_rate=0.0012)
     violence = ViolencePhenomenon(base_rate=VIOLENCE_RATE_PER_DEGREE / average_degree, riot_phenomenon=riot)
     contagion = ContagionPhenomenon.from_tier(graph, epidemic_tier, outbreak_yearly_chance=outbreak_chance)
     for attribute, override in (("base_rate", transmission_rate), ("infectious_days", infectious_days),
