@@ -56,6 +56,7 @@ PRATO_1300_TOP1 = 29.18
 
 MERCHANT_PER_RESIDENTS = 150  # C: ~13 merchants in a town of 1,900
 MERCHANT_MIN_AGE = 30  # C: a merchant at import heads an established house
+MERCHANT_KEEPS_JOB = ("master", "shopkeep", "barkeep", "blacksmith", "trader", "mage", "farmer", "noble")  # employers
 PUTTING_OUT_SHARE = 0.5  # C: of the otherwise jobless, work at home for a merchant
 RENTIER_HOUSEHOLD_SHARE = 0.1  # C: the richest tenth of households live off property, not wages
 # houses and rent (slice 5, user 2026-10-01). Rents are missing from the
@@ -320,23 +321,31 @@ def _assign_jobs(graph, townshape_wealth, rng) -> None:
     jobless = _jobless_adults(graph)
     rng.shuffle(jobless)
 
-    # merchants: an adult of each of the richest non-noble households
+    # the richest households with jobless adults (their adults live off property, below)
     by_household = defaultdict(list)
     for node in jobless:
         by_household[household_key(node)].append(node)
     richest = sorted(by_household, key=lambda h: -townshape_wealth.get(h, 0.0) if not isinstance(h, tuple) else 0.0)
+    # the head of each of the richest houses trades (user, 2026-10-01: merchants
+    # were among a town's richest), whatever job TownShape gave them, unless
+    # others depend on it: an employer, or a public post (guards, clergy).
+    # A head of house, aged 30+: the eldest jobless adult was often a young
+    # child who married out and left the capital behind. TownShape's
+    # generator should do this on integration (docs/townshape-integration.md)
+    adults = defaultdict(list)
+    for node in graph.nodes.values():
+        if (node.alive and not node.is_noble and node.age is not None and node.age >= MERCHANT_MIN_AGE
+                and job_kind(node.occupation) not in MERCHANT_KEEPS_JOB
+                and PAY.get(job_kind(node.occupation), (0.0, None))[1] != "public"):
+            adults[household_key(node)].append(node)
     merchants = []
-    # an established head of house (2026-10-01: the eldest *jobless* adult was
-    # often a 19-28-year-old child of farmers, who married out and left the
-    # family's capital behind: 13,000 fl out of the trade in year 1)
-    for key in richest:
+    for key in sorted(adults, key=lambda h: -townshape_wealth.get(h, 0.0) if not isinstance(h, tuple) else 0.0):
         if len(merchants) >= max(2, round(alive / MERCHANT_PER_RESIDENTS)):
             break
-        heads = [n for n in by_household[key] if n.age >= MERCHANT_MIN_AGE]
-        if heads:
-            head = max(heads, key=lambda n: n.age)
-            head.occupation = "merchant"
-            merchants.append(head.resident_id)
+        head = max(adults[key], key=lambda n: n.age)
+        head.occupation, head.workplace_building_id = "merchant", None
+        merchants.append(head.resident_id)
+    jobless = [n for n in jobless if n.occupation is None]
     graph.merchants = merchants
     # the other adults of the richest households live off the family's
     # property (2026-09-30: they were being handed day labour)

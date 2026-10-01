@@ -185,6 +185,17 @@ was built so that either works: both feed the same `add_resident`.
 - **Randomness:** TownShape derives every draw via `rng_for(seed, *parts)`;
   the sim uses one `random.Random(seed)` stream. A coupled loop should pass
   a derived seed per year to each side so both stay reproducible.
+- **Jobs the sim's importer invents, to move into TownShape's generator**
+  (user, 2026-09-29 and 2026-10-01). Today `economy.setup_economy` does
+  them at import; on integration TownShape should generate them instead:
+  - **Merchants:** the head (30+, not noble) of each of the richest houses
+    trades, about one per 150 residents. TownShape gives the richest houses'
+    heads odd posts (guards, servants who are nobles, farmhands); employers
+    and public posts keep theirs.
+  - **Trades for the empty workshops** (a master and 3-5 hands),
+    **putting-out work** for merchants, **day labour**, more farmhands.
+  - **Teenagers (12-17) of households that aren't rich** spin and card for
+    merchants.
 - **Town parameters:** only `aggression` exists on both sides; loyalty,
   religiosity and strictness are sim-only for now and could become
   `town_state` columns if TownShape should know them.

@@ -157,4 +157,8 @@ drift in quiet years).
 3. Hoarding by the rich in dear years (selling high, the slice-5
    idea in §4) is a classic source of riots: now, or later?
 
-> Feedback:
+> Feedback: only the rich should store. Do add a public granary, yes. And add hoarding.
+
+> **Decided (user, 2026-10-01):** only the rich store a year's grain; the
+> commune keeps a public granary; hoarding by the rich in dear years is in
+> this slice.
