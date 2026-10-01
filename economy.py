@@ -493,6 +493,9 @@ class EconomyPhenomenon:
     def init_state(self, graph) -> Dict[int, Any]:
         self._graph = graph  # summarize reads the town's money
         self._deaths_seen = len(graph.deaths)
+        # the jobless at import, until the first month's count (it read 0 for a month)
+        self._unemployed = sum(1 for n in graph.nodes.values() if n.alive and not n.is_noble and (n.age or 0) >= 18
+                               and n.ses not in RENTIER_CLASSES and n.occupation is None)
         for name, empty in (("household_money", dict), ("household_property", dict), ("employer", dict),
                             ("merchants", list), ("building_types", dict), ("debts", list),
                             ("houses", dict), ("house_wealth", dict), ("rent_behind", dict)):
