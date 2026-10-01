@@ -405,6 +405,25 @@ TownShape.
 > hungry (rent absorbing the shortfall, evicted households pooling income),
 > then let evicted singles move in with singles they know, and homeless
 > singles pool their cash to rent a room together.
+>
+> **Decided (user, 2026-10-01):** no Church hospice for the homeless.
+> Rent is split by people, not by household (a single paid as much as a
+> family of six).
+>
+> **Built (2026-10-01).** Kin take in the evicted only if their income
+> covers 75% of both households' food; evicted singles and small
+> households share a room (up to 6); homeless people who know each other
+> pool to rent; alms are a small, uncertain gift; households buy from the
+> shops they know (workshops, which have no customer ties at import, are
+> still reached at random). That alone put ~150 on the street in year 1:
+> a quarter of households earned less than food and rent from the start,
+> because nobody aged 10-17 worked. Now teenagers (12-17) of households
+> that aren't rich spin and card for merchants at a third of the wage.
+> Seed 1, 25 years: nobody on the street in year 1, 1-1.5% homeless
+> (19-81 people), 404 evictions, 0-13 hungry households, one famine.
+> Watch: money grows 86k -> 94k (cloth exports), very poor 14% -> 16.5%,
+> and merchants pay slightly more for spinning than the cloth nets them.
+> Rent share 10% was tried and dropped (no effect, owner-occupiers doubled).
 
 ---
 

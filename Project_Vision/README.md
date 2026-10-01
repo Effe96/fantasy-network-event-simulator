@@ -47,6 +47,10 @@ economy proposal built from
 household money, income and spending, limits on the rich, hunger, jobs and
 migration, merchants and landlords, in slices. Same `> Feedback:` convention.
 
+[`04-goods-and-inventories.md`](04-goods-and-inventories.md) (2026-10-01)
+proposes real goods: what each trade makes from what, stocks, shortages
+and prices that move. Same `> Feedback:` convention.
+
 ## Status key
 
 Same vocabulary as `TownShape/Project_Vision`:

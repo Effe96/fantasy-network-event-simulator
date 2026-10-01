@@ -33,6 +33,17 @@ def _town():
     return graph
 
 
+def test_teenagers_of_poor_households_spin_for_a_merchant():
+    graph = SocialGraph()
+    for resident_id in range(1, 21):
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, gender="male", age=30,
+                            household_id=resident_id))
+    graph.add_node(Node(resident_id=30, ses="poor", alive=True, gender="female", age=14, household_id=20))
+    graph.add_node(Node(resident_id=31, ses="poor", alive=True, gender="female", age=9, household_id=20))
+    setup_economy(graph, {50: "workshop", 60: "farmstead"}, {1: 500.0}, seed=2)
+    assert graph.nodes[30].occupation == "outworker" and graph.nodes[31].occupation is None
+
+
 def test_the_jobless_get_work_at_import():
     graph = SocialGraph()
     for resident_id in range(1, 21):
@@ -184,9 +195,10 @@ def test_a_household_hungry_for_half_a_year_begs_and_people_it_knows_give():
     graph.add_edge(Edge(1, 4, "neighbor", "Equality Matching", 0.8, 0.8, 0.3, 0.9, 0.9))
     graph.add_edge(Edge(1, 5, "neighbor", "Equality Matching", 0.8, 0.8, 0.3, 0.9, 0.9))
     graph.nodes[1].religiousness = 1.0
-    graph.hunger = {3: 0.5}
-    economy._hardship(graph, members, random.Random(1), day=60)
-    assert graph.household_money[3] > 0  # a devout neighbour who likes them gave
+    for month in range(12):  # a devout neighbour who likes them gives, though not every month
+        graph.hunger = {3: 0.5}
+        economy._hardship(graph, members, random.Random(month), day=60)
+    assert 0 < graph.household_money[3] <= 12 * 0.02  # at most one small gift a month from them
     for _ in range(3):
         graph.hunger = {}
         economy._hardship(graph, members, random.Random(1), day=90)
@@ -220,7 +232,7 @@ def test_tenants_pay_rent_to_their_landlord():
     graph, economy, members, needs = _tenement()
     graph.household_money[3] = 10.0
     economy._housing(graph, members, needs, __import__("collections").defaultdict(float), random.Random(0))
-    rent_share = 120.0 * 0.07 * 30 / 365 / 2  # two households in building 10
+    rent_share = 120.0 * 0.07 * 30 / 365 * 2 / 4  # 2 of the 4 people in building 10
     assert abs(graph.household_money[3] - (10.0 - rent_share)) < 1e-9
     assert house_wealth(graph, 1) == 180.0
 
@@ -251,6 +263,7 @@ def test_the_evicted_move_in_with_family_who_like_them():
     graph, economy, members, needs = _tenement()
     graph.household_money[3] = 0.0
     graph.household_money[2] = 10.0  # the sister pays her own rent (and can't buy)
+    economy._income[2] = 10.0  # and earns enough to feed them too
     graph.add_edge(Edge(4, 3, "sibling", "Communal Sharing", 0.7, 0.7, 0.7, 0.8, 0.8))
     for month in range(6):
         members = __import__("collections").defaultdict(list)
@@ -260,12 +273,65 @@ def test_the_evicted_move_in_with_family_who_like_them():
     assert graph.nodes[4].home_building_id == 11 and graph.nodes[4].household_id == graph.nodes[3].household_id
 
 
+def test_the_evicted_share_a_room_with_a_single_they_know_when_family_can_t_feed_them():
+    graph, economy, members, needs = _tenement()
+    graph.household_money[3] = 0.0
+    graph.household_money[2] = 10.0
+    graph.add_node(Node(resident_id=7, ses="poor", alive=True, gender="male", age=30, household_id=9,
+                        home_building_id=11))  # a single man renting in building 11
+    graph.household_money[9] = 10.0  # who pays his rent
+    graph.add_edge(Edge(4, 7, "coworker", "Equality Matching", 0.5, 0.2, 0.3, 0.1, 0.1))
+    for month in range(6):
+        members = __import__("collections").defaultdict(list)
+        for node in graph.nodes.values():
+            members[node.household_id].append(node)
+        economy._housing(graph, members, needs, __import__("collections").defaultdict(float), random.Random(month))
+    assert graph.nodes[4].household_id == graph.nodes[7].household_id and graph.nodes[4].home_building_id == 11
+
+
+def test_homeless_people_who_know_each_other_pool_to_rent_a_room():
+    graph, economy, members, needs = _tenement()
+    graph.add_node(Node(resident_id=7, ses="poor", alive=True, gender="male", age=30, household_id=9))
+    graph.add_node(Node(resident_id=8, ses="poor", alive=True, gender="male", age=30, household_id=10))
+    graph.add_edge(Edge(7, 8, "friend", "Communal Sharing", 0.5, 0.5, 0.3, 0.5, 0.5))
+    graph.household_money[9] = graph.household_money[10] = 0.6  # neither can pay a month alone
+    economy._rehouse(graph, 9, [graph.nodes[7]], {9: 0.5, 10: 0.5}, random.Random(0))
+    assert graph.nodes[7].household_id == graph.nodes[8].household_id
+    assert graph.nodes[7].home_building_id is not None and graph.nodes[8].home_building_id is not None
+
+
 def test_an_heirless_landlord_s_houses_go_to_the_commune():
     graph, economy, members, needs = _tenement()
     for resident_id in (1, 2, 3):
         graph.record_death(resident_id, day=1, cause="flu")
     settle_estate(graph, 2)
     assert graph.houses[10]["owner"] == COMMUNE and house_wealth(graph, COMMUNE) == 180.0
+
+
+def test_a_household_buys_from_the_shop_it_knows():
+    graph, economy, members, needs = _lenders_and_borrower()
+    baker = Node(resident_id=20, ses="middling", alive=True, age=40, household_id=20, occupation="baker",
+                 workplace_building_id=50)
+    potter = Node(resident_id=21, ses="middling", alive=True, age=40, household_id=21, occupation="potter",
+                  workplace_building_id=51)
+    for node in (baker, potter):
+        graph.add_node(node)
+        graph.household_money[node.household_id] = 0.0
+    graph.add_edge(Edge(4, 20, "shopkeeper_customer", "Market Pricing", 0.3, 0.1, 0.5, 0.0, 0.0))
+    graph.household_money[3] = 10.0
+    members = {**members, 20: [baker], 21: [potter]}
+    shops = economy._tied_shops(graph, members, [baker, potter])
+    income = __import__("collections").defaultdict(float)
+    for _ in range(20):
+        economy._buy(graph, 3, 0.1, [baker, potter], random.Random(_), income, shops)
+    # the potter is a workshop nobody is tied to: it still gets its share at random
+    assert graph.household_money[21] > 0.0 and graph.household_money[20] > 0.0
+    graph.add_edge(Edge(1, 21, "shopkeeper_customer", "Market Pricing", 0.3, 0.1, 0.5, 0.0, 0.0))
+    graph.household_money[20] = graph.household_money[21] = 0.0
+    shops = economy._tied_shops(graph, members, [baker, potter])
+    for _ in range(20):
+        economy._buy(graph, 3, 0.1, [baker, potter], random.Random(_), income, shops)
+    assert graph.household_money[21] == 0.0 and graph.household_money[20] > 1.9  # a shop now: all to the one they know
 
 
 def test_an_estate_pays_its_debts_before_the_heirs():
@@ -353,6 +419,7 @@ def test_class_follows_resources_with_a_margin_before_dropping():
 def _run_all():
     test_starting_wealth_follows_the_prato_deciles()
     test_the_jobless_get_work_at_import()
+    test_teenagers_of_poor_households_spin_for_a_merchant()
     test_newlyweds_set_up_a_household_with_the_bride_s_dowry()
     test_a_widow_keeps_the_estate()
     test_with_no_spouse_the_estate_goes_to_all_children()
@@ -372,7 +439,10 @@ def _run_all():
     test_a_landlord_living_in_the_house_is_not_bought_out()
     test_a_tenant_behind_on_rent_is_evicted_onto_the_street()
     test_the_evicted_move_in_with_family_who_like_them()
+    test_the_evicted_share_a_room_with_a_single_they_know_when_family_can_t_feed_them()
+    test_homeless_people_who_know_each_other_pool_to_rent_a_room()
     test_an_heirless_landlord_s_houses_go_to_the_commune()
+    test_a_household_buys_from_the_shop_it_knows()
     test_an_estate_pays_its_debts_before_the_heirs()
     test_the_commune_sells_land_to_whoever_can_pay_and_pays_the_guards()
     test_an_old_widow_left_alone_moves_in_with_her_daughter()
