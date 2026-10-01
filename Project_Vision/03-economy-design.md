@@ -424,6 +424,16 @@ TownShape.
 > Watch: money grows 86k -> 94k (cloth exports), very poor 14% -> 16.5%,
 > and merchants pay slightly more for spinning than the cloth nets them.
 > Rent share 10% was tried and dropped (no effect, owner-occupiers doubled).
+>
+> **Merchants (2026-10-01).** They lost 5.5% of every spinning wage after
+> raw wool; cloth now sells at 1.7x wages (1338: ~40 fl of cloth per
+> worker on ~23 fl wages). Dead merchants weren't replaced (13 -> 8): the
+> firm now passes to the eldest adult at home, else the eldest adult
+> child. At import the merchant was often a young child of farmers who
+> married out, leaving the capital behind; merchants are now heads of
+> house aged 30+. 25 years: 13 merchants throughout, their wealth
+> 2.0k -> 7.9k fl. They start modest: the richest houses' heads already
+> have TownShape jobs and live off land.
 
 ---
 

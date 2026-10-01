@@ -97,3 +97,64 @@ events, and stress follows them.
    cheap, and I'd measure after each slice.
 
 > Feedback: 1. I like the ones you listed. 2. I like the idea of stocks. 3. Prices should definitely float. 4. Magic shops are very expensive, so they need a large enough rich class that exists into town in order to support them. Not all cities get magic shops, only large ones. 5. Good. 
+
+> **Decided (user, 2026-10-01):** all the goods listed; stocks; prices
+> float; magic shops only in large towns with a rich class big enough to
+> keep them. Start with slice 1, the food chain.
+
+## 6. Slice 1 build plan: the food chain (2026-10-01) — for comments
+
+Only grain and bread become real goods in this slice. The rest of the
+basket (55%: wine, oil, cloth, fuel, lodging) stays money, as today.
+
+**A. Grain in staia.** A person eats 0.9 kg of grain a day, about 18
+staia a year (book §5). Riverport needs about 38,000 staia a year.
+- **Farmers** harvest once a year, in summer. Each farmstead yields a
+  fixed amount in a normal year (C, set so the town grows about half
+  its grain, as today), times this year's harvest (0.8-1.25, worse in a
+  famine). The harvest sets *how much grain there is*, not the price.
+- **Merchants** import the rest at the outside price (13 soldi a staio
+  normally, more in a regional famine) plus their margin, as much as
+  buyers ask for.
+
+**B. Who holds stocks.**
+- **Farmers** sell their harvest over the year.
+- **Bakers** hold about a month of flour.
+- **Households:** the poor buy what they eat each month. Middling and
+  rich households buy a year's grain at harvest, when it's cheapest, and
+  live off it, as Florentine families did.
+- **The commune** keeps a public granary (Florence's Orsanmichele) and
+  sells from it in famines at a set price, as in 1329. This replaces
+  today's famine relief in money.
+
+**C. Bread.** Most households buy bread from the bakers they know (their
+shop ties), and the baker's price is grain plus a margin (C: about 15%).
+If the bakers they know are out of flour or dead, they try any baker,
+then bake at home from grain (C: costs a little more), then go without.
+Going without is hunger, as today. A town that loses its bakers keeps
+eating, at a higher cost, until someone takes up the trade.
+
+**D. Prices that move.** Grain's price follows how many months of
+demand the town's stocks cover (C: about 13 soldi when stocks cover
+about four months, up to the 1329 famine price of about 31 when they
+run low, down to about 10 in a glut), and moves a little each month
+rather than jumping. Bread follows grain. A bad harvest raises prices
+because grain is short, and merchants' imports bring them back down.
+
+**E. What stays the same.** Money is still conserved. Hunger, begging,
+debt, famine deaths and stress keep working off what a household could
+afford. Speed: a few stocks per household and shop each month should
+cost little; I'll measure it.
+
+**Checks:** the 25-year run should show normal years priced about
+10-16 soldi, famine years near 28-31, the grain price swinging about
+2.5x between good and bad years (book), and the town in balance (no
+drift in quiet years).
+
+**Questions for you:**
+1. Should the middling and rich store a year's grain, or only the rich?
+2. A public granary run by the commune, selling cheap in famines: yes?
+3. Hoarding by the rich in dear years (selling high, the slice-5
+   idea in §4) is a classic source of riots: now, or later?
+
+> Feedback:

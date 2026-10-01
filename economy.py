@@ -38,7 +38,7 @@ INCOME_MEMORY = 0.1  # C: how fast a household's sense of its usual income follo
 EXCESS_CASH_SPENT_PER_YEAR = 0.5  # C: share of cash above the cushion spent each year
 LUXURY_IMPORT_SHARE = 0.5  # C: of spending above the basket, bought from outside through merchants
 DAY_LABOUR_OF_SPENDING = 0.4  # C: of spending above the basket in town, paid to day labourers
-EXPORT_MARKUP = 1.35  # C: merchants sell putting-out cloth for this times the wages they paid
+EXPORT_MARKUP = 1.7  # B-derived: 1338, 30,000 wool workers made ~1.2M fl of cloth (~40 fl each) on ~23 fl wages; 1.35 lost merchants 5.5% of each wage after raw wool
 RAW_WOOL_SHARE = 0.3  # C: of the cloth's price, spent on raw wool bought outside
 PROPERTYLESS_BELOW = 10.0  # C: under this (a few weeks of wages in hand) counts as owning nothing
 DAY_LABOUR_SHARE = 0.3  # C: of local sellers' takings spent hiring day labour
@@ -55,6 +55,7 @@ PRATO_1300_DECILES = [1.58, 1.82, 1.98, 2.14, 2.27, 2.49, 5.93, 6.69, 9.39, 65.7
 PRATO_1300_TOP1 = 29.18
 
 MERCHANT_PER_RESIDENTS = 150  # C: ~13 merchants in a town of 1,900
+MERCHANT_MIN_AGE = 30  # C: a merchant at import heads an established house
 PUTTING_OUT_SHARE = 0.5  # C: of the otherwise jobless, work at home for a merchant
 RENTIER_HOUSEHOLD_SHARE = 0.1  # C: the richest tenth of households live off property, not wages
 # houses and rent (slice 5, user 2026-10-01). Rents are missing from the
@@ -325,10 +326,17 @@ def _assign_jobs(graph, townshape_wealth, rng) -> None:
         by_household[household_key(node)].append(node)
     richest = sorted(by_household, key=lambda h: -townshape_wealth.get(h, 0.0) if not isinstance(h, tuple) else 0.0)
     merchants = []
-    for key in richest[:max(2, round(alive / MERCHANT_PER_RESIDENTS))]:
-        head = max(by_household[key], key=lambda n: n.age)
-        head.occupation = "merchant"
-        merchants.append(head.resident_id)
+    # an established head of house (2026-10-01: the eldest *jobless* adult was
+    # often a 19-28-year-old child of farmers, who married out and left the
+    # family's capital behind: 13,000 fl out of the trade in year 1)
+    for key in richest:
+        if len(merchants) >= max(2, round(alive / MERCHANT_PER_RESIDENTS)):
+            break
+        heads = [n for n in by_household[key] if n.age >= MERCHANT_MIN_AGE]
+        if heads:
+            head = max(heads, key=lambda n: n.age)
+            head.occupation = "merchant"
+            merchants.append(head.resident_id)
     graph.merchants = merchants
     # the other adults of the richest households live off the family's
     # property (2026-09-30: they were being handed day labour)
@@ -538,6 +546,8 @@ class EconomyPhenomenon:
             moved = join_family(graph, death["resident_id"])
             if moved:
                 self._estates[moved] += 1
+            if pass_on_merchant_house(graph, death["resident_id"]):
+                self._estates["merchant house to an heir"] += 1
         self._deaths_seen = len(graph.deaths)
         if day % 30 == 0:
             self._month(graph, rng, day)
@@ -1466,6 +1476,27 @@ def _pay_debts_from_estate(graph, key) -> None:
 COMMUNE = "commune"
 CHURCH = "church"  # the Church's household key: alms in, gifts to the hungry out
 LEFT_ALONE_MOVES_IN_AGE = 50  # C: a widow(er) this old moves in with a grown child
+
+
+def pass_on_merchant_house(graph, dead: int) -> bool:
+    """A dead merchant's firm passes to the eldest adult at home, else the
+    eldest adult child (2026-10-01: nothing replaced dead merchants, 13 -> 8
+    in 25 years, and their capital left the trade with the heirs). Their
+    outworkers find the new head through _employer."""
+    node = graph.nodes[dead]
+    if node.occupation != "merchant":
+        return False
+    key = household_key(node)
+    adults = [n for n in graph.nodes.values() if n.alive and household_key(n) == key and (n.age or 0) >= 18
+              and not n.is_noble and n.occupation not in ("servant", "merchant")]
+    adults = adults or [n for n in _kin(graph, dead, "parent", younger=True) if (n.age or 0) >= 18
+                        and not n.is_noble and n.occupation != "merchant"]
+    if not adults:
+        return False
+    heir = max(adults, key=lambda n: n.age or 0)
+    heir.occupation, heir.workplace_building_id = "merchant", None
+    graph.employer.pop(heir.resident_id, None)
+    return True
 
 
 def _kin(graph, person: int, kind: str, younger: bool = False) -> List[Any]:

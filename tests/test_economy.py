@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from economy import (CHURCH, COMMUNE, house_wealth, set_house_owner, DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for,
-                     form_household, gini, join_family, settle_estate, setup_economy, wealth)
+                     form_household, gini, join_family, pass_on_merchant_house, settle_estate, setup_economy, wealth)
 from graph import Edge, Node, SocialGraph
 
 
@@ -42,6 +42,17 @@ def test_teenagers_of_poor_households_spin_for_a_merchant():
     graph.add_node(Node(resident_id=31, ses="poor", alive=True, gender="female", age=9, household_id=20))
     setup_economy(graph, {50: "workshop", 60: "farmstead"}, {1: 500.0}, seed=2)
     assert graph.nodes[30].occupation == "outworker" and graph.nodes[31].occupation is None
+
+
+def test_a_dead_merchant_s_firm_passes_to_the_eldest_adult_at_home():
+    graph = _town()
+    graph.nodes[1].occupation = "merchant"
+    graph.nodes[2].occupation = "rentier"
+    graph.employer = {}
+    graph.nodes[1].alive = False
+    assert pass_on_merchant_house(graph, 1) and graph.nodes[2].occupation == "merchant"
+    graph.nodes[2].alive = False  # no adult left at home: the adult daughter elsewhere takes it
+    assert pass_on_merchant_house(graph, 2) and graph.nodes[3].occupation == "merchant"
 
 
 def test_the_jobless_get_work_at_import():
@@ -419,6 +430,7 @@ def test_class_follows_resources_with_a_margin_before_dropping():
 def _run_all():
     test_starting_wealth_follows_the_prato_deciles()
     test_the_jobless_get_work_at_import()
+    test_a_dead_merchant_s_firm_passes_to_the_eldest_adult_at_home()
     test_teenagers_of_poor_households_spin_for_a_merchant()
     test_newlyweds_set_up_a_household_with_the_bride_s_dowry()
     test_a_widow_keeps_the_estate()
