@@ -162,3 +162,26 @@ drift in quiet years).
 > **Decided (user, 2026-10-01):** only the rich store a year's grain; the
 > commune keeps a public granary; hoarding by the rich in dear years is in
 > this slice.
+
+> **Built (2026-10-01), `food.py`.** As planned, with four calibrations:
+> - Merchants' cost outside is 0.8-0.95 of normal, so imported grain sells
+>   near the book's 13 soldi (at 0.9-1.1 local grain ran out by month 5 and
+>   a normal year cost 12% more). Famine years cost 1.8-2.2 outside.
+> - The granary is funded by forced loans from the rich, as Florence did:
+>   the commune never had the cash.
+> - An imported town starts with its granary full and the rich stocked and
+>   hoarding (the equilibrium rule): bought from scratch in year 1, the
+>   imports replacing them sent ~2,300 fl out of town.
+> - Bakers have no customer ties at import, so a household buys from any
+>   baker; the shop ties stay for shops and taverns.
+>
+> Seed 1, 25 years: normal years 0.94-1.07 (12-14 soldi); 3 famines at
+> 1.76-2.29 (up to ~30 soldi; 1329: 28-31); 7-19 famine deaths each
+> (0.3-0.9%); the granary and hoards empty in each famine and refill;
+> homeless 7-77, the lowest of any run; 0-6 hungry households in normal
+> years, 18 in a famine. Seeds 2-5, year 1: very poor 337-346 against
+> 316-367 without the food chain, homeless 6-54 against 32-118.
+>
+> **Found on the way, not from this slice:** in every seed the very poor
+> rise ~20% in year 1 (283 -> ~340). Likely the class lines: they're cut at
+> import from *expected* incomes, which differ from what people then earn.

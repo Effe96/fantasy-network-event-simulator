@@ -18,6 +18,8 @@ import random
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
+from food import FoodMarket
+
 FLORIN_IN_SOLDI = 64  # book §1, 1349
 WORKING_DAYS = 250  # book §4d (Allen convention)
 UNSKILLED_WAGE = 8.4 * WORKING_DAYS / FLORIN_IN_SOLDI  # ~32.8 fl a year, book §4a (1349)
@@ -84,11 +86,11 @@ FORCED_LOAN_RATE = 0.05  # C: prestanze, repaid with interest (the Monte paid ab
 DEVOUT = 0.7  # C: religiousness at which a middling or rich adult gives alms
 ALMS_SHARE = 0.03  # C: of a devout member's share of the household's usual income, each month
 CHURCH_GIVES_PER_MONTH = 0.5  # C: share of the Church's money it can give out in a month
-# harvests: grain's price each year (book §5c, §6: about 2.5x between good and bad years)
-HARVEST_RANGE = (0.8, 1.25)  # C: an ordinary year
+# famine years (book §5c, §6: grain swings about 2.5x between good and bad
+# years); harvests, stocks and the price itself are in food.py (goods slice 1)
 FAMINE_CHANCE = 1 / 15  # C: a famine year every 10-20 years
-FAMINE_PRICE = (2.0, 2.5)  # C
-FAMINE_AT = 1.8  # a year priced this high is a famine: the commune feeds the hungry
+FAMINE_PRICE = (1.8, 2.2)  # C: grain's cost outside in a famine year; with merchants' margin ~2.1-2.5x (1329: 31 s = 2.4x)
+FAMINE_AT = 1.8  # grain priced this high is a famine: the commune's granary sells cheap
 
 # beggars and death from hardship (slice 3 D, user 2026-10-01)
 BEG_AFTER_MONTHS = 6  # C: a household hungry this many months in a row begins to beg
@@ -104,9 +106,8 @@ ROOMMATE_MAX = 6  # C: singles and small households share a room up to this many
 HOST_FOOD_COVER = 0.75  # C: kin take in the evicted if their income covers this share of both households' food (all of it left 150 on the street in year 1)
 HARDSHIP_DEATH_PER_MONTH = 0.01  # C: at a whole basket short, for the under-5s and the over-60s
 # famine (user to-do, 2026-10-01: nobody died in a famine the commune fed):
-# the commune finds only part of the grain the hungry lack, and hunger in a
+# the granary covers only part of what the hungry lack, and hunger in a
 # famine kills (Villani: ~4,000 of Florence's ~90k in 1346-47, a severe one)
-FAMINE_RELIEF_SHARE = 0.6  # C
 FAMINE_DEATH_PER_MONTH = 0.05  # C: a hungry under-5 or over-60 in a famine (0.015 killed 0.3% of the town)
 FAMINE_ADULT_FACTOR = 0.2  # C: everyone else hungry in a famine, relative to that
 
@@ -499,7 +500,9 @@ class EconomyPhenomenon:
         self._estates = defaultdict(int)
         self._unemployed = 0
         self._months = 0
-        self._harvest = 1.0  # this year's grain price, times normal
+        self._harvest = 1.0  # grain's price this month, times normal (the food market's)
+        self.food = FoodMarket(13 / FLORIN_IN_SOLDI, LOCAL_GRAIN_SHARE, FAMINE_CHANCE, FAMINE_PRICE, FAMINE_AT,
+                               IMPORT_MARGIN, CHILD_BASKET)  # goods slice 1
         self._fed_months: Dict[Any, int] = {}  # household -> months fed in a row, while it begs
         self._hardship_deaths = 0
         self._evictions = 0
@@ -579,10 +582,6 @@ class EconomyPhenomenon:
     def _month(self, graph, rng: random.Random, day: int = 0) -> None:
         self._months += 1
         month = 30 / 365
-        if self._months % 12 == 1:  # a new harvest year
-            famine = rng.random() < FAMINE_CHANCE
-            self._harvest = rng.uniform(*(FAMINE_PRICE if famine else HARVEST_RANGE))
-            self._famines += famine
         alive = [n for n in graph.nodes.values() if n.alive]
         self._give_work(graph, alive, rng)
         by_occupation = defaultdict(list)
@@ -635,20 +634,29 @@ class EconomyPhenomenon:
                 self._year["in: cloth exports"] += sale
                 self._year["out: raw wool"] += wool
 
-        # households buy their basket: grain from farmers and (imported)
-        # merchants, the rest from workshops, shops and taverns
+        # households buy their basket: grain as bread (the food market, goods
+        # slice 1), the rest from workshops, shops and taverns
         members = defaultdict(list)
         for node in alive:
             members[household_key(node)].append(node)
-        basket = BASKET_PER_PERSON * (1 - GRAIN_SHARE_OF_BASKET + GRAIN_SHARE_OF_BASKET * self._harvest)
+        if self._months % 12 == 1:  # a new harvest year
+            self.food.harvest(self, graph, members, farmers, merchants, rng, income)
+        else:
+            self.food.update_price(members)
+        self.food.start_month(members)
+        self._harvest, self._famines = self.food.price, self.food.famines
+        basket = BASKET_PER_PERSON * (1 - GRAIN_SHARE_OF_BASKET)  # what isn't grain
         if graph.houses:  # lodging is paid as rent (slice 5), after food
             basket -= BASKET_PER_PERSON * RENT_SHARE
         shops = self._tied_shops(graph, members, sellers)
+        grain_cost = {key: self.food.grain_cost(key, people) for key, people in members.items()}
         needs = {key: sum(CHILD_BASKET if (n.age or 0) < 12 else 1.0 for n in people) * basket * month
-                 for key, people in members.items()}
+                 + grain_cost[key] for key, people in members.items()}
+        bakers = by_occupation.get("master", [])
+        bakers = [n for n in bakers if n.occupation == "baker"]
         church_budget = CHURCH_GIVES_PER_MONTH * max(0.0, graph.household_money.get(CHURCH, 0.0))
-        famine = self._harvest >= FAMINE_AT
         self._hungry = 0
+        graph.hunger_last = getattr(graph, "hunger", {}) or {}  # hoarders' customers remember (food.py)
         graph.hunger = {}  # household -> share of this month's basket it couldn't buy (stress reads it)
         for key, people in members.items():
             need = needs[key]
@@ -661,17 +669,14 @@ class EconomyPhenomenon:
                 church_budget -= given
                 short -= given
                 self._year["church: gave to the hungry"] += given
-            if short > 0 and famine:  # public grain, as in 1329 and 1346-47
-                self._commune_borrow(graph, short - graph.household_money.get(COMMUNE, 0.0), alive)
-                self._year["commune: famine relief"] += self._pay(graph, COMMUNE, key, short * FAMINE_RELIEF_SHARE)
             spend = min(need, max(0.0, graph.household_money.get(key, 0.0)))
             if spend < need * 0.999:
                 self._hungry += 1
                 graph.hunger[key] = 1.0 - spend / need
-            grain = spend * GRAIN_SHARE_OF_BASKET
-            self._buy(graph, key, grain * LOCAL_GRAIN_SHARE, farmers, rng, income)
-            self._import(graph, key, grain * (1 - LOCAL_GRAIN_SHARE), merchants, rng, income)
-            self._buy(graph, key, spend - grain, sellers, rng, income, shops)
+            before = graph.household_money.get(key, 0.0)  # bread first, then the rest
+            self.food.feed(self, graph, key, people, min(spend, grain_cost[key]), bakers, farmers, merchants,
+                           rng, income)
+            self._buy(graph, key, spend - (before - graph.household_money.get(key, 0.0)), sellers, rng, income, shops)
 
         # then everyone spends what they earned above their needs, minus what
         # they save. Income here is net: takings and wages in, wages and day
@@ -1306,6 +1311,7 @@ class EconomyPhenomenon:
             "economy_hardship_deaths": self._hardship_deaths,
             "economy_grain_price": round(self._harvest, 2),
             "economy_famines": self._famines,
+            **{f"economy_{k}": v for k, v in self.food.summary().items()},
             "economy_debt_total": round(sum(d["amount"] for d in graph.debts), 1),
             "economy_debts": len(graph.debts),
             "economy_debts_behind": sum(1 for d in graph.debts if d["behind"] > 0),
