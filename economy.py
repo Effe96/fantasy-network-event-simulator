@@ -18,6 +18,7 @@ import random
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
+from crafts import BASKET_SHARES as CRAFT_SHARES, CraftMarket
 from food import FoodMarket
 
 FLORIN_IN_SOLDI = 64  # book §1, 1349
@@ -169,6 +170,9 @@ PAY: Dict[str, Tuple[float, str]] = {
 # who takes the town's everyday spending on goods (grain goes to farmers and
 # merchants, imports through merchants)
 LOCAL_SELLERS = ("master", "shopkeep", "barkeep", "blacksmith", "trader", "mage")
+# what households buy that isn't bread or a craft good (wine, oil, meat, firewood...)
+# comes from shops and taverns (goods slice 2: the crafts sell their own goods)
+SHOP_SELLERS = ("shopkeep", "barkeep", "trader", "mage")
 DAY_LABOUR_WORK = 0.6  # C: share of working days a day labourer finds work, when there's demand
 
 
@@ -510,6 +514,7 @@ class EconomyPhenomenon:
         self._harvest = 1.0  # grain's price this month, times normal (the food market's)
         self.food = FoodMarket(13 / FLORIN_IN_SOLDI, LOCAL_GRAIN_SHARE, FAMINE_CHANCE, FAMINE_PRICE, FAMINE_AT,
                                IMPORT_MARGIN, CHILD_BASKET)  # goods slice 1
+        self.crafts = CraftMarket(UNSKILLED_WAGE, IMPORT_MARGIN)  # goods slice 2
         self._fed_months: Dict[Any, int] = {}  # household -> months fed in a row, while it begs
         self._hardship_deaths = 0
         self._evictions = 0
@@ -595,6 +600,8 @@ class EconomyPhenomenon:
         for node in alive:
             by_occupation[job_kind(node.occupation)].append(node)
         sellers = [n for n in alive if job_kind(n.occupation) in LOCAL_SELLERS]
+        shop_sellers = [n for n in alive if job_kind(n.occupation) in SHOP_SELLERS]
+        self.crafts.start_month(alive)
         merchants = [n for n in by_occupation["merchant"]]
         farmers = by_occupation["farmer"]
         income = defaultdict(float)
@@ -641,6 +648,10 @@ class EconomyPhenomenon:
                 self._year["in: cloth exports"] += sale
                 self._year["out: raw wool"] += wool
 
+        # workshops buy their inputs and make goods before households spend:
+        # a master's household spending first left weavers no cash for wool
+        self.crafts.produce(self, graph, alive, farmers, merchants, rng, income)
+
         # households buy their basket: grain as bread (the food market, goods
         # slice 1), the rest from workshops, shops and taverns
         members = defaultdict(list)
@@ -655,7 +666,9 @@ class EconomyPhenomenon:
         basket = BASKET_PER_PERSON * (1 - GRAIN_SHARE_OF_BASKET)  # what isn't grain
         if graph.houses:  # lodging is paid as rent (slice 5), after food
             basket -= BASKET_PER_PERSON * RENT_SHARE
-        shops = self._tied_shops(graph, members, sellers)
+        shops = self._tied_shops(graph, members, shop_sellers)
+        # of what isn't bread or rent, the crafts' share (clothing, shoes, housewares)
+        craft_share = min(1.0, sum(CRAFT_SHARES.values()) * BASKET_PER_PERSON / basket) if basket > 0 else 0.0
         grain_cost = {key: self.food.grain_cost(key, people) for key, people in members.items()}
         needs = {key: sum(CHILD_BASKET if (n.age or 0) < 12 else 1.0 for n in people) * basket * month
                  + grain_cost[key] for key, people in members.items()}
@@ -683,7 +696,9 @@ class EconomyPhenomenon:
             before = graph.household_money.get(key, 0.0)  # bread first, then the rest
             self.food.feed(self, graph, key, people, min(spend, grain_cost[key]), bakers, farmers, merchants,
                            rng, income)
-            self._buy(graph, key, spend - (before - graph.household_money.get(key, 0.0)), sellers, rng, income, shops)
+            rest = spend - (before - graph.household_money.get(key, 0.0))
+            rest -= self.crafts.buy(self, graph, key, rest * craft_share, alive, merchants, rng, income)
+            self._buy(graph, key, rest, shop_sellers, rng, income, shops)
 
         # then everyone spends what they earned above their needs, minus what
         # they save. Income here is net: takings and wages in, wages and day
@@ -709,7 +724,9 @@ class EconomyPhenomenon:
             self._import(graph, key, extra * LUXURY_IMPORT_SHARE, merchants, rng, income)
             local = extra * (1 - LUXURY_IMPORT_SHARE)
             hire[key] = hire.get(key, 0.0) + local * DAY_LABOUR_OF_SPENDING  # builders, porters, carters
-            self._buy(graph, key, local * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income, shops)
+            goods = local * (1 - DAY_LABOUR_OF_SPENDING)
+            goods -= self.crafts.buy(self, graph, key, goods * craft_share, alive, merchants, rng, income)
+            self._buy(graph, key, goods, shop_sellers, rng, income, shops)
 
         # public works keep the city running: walls, streets, bridges (day
         # labour and purchases in town), from what the commune holds beyond its fund
@@ -719,6 +736,7 @@ class EconomyPhenomenon:
             hire[COMMUNE] = works * DAY_LABOUR_OF_SPENDING
             self._buy(graph, COMMUNE, works * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income)
             self._year["commune: public works"] += works
+        self.crafts.settle(self, graph, merchants, rng, income)  # workshops pay for their materials
         self._collect_alms(graph, members)
         needs[COMMUNE] = COMMUNE_RESERVE_MONTHS * self._public_bill
         self._housing(graph, members, needs, income, rng)
@@ -1328,6 +1346,7 @@ class EconomyPhenomenon:
             "economy_grain_price": round(self._harvest, 2),
             "economy_famines": self._famines,
             **{f"economy_{k}": v for k, v in self.food.summary().items()},
+            **{f"economy_{k}": v for k, v in self.crafts.summary().items()},
             "economy_debt_total": round(sum(d["amount"] for d in graph.debts), 1),
             "economy_debts": len(graph.debts),
             "economy_debts_behind": sum(1 for d in graph.debts if d["behind"] > 0),

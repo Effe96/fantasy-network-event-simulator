@@ -185,3 +185,91 @@ drift in quiet years).
 > **Found on the way, not from this slice:** in every seed the very poor
 > rise ~20% in year 1 (283 -> ~340). Likely the class lines: they're cut at
 > import from *expected* incomes, which differ from what people then earn.
+
+## 7. Slice 2 build plan: the crafts (2026-10-01) — for comments
+
+Today the rest of a household's basket (40% once grain and rent are out)
+is money paid to a seller picked at random, so a tailor earns from a
+household that buys no clothes. This slice turns the crafts into goods.
+
+**A. What households buy** (C: the book has no shares beyond grain and
+rent; they come from typical pre-industrial budgets, to check against de
+la Roncière). Of the whole basket:
+
+| Share | Goods | From |
+|---|---|---|
+| 45% | bread | slice 1 |
+| 15% | lodging | rent (slice 5 of the economy) |
+| 20% | wine, oil, meat, cheese, salt | taverns and shops, as today |
+| 6% | clothing | tailors |
+| 2% | shoes | shoemakers |
+| 7% | firewood, candles | shops, as today |
+| 5% | pots, barrels, wooden and iron goods | potters, coopers, carpenters, the blacksmith |
+
+The rich spend most of their extra on clothing, furnishing and imports,
+as today.
+
+**B. The chains.**
+- **Cloth:** weavers, fullers and dyers in the workshops make cloth from
+  raw wool (imported by merchants). Tailors buy it to make clothing.
+  Putting-out spinning for merchants stays as it is (export cloth).
+- **Leather:** tanners make leather from hides bought from the farmers;
+  shoemakers buy the leather.
+- **Wood, pottery, iron:** carpenters and coopers buy timber, the
+  blacksmith iron (both imported by merchants); the potter digs clay.
+
+**C. Workshops.** Each makes a fixed amount a month per worker (C, set so
+that at import the town's workshops make about what it buys:
+the equilibrium rule), as far as its inputs allow. It keeps about a
+month of output in stock and stops when its store is full. A household
+buys from the makers of that good who have stock; if none do, a merchant
+imports it at a dearer price (money leaves town); if no merchant, it
+goes without.
+
+**D. Surplus.** A workshop whose store is full sells the extra to the
+merchants, who export it at the outside price (the town's cloth above
+all). Without this, a town that makes more cloth than it wears would see
+its weavers' takings collapse.
+
+**E. Prices** stay fixed in this slice (C, set from the budget shares and
+the workshops' output), and start moving in slice 3.
+
+**What it brings:** a dead shoemaker means shoes are imported, dearer,
+until someone takes up the trade; tanners need the farmers' hides; the
+town's cloth trade shows as weavers selling to tailors and merchants.
+
+**Questions for you:**
+1. Are the budget shares in A reasonable, or do you have figures in mind?
+2. Should masons belong here (building work for the commune and house
+   buyers), or stay as day labour and purchases as today?
+3. Should a household that can't find a good go without (no shoes this
+   year), or always get it imported, dearer?
+
+> Feedback:
+
+> **Decided (user, 2026-10-01):** the shares in A to start with; masons
+> later (with new houses being built); a good no workshop has is imported,
+> dearer (the household goes without only if there's no merchant).
+
+> **Built (2026-10-01), `crafts.py`.** As planned, with three changes the
+> checks forced:
+> - **Materials on account.** Paying for materials up front from the
+>   master's household purse left workshops short (shoes: 92 fl made of
+>   ~870 in a year). Workshops take materials on credit, up to two months
+>   of them (Florence's merchants advanced wool), and pay from their
+>   takings at the month's end. Cloth and leather are made first, then the
+>   trades that use them, then the surplus is exported.
+> - **Output set from real demand.** Wage-based output left clothing and
+>   housewares short (~1,100 fl a year imported). After the first month,
+>   each good's workshops make 1.2x what households asked for (clothing
+>   1.7x, housewares 1.8x a worker's wage-based output); an imported town
+>   starts with a month of stock.
+> - **Every workshop works at capacity** and exports its surplus through
+>   the merchants: selling only to the town, tanners would have earned a
+>   quarter of their wages.
+>
+> Seed 1, 25 years: very poor 11-14%, rich 10-12%, money flat; craft
+> exports 0.8-2k fl a year; finished goods imported ~250 fl in all; the
+> tailors outgrow the weavers (4k fl of cloth imported). Masters earn from
+> what they sell (carpenters and potters ~200 fl a year, tailors 150-290,
+> shoemakers 115-210). Hides from the farmers are unlimited for now.
