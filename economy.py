@@ -657,10 +657,7 @@ class EconomyPhenomenon:
         members = defaultdict(list)
         for node in alive:
             members[household_key(node)].append(node)
-        if self._months % 12 == 1:  # a new harvest year
-            self.food.harvest(self, graph, members, farmers, merchants, rng, income)
-        else:
-            self.food.update_price(members)
+        self.food.month(self, graph, members, farmers, merchants, rng, income, day)  # harvests in summer
         self.food.start_month(members)
         self._harvest, self._famines = self.food.price, self.food.famines
         basket = BASKET_PER_PERSON * (1 - GRAIN_SHARE_OF_BASKET)  # what isn't grain

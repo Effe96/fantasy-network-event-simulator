@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from economy import COMMUNE, EconomyPhenomenon
-from food import BAKER_MARGIN, HOARD_RESENTMENT
+from food import BAKER_MARGIN, HARVEST_DAY, HOARD_RESENTMENT
 from graph import Edge, Node, SocialGraph
 
 
@@ -99,6 +99,21 @@ def test_a_hoarder_selling_dear_is_resented_by_the_hungry_who_know_them():
     food.feed(economy, graph, 3, members[3], 5.0, [nodes[2]], [], [], random.Random(0), defaultdict(float))
     assert food.hoards[4] < 50.0 and graph.household_money[4] > 100.0  # sold to the baker, at a dear price
     assert abs(graph.get_edge(3, 5).valence_a_to_b - (0.2 - HOARD_RESENTMENT)) < 1e-9
+
+
+def test_the_harvest_comes_once_a_year_in_summer_on_the_calendar():
+    graph, economy, members = _town()
+    food = economy.food
+    food.famine_chance = 0.0
+    nodes = graph.nodes
+    harvests = []
+    for day in range(30, 25 * 365, 30):  # 25 years of 30-day months
+        before = food.year["harvested"]
+        food.month(economy, graph, members, [nodes[1]], [nodes[5]], random.Random(day), defaultdict(float), day)
+        if food.year["harvested"] > before:
+            harvests.append(day)
+    assert len(harvests) == 25
+    assert all(HARVEST_DAY <= (day - 1) % 365 < HARVEST_DAY + 30 for day in harvests)  # no drift
 
 
 def _run_all():

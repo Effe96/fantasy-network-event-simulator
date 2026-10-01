@@ -33,6 +33,7 @@ HOARD_YEARS = 1.0  # C: a rich household hoards up to this many years of its own
 HOARD_CASH_SHARE = 0.3  # C: spending at most this share of its cash on a hoard
 HOARD_BUY_BELOW = 1.0  # C: buying after harvests priced at most this
 HOARD_SELL_AT = 1.6  # C: and selling once the price reaches this
+HARVEST_DAY = 196  # C: mid-July, the Tuscan wheat harvest (day of the year; day 1 of a run is 1 January)
 HOARD_RESENTMENT = 0.05  # C: a hungry person's feeling toward a hoarder they know drops this, a month it sells
 
 
@@ -51,6 +52,7 @@ class FoodMarket:
         self.hoards: Dict[Any, float] = defaultdict(float)  # rich household -> staia held to sell
         self.granary = 0.0  # the commune's staia
         self.famines = 0
+        self.harvest_year = None  # the calendar year of the last harvest
         self.year: Dict[str, float] = defaultdict(float)  # counts for summaries
         self._ration = 0.0  # set each month by start_month
         self._last_baker = None
@@ -75,8 +77,6 @@ class FoodMarket:
         self.outside = rng.uniform(*(self.famine_price if famine else OUTSIDE_RANGE))
         demand = sum(self.staia_needed(people) for people in members.values()) * 12
         farms = [econ_key(n) for n in farmers]
-        if self.yield_per_farm is None:  # the first harvest of an imported town
-            self._stocked(members, demand)
         if farms:
             if self.yield_per_farm is None:
                 self.yield_per_farm = self.local_share * demand / len(farms)
@@ -113,15 +113,31 @@ class FoodMarket:
                                             farmers, merchants, rng, income)
         self.update_price(members)
 
-    def _stocked(self, members, demand: float) -> None:
+    def month(self, econ, graph, members, farmers, merchants, rng: random.Random, income, day: int) -> None:
+        """The month's market: the harvest once a year in summer, on the
+        calendar (2026-10-01: counted every 12 months of 30 days, it drifted
+        5 days a year, four months over 25 years), else prices follow stocks."""
+        if self.harvest_year is None and not self.granary:
+            self._stocked(members, (day - 1) % 365)
+        year, day_of_year = (day - 1) // 365, (day - 1) % 365
+        if day_of_year >= HARVEST_DAY and (self.harvest_year is None or year > self.harvest_year):
+            self.harvest_year = year
+            self.harvest(econ, graph, members, farmers, merchants, rng, income)
+        else:
+            self.update_price(members)
+
+    def _stocked(self, members, day_of_year: int) -> None:
         """An imported town has stood for decades (the equilibrium rule): its
-        granary is full, the rich have their year's grain and their hoards.
+        granary is full, the rich hold their hoards and what's left of the
+        last harvest's grain, until the next. The farms have sold theirs.
         Bought from scratch in year 1, they took ~8,000 staia off the market,
         imports replaced it, and ~2,300 fl left town: the very poor 283 -> 391."""
+        demand = sum(self.staia_needed(people) for people in members.values()) * 12
         self.granary = GRANARY_MONTHS * demand / 12
+        months_left = ((HARVEST_DAY - day_of_year) % 365) / 30
         for key, people in members.items():
             if _stores(people):
-                self.stores[key] = self.staia_needed(people) * 12
+                self.stores[key] = self.staia_needed(people) * months_left
                 self.hoards[key] = HOARD_YEARS * self.staia_needed(people) * 12
 
     def update_price(self, members) -> None:
