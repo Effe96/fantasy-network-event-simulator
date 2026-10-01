@@ -1164,6 +1164,14 @@ Topics the user flagged to talk through before building. Each is
   gain housing as they grow. Mostly a TownShape question (buildings, map,
   visualization), but the sim's growth and arrivals will need somewhere
   to live once the existing houses are full.
+- **Wages that follow the labour supply** (added 2026-10-01) — **Deferred
+  (user): not now.** Wages are fixed today, so a plague that kills 11% of
+  the town leaves survivors earning the same (the 2026-10-01 plague run:
+  unemployment barely moved, 31 -> 38-40). Historically wages in Florence
+  roughly doubled after 1348 and land got cheap. Wages would rise when
+  hands are scarce (few unemployed, unfilled posts) and fall when plenty
+  look for work. Pairs naturally with floating prices (goods proposal,
+  `Project_Vision/04-goods-and-inventories.md`).
 
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 
