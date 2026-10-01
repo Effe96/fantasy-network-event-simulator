@@ -1194,6 +1194,9 @@ Topics the user flagged to talk through before building. Each is
   over 25 years: the harvest is fixed by the farmsteads at import while the
   town grows, and imports fill the gap. New farmsteads and fields are a
   TownShape question (with "New houses being built").
+  *Also (2026-10-01):* in 2 of 3 seeds the very poor creep from ~11% to
+  16-18% in years 16-25 while the town grows ~19% on the farms, houses and
+  workshops it was imported with (seed 3 stays at 12-14%).
 
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 
