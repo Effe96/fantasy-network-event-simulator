@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from crafts import STOCK_MONTHS
+from crafts import EXPORT_PRICE, STOCK_MONTHS
 from economy import COMMUNE, EconomyPhenomenon
 from graph import Node, SocialGraph
 
@@ -72,6 +72,23 @@ def test_where_the_town_wants_more_than_its_workshops_make_they_make_more():
     made = crafts.capacity(shops[50])
     crafts.calibrate(alive, {"clothing": 3 * made, "shoes": 0.0, "housewares": 0.0})
     assert abs(crafts.capacity(shops[50]) - 1.2 * 3 * made) < 1e-6
+
+
+def test_a_good_dears_when_short_and_cheapens_in_a_glut_within_what_trade_allows():
+    graph, economy, alive = _town()
+    crafts = economy.crafts
+    shops = crafts.workshops(alive)
+    crafts._masters = {b: s["master"].household_id for b, s in shops.items()}
+    crafts.stock[50] = 0.1 * crafts.capacity(shops[50])  # little clothing against a month's demand
+    for _ in range(12):
+        crafts._move_prices(shops, {"clothing": crafts.capacity(shops[50])})
+    assert abs(crafts.price["clothing"] - (1 + crafts.import_margin)) < 1e-9  # capped at what imports cost
+    crafts.stock[50] = 20 * crafts.capacity(shops[50])
+    crafts._move_prices(shops, {"clothing": crafts.capacity(shops[50])})
+    assert crafts.price["clothing"] < 1 + crafts.import_margin  # a glut: cheaper
+    for _ in range(24):
+        crafts._move_prices(shops, {"clothing": crafts.capacity(shops[50])})
+    assert abs(crafts.price["clothing"] - EXPORT_PRICE) < 1e-9  # never below what export pays
 
 
 def _run_all():

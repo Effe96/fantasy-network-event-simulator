@@ -10,7 +10,9 @@ that have them in stock; what none has is imported (the money leaves town).
 Every workshop works at capacity: it pays its people whether or not the
 town buys. What it makes beyond a month's stock goes to the merchants, who
 export it, as Florence exported its cloth and leather. Goods are counted in
-florins' worth at their fixed price (prices start moving in slice 3).
+florins' worth at their normal price; each good's price moves (slice 3)
+with how many months of demand the workshops' stocks cover, between what
+merchants pay to export it and what they charge to import it.
 """
 import random
 from collections import defaultdict
@@ -36,6 +38,8 @@ WAGE_COVER = 1.3  # C: a workshop selling all it makes at the local price covers
 STOCK_MONTHS = 1.0  # C: a workshop keeps about a month of what it makes; the rest goes for export
 CAPACITY_SLACK = 1.2  # C: at import each good's workshops can make this times what the town buys (equilibrium)
 CREDIT_MONTHS = 2.0  # C: a workshop takes materials on account up to this many months of them
+PRICE_STEP = 0.1  # proposal §3: a price moves at most this much a month
+PRICE_ELASTICITY = 0.3  # C: as grain's (food.py): price ~ (normal cover / cover) ** this
 EXPORT_PRICE = 0.85  # C: merchants pay this share of the local price for goods to export
 
 
@@ -51,6 +55,7 @@ class CraftMarket:
         self.wanted: Dict[str, float] = defaultdict(float)  # fl households asked for this month, by good
         self.owed: Dict[Any, Dict[Any, float]] = defaultdict(lambda: defaultdict(float))  # workshop -> creditor -> fl
         self._masters: Dict[Any, Any] = {}  # workshop -> its master's household, this month
+        self.price: Dict[str, float] = defaultdict(lambda: 1.0)  # good -> times its normal price (slice 3)
 
     # -- workshops ------------------------------------------------------------
 
@@ -105,7 +110,7 @@ class CraftMarket:
         purse left the workshops short (shoes made 92 fl of 870 in a year)."""
         from economy import household_key
         self.calibrate(alive, self.wanted)
-        self.wanted = defaultdict(float)
+        asked, self.wanted = self.wanted, defaultdict(float)
         shops = self.workshops(alive)
         self._masters = {b: household_key(s["master"]) for b, s in shops.items()}
         uses_town_goods = lambda b: CRAFTS[shops[b]["trade"]][3] in ("cloth", "leather")
@@ -125,6 +130,26 @@ class CraftMarket:
             if extra > 1e-9 and merchants:
                 self._export(econ, graph, self._masters[building], building, CRAFTS[shops[building]["trade"]][0],
                              extra, merchants, rng, income)
+        self._move_prices(shops, asked)
+
+    def _move_prices(self, shops, asked: Dict[str, float]) -> None:
+        """Each good's price moves toward what its stock calls for: the normal
+        price when the workshops hold STOCK_MONTHS of what was asked for last
+        month (households; cloth and leather: what the tailors and shoemakers
+        use), dearer when short, cheaper in a glut. Never above what merchants
+        charge to import it, nor below what they pay to export it."""
+        demand = dict(asked)
+        for good in ("cloth", "leather"):
+            demand[good] = sum(self.capacity(s) * CRAFTS[s["trade"]][2] for s in shops.values()
+                               if CRAFTS[s["trade"]][3] == good)
+        for good in {CRAFTS[s["trade"]][0] for s in shops.values()}:
+            if demand.get(good, 0.0) <= 1e-9:
+                continue
+            stock = sum(self.stock[b] for b, s in shops.items() if CRAFTS[s["trade"]][0] == good)
+            cover = stock / demand[good]
+            target = (STOCK_MONTHS / max(cover, 0.05)) ** PRICE_ELASTICITY
+            target = min(1 + self.import_margin, max(EXPORT_PRICE, target))
+            self.price[good] *= min(1 + PRICE_STEP, max(1 - PRICE_STEP, target / self.price[good]))
 
     def _draw_input(self, building, source, value: float, shops, farmers, rng) -> float:
         """Take `value` fl of materials on account: cloth or leather from the
@@ -138,7 +163,7 @@ class CraftMarket:
             for maker in makers:
                 take = min(self.stock[maker], value - got)
                 self.stock[maker] -= take
-                self.owed[building][self._masters[maker]] += take
+                self.owed[building][self._masters[maker]] += take * self.price[source]
                 got += take
                 if got >= value - 1e-9:
                     break
@@ -175,8 +200,8 @@ class CraftMarket:
                 debts[creditor] -= paid
 
     def _from_workshops(self, econ, graph, buyer, good, value: float, shops, rng, income, business=False) -> float:
-        """Buy up to `value` fl of `good` from the workshops that have it, at the
-        local price, taxed like anything bought in town. Returns what was bought."""
+        """Spend up to `value` fl on `good` at its price, from the workshops
+        that have it, taxed like anything bought in town. Returns the fl spent."""
         from economy import household_key
         makers = [b for b, s in shops.items() if CRAFTS[s["trade"]][0] == good and self.stock[b] > 1e-9
                   and household_key(s["master"]) != buyer]
@@ -185,14 +210,14 @@ class CraftMarket:
         for building in makers:
             if got >= value - 1e-9:
                 break
-            seller = household_key(shops[building]["master"])
-            want = min(self.stock[building], value - got)
+            price = self.price[good]
+            want = min(self.stock[building] * price, value - got)
             before = graph.household_money.get(buyer, 0.0)
             econ._buy(graph, buyer, want, [shops[building]["master"]], rng, income)
             paid = before - graph.household_money.get(buyer, 0.0)
             if business:
                 income[buyer] -= paid
-            self.stock[building] -= paid
+            self.stock[building] -= paid / price
             got += paid
             if paid < want - 1e-9:
                 break  # the buyer ran out of money
@@ -222,7 +247,7 @@ class CraftMarket:
         spent = 0.0
         for good, share in BASKET_SHARES.items():
             want = amount * share / total
-            self.wanted[good] += want
+            self.wanted[good] += want / self.price[good]  # in goods, at the normal price
             got = self._from_workshops(econ, graph, key, good, want, shops, rng, income)
             spent += got
             if got < want - 1e-9 and merchants:  # none in town: imported, dearer
@@ -247,4 +272,5 @@ class CraftMarket:
             if shop:
                 by_good[CRAFTS[shop["trade"]][0]] += value
         return {**{f"crafts_stock_{g}": round(v, 1) for g, v in by_good.items()},
+                **{f"crafts_price_{g}": round(p, 3) for g, p in self.price.items()},
                 **{f"crafts_{k}": round(v, 1) for k, v in self.year.items()}}

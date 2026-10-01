@@ -273,3 +273,21 @@ town's cloth trade shows as weavers selling to tailors and merchants.
 > tailors outgrow the weavers (4k fl of cloth imported). Masters earn from
 > what they sell (carpenters and potters ~200 fl a year, tailors 150-290,
 > shoemakers 115-210). Hides from the farmers are unlimited for now.
+
+## 8. Slice 3: prices that move (built 2026-10-01)
+
+Each craft good's price now moves, by at most 10% a month (§3), toward the
+level where the workshops' stocks cover a month of demand (C: price ~
+(cover) ** -0.3, as grain's). Trade bounds it: never above what merchants
+charge to import it (1.15 of normal), never below what they pay to export
+it (0.85). Households spend the same money on each good, so a dearer good
+means less of it; cloth and leather bought on account cost the tailors and
+shoemakers their current price. Bread already moved (slice 1); wine, oil,
+meat and firewood from shops stay money only.
+
+Seed 1, 25 years: cloth at or near the import price (the tailors use more
+than the weavers make), leather near the export price (an export trade),
+clothing, shoes and housewares 0.93 at first, rising to ~1.0 as the town
+grows into its workshops. Classes hold (very poor 11-15%, rich 10-12%),
+hungry 0-2, homeless 34-70. A coup in year 19 sent an heirless landlord's
+22 houses to the commune (households' money -5k, the commune's +).
