@@ -1172,7 +1172,7 @@ Topics the user flagged to talk through before building. Each is
   hands are scarce (few unemployed, unfilled posts) and fall when plenty
   look for work. Pairs naturally with floating prices (goods proposal,
   `Project_Vision/04-goods-and-inventories.md`).
-- **The rich class grows** (added 2026-10-01) — **Open, to solve (user).**
+- **The rich class grows** (added 2026-10-01) — **Solved 2026-10-01.**
   154 -> 262 people in 25 years (seed 1, food-chain run), against lines
   fixed at import; the Gini holds (~0.74), so it's incomes rising past the
   line (cloth exports at 1.7x wages, working teens), not wealth piling up.
@@ -1184,6 +1184,11 @@ Topics the user flagged to talk through before building. Each is
   savings cushion is spent only slowly (50% a year, half of it imported).
   Every class piles up cash, so after the year-1 fix the very poor fall
   15% -> 6-11% by year 5 (seeds 1-5) instead of holding.
+  *Fix (user's choice):* cash above the cushion is spent at 200% a year,
+  not 50%. Seed 1, 25 years: cash flat apart from population growth; very
+  poor 15% -> 11% by year 4 then 10-13% for 20 years; rich 9% -> 12% then
+  11-13%. Left: the very poor start with less cash than they keep (135 fl
+  against a 733 fl cushion) and save up to it in years 2-4.
 - **Local farms don't grow with the town** (added 2026-10-01) — **Open, to
   solve (user).** Farms grow 50% of the town's grain at import and 38%
   over 25 years: the harvest is fixed by the farmsteads at import while the
