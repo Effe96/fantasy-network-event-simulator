@@ -1172,6 +1172,23 @@ Topics the user flagged to talk through before building. Each is
   hands are scarce (few unemployed, unfilled posts) and fall when plenty
   look for work. Pairs naturally with floating prices (goods proposal,
   `Project_Vision/04-goods-and-inventories.md`).
+- **The rich class grows** (added 2026-10-01) — **Open, to solve (user).**
+  154 -> 262 people in 25 years (seed 1, food-chain run), against lines
+  fixed at import; the Gini holds (~0.74), so it's incomes rising past the
+  line (cloth exports at 1.7x wages, working teens), not wealth piling up.
+  *Cause found (2026-10-01):* two parts. (1) Class rose on touching a line
+  but fell only 20% under one, a ratchet upward; now the same margin both
+  ways. (2) Households' cash grows ~55% in 4 years (seed 2): the town takes
+  in ~1,400 fl a year more than it sends out (cloth exports 18.8k + land
+  outside 2.7k against raw wool and imports 20k), and cash above the
+  savings cushion is spent only slowly (50% a year, half of it imported).
+  Every class piles up cash, so after the year-1 fix the very poor fall
+  15% -> 6-11% by year 5 (seeds 1-5) instead of holding.
+- **Local farms don't grow with the town** (added 2026-10-01) — **Open, to
+  solve (user).** Farms grow 50% of the town's grain at import and 38%
+  over 25 years: the harvest is fixed by the farmsteads at import while the
+  town grows, and imports fill the gap. New farmsteads and fields are a
+  TownShape question (with "New houses being built").
 
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 

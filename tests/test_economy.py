@@ -55,6 +55,24 @@ def test_a_dead_merchant_s_firm_passes_to_the_eldest_adult_at_home():
     assert pass_on_merchant_house(graph, 2) and graph.nodes[3].occupation == "merchant"
 
 
+def test_after_a_year_the_class_lines_are_cut_again_from_real_earnings():
+    graph = SocialGraph()
+    for resident_id in range(1, 21):
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, gender="male", age=30,
+                            household_id=resident_id))
+    setup_economy(graph, {50: "workshop", 60: "farmstead"}, {1: 500.0}, seed=1)
+    economy = EconomyPhenomenon()
+    economy.init_state(graph)
+    economy._income = {r: 0.1 * r for r in range(1, 21)}  # everyone earns less than expected
+    expected_lines = list(graph.class_lines)
+    economy._update_class(graph)
+    assert graph.class_lines != expected_lines
+    assert sum(1 for n in graph.nodes.values() if n.ses == "very_poor") == 3  # still 15% of the town
+    lines = list(graph.class_lines)
+    economy._update_class(graph)
+    assert graph.class_lines == lines  # cut once; fixed from then on
+
+
 def test_the_jobless_get_work_at_import():
     graph = SocialGraph()
     for resident_id in range(1, 21):
@@ -425,11 +443,14 @@ def test_class_follows_resources_with_a_margin_before_dropping():
     assert class_for(29.0, "middling", lines) == "middling"  # just under its line: kept
     assert class_for(20.0, "middling", lines) == "poor"  # below 80% of it: dropped
     assert class_for(2000.0, "middling", lines) == "very_rich"
+    assert class_for(110.0, "middling", lines) == "middling"  # just over the next line: not yet rich
+    assert class_for(130.0, "middling", lines) == "rich"  # clear of it by the same margin: risen
 
 
 def _run_all():
     test_starting_wealth_follows_the_prato_deciles()
     test_the_jobless_get_work_at_import()
+    test_after_a_year_the_class_lines_are_cut_again_from_real_earnings()
     test_a_dead_merchant_s_firm_passes_to_the_eldest_adult_at_home()
     test_teenagers_of_poor_households_spin_for_a_merchant()
     test_newlyweds_set_up_a_household_with_the_bride_s_dowry()

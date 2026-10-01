@@ -270,11 +270,13 @@ def _expected_income(graph) -> Dict[Any, float]:
     return income
 
 
-def _set_class_lines(graph, rng) -> None:
+def _set_class_lines(graph, rng, yearly_income: Optional[Dict[Any, float]] = None) -> None:
     """Rank residents by resources per person, cut them into the town's
     class shares (params.class_shares) and keep the cut points as the fixed
-    lines people are judged against from then on."""
-    per_person = resources_per_person(graph, _expected_income(graph))
+    lines people are judged against from then on. At import the income is
+    what each job is expected to pay; a year later the lines are cut once
+    more from what households actually earned (see _update_class)."""
+    per_person = resources_per_person(graph, yearly_income if yearly_income is not None else _expected_income(graph))
     people = sorted((per_person.get(household_key(n), 0.0), rng.random(), n) for n in graph.nodes.values() if n.alive)
     shares = getattr(graph.params, "class_shares", (0.15, 0.50, 0.25, 0.09, 0.01))
     graph.class_lines, cut = [], 0.0
@@ -303,12 +305,17 @@ def _cumulative(shares):
 
 
 def class_for(resources: float, current: str, lines: List[float]) -> str:
-    """The class for these resources, keeping someone in their class until
-    they fall below CLASS_KEEP_SHARE of its line."""
+    """The class for these resources, with the same margin both ways: someone
+    keeps their class until they fall below CLASS_KEEP_SHARE of its line, and
+    rises only once clear of the next line by as much (2026-10-01: rising on
+    touching a line but falling only 20% under it ratcheted the town upward,
+    very poor 15% -> 5-8% in five years in every seed)."""
     level = sum(1 for line in lines if resources >= line)
     held = CLASSES.index(current) if current in CLASSES else 0
     if level < held and resources >= lines[held - 1] * CLASS_KEEP_SHARE:
         return current
+    if level > held:
+        return CLASSES[max(held, sum(1 for line in lines if resources >= line / CLASS_KEEP_SHARE))]
     return CLASSES[level]
 
 
@@ -1263,7 +1270,16 @@ class EconomyPhenomenon:
         lines = getattr(graph, "class_lines", None)
         if not lines:
             return
-        per_person = resources_per_person(graph, {key: 12 * v for key, v in self._income.items()})
+        yearly = {key: 12 * v for key, v in self._income.items()}
+        if not getattr(graph, "class_lines_from_earnings", False):
+            # 2026-10-01: lines cut from expected incomes, which run 50-80% above
+            # what poor households then earn (teens, irregular day labour, masters
+            # short of cash), pushed the very poor up ~20% in year 1 in every
+            # seed. Cut once more, the same way, from a year of real earnings
+            graph.class_lines_from_earnings = True
+            _set_class_lines(graph, random.Random(len(graph.nodes)), yearly)
+            return
+        per_person = resources_per_person(graph, yearly)
         for node in graph.nodes.values():
             if node.alive:
                 node.ses = _capped(node, class_for(per_person.get(household_key(node), 0.0), node.ses, lines))
