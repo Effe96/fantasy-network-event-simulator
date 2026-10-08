@@ -103,7 +103,10 @@ class FoodMarket:
                 self.year["harvested"] += self.yield_per_farm * factor
             for building, podere in self.poderi.items():
                 self._crop(graph, building, podere, factor, members)
-            self._found_poderi(graph, members, demand, len(farms), rng)
+            # every farmstead counts, staffed or not: one whose farmer's place is open
+            # at harvest gets a newcomer (2026-10-08: counted short, it founded 4 poderi at once)
+            steads = sum(1 for kind in getattr(graph, "building_types", {}).values() if kind == "farmstead")
+            self._found_poderi(graph, members, demand, max(steads, len(farms)), rng)
         self.update_price(members)
         price = self.wholesale()
         # the rich lay in the year's grain, and a hoard while it's cheap

@@ -484,11 +484,14 @@ monthly check per town, negligible.
 >   the farm doesn't) and a farmer who inherited a merchant house. Their hands
 >   went unpaid. Now a farm left 6 months without a farmer goes to its eldest
 >   hand, and the harvest counts each farmstead once.
+> - **Need counts every farmstead, staffed or not.** A first version counted
+>   the farms with a farmer at harvest; one place open then founded 4 poderi
+>   at once (local grain 54%).
 >
-> Three seeds, 25 years: local grain holds at 50-54% (was 50% -> 38%); 11-13
-> poderi founded; the town grows 17-19% (0.7% a year), close to the old
-> run, near the houses' limit by year 25. Town cash flat. Homelessness is lower
-> in most years (seed 1 year 20: 41 against 80; seed 2: 41 against 96) but
-> noisy. **The very poor are not fixed:** seeds 2 and 3 still rise to 16-18%
-> in years 16-25 (seed 1: 14%). So the farms weren't their cause; the houses
+> Three seeds, 25 years: local grain holds at 50-52% (was 50% -> 38%); 8-10
+> poderi founded, never more than one a year; the town grows 17-20% (0.7% a
+> year), close to the old run, near the houses' limit by year 25. Town cash
+> flat. Homelessness is lower in most years (seed 1 year 20: 39 against 80;
+> seed 2: 41 against 96) but noisy. **The very poor are not fixed:** seeds 2
+> and 3 still sit at 14-18% in years 16-25 (seed 1 falls to 9%). So the farms weren't their cause; the houses
 > and workshops are the next suspects.

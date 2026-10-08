@@ -24,8 +24,11 @@ sharecroppers; fields and the growth fix first.
   farmers' titles pass but their farms didn't, and an heir who took up a
   merchant house left the farm. A newcomer fills a dead farmer's place in ~2
   months, hence the wait; the harvest counts each farmstead once.
-- **Result:** local grain holds at 50-54% over 25 years (3 seeds). The very
-  poor still creep to 16-18% in two seeds, so the farms weren't their cause.
+- **Need counts every farmstead, staffed or not:** counting only staffed farms
+  founded 4 poderi at once when a farmer's place was open at harvest.
+- **Result:** local grain holds at 50-52% over 25 years (3 seeds), 8-10
+  poderi. The very poor still sit at 14-18% in two seeds, so the farms
+  weren't their cause.
 
 ## 2026-10-08 — Goods slice 4: merchants in goods
 
