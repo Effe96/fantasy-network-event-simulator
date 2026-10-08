@@ -383,3 +383,77 @@ line runs empty in quiet years. Speed: ~13 merchants a month, negligible.
 > old upward drift of town cash. At year 25 the very poor average 317
 > (before this slice 355) and the rich 258 (230; one seed lower, two higher:
 > the rich were already rising from ~155 before this slice).
+
+## 10. Build plan: a town that grows into new farms, houses and workshops (2026-10-08) — for comments
+
+The two open issues ("local farms don't grow with the town" and the late
+creep of the very poor) are the same problem. Three 25-year runs (seeds 1-3,
+after slice 4):
+
+- **The town grows about 1% a year, not 0.5%.** It goes from 1,889 to
+  ~2,250 by year 18, then stops at the "no room" cap (+20%, `ROOM_GROWTH`).
+  Births and deaths roughly cancel out. The growth comes from arrivals: a
+  dead worker's job is always refilled, and a third of the newcomers bring a
+  family of 1-4 who have no job (`family_share`). The 0.5% target no
+  longer limits anything, because a job is refilled whatever the town's
+  size.
+- **Nothing the town works or lives in grows.** Farms, houses and
+  workshops are the ones it was imported with. Local grain falls from 50% to
+  38% of what the town eats, and imports fill the gap. Homelessness goes from
+  ~30 to 80-130 (seed 1), and the very poor go from ~11% to 16-18% in years
+  13-21 (seeds 1 and 3), while unemployment stays flat (~30): the extra
+  people are day labourers and dependants, not people without work.
+
+Equilibrium rule: a town that has existed for decades grows slowly, and
+when it grows, someone builds. So the proposal is to hold growth at the
+target and let capital follow demand, paid by whoever profits.
+
+**A. Growth back on target.** A newcomer's family comes only while the
+town is below its 0.5%-a-year path, the same way the jobless are already
+replaced. Jobs are still always refilled.
+
+**B. Fields (contado land).** In a year when local farms grow less than
+some share of the town's grain (C: under 45%), and grain stays above the
+import price, the richest household with enough cash buys land outside
+the walls and sets up a new farmstead: a sharecropper's family from the
+very poor or the day labourers moves out to it (mezzadria, as Florentine
+citizens did), plus `FARMHANDS_ADDED` hands from the unemployed. The buyer
+pays the price of the land (C: ~10 years of its harvest's value) to the
+outside, as the land outside is paid today, and takes half the harvest.
+
+**C. Houses.** When the homeless who can pay rent can't find a home for
+some months (C: 3), a rich household (or the commune, if no house can)
+builds a house for rent. The cost (C: ~4 years of its rent) goes as wages
+to day labourers, so money stays in the town, and the house is let as
+houses are let today.
+
+**D. Workshops.** When a craft's price holds near the import cap for a
+year (the town is short and buys from outside), a journeyman of that trade
+with enough savings (or with a patron's loan) opens a new workshop with
+hands from the unemployed and the day labourers.
+
+**Buildings without TownShape.** B-D add buildings the TownShape map
+doesn't have. Until TownShape builds (the "New houses being built" topic),
+they would be buildings that exist only in the sim (an id, a kind, an
+owner, no place on the map). The export back to TownShape, when that
+exists, would place them.
+
+**Checks:** growth ~0.5% a year over 25 years and 3 seeds; local grain
+holds near its share at import (45-50%); the very poor hold at 10-13%;
+homelessness holds near its level at import; money conserved; quiet years
+don't drift; a plague's survivors don't build (no demand). Speed: a
+monthly check per town, negligible.
+
+**Questions for you (my default in brackets):**
+1. Should growth go back to 0.5% a year, or is 1% fine as long as the
+   town builds for it? [0.5%, your earlier rule]
+2. Buildings that exist only in the sim until TownShape can place them, or
+   wait for TownShape? [sim-only now]
+3. New farms by citizens buying contado land with sharecroppers, or
+   another way (the commune clears land, peasants from outside settle)?
+   [sharecroppers]
+4. All three (fields, houses, workshops) in one slice, or fields first,
+   since that's the open issue? [fields and the growth fix first, then
+   houses, then workshops]
+
+> Feedback:
