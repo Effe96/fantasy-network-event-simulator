@@ -493,5 +493,80 @@ monthly check per town, negligible.
 > year), close to the old run, near the houses' limit by year 25. Town cash
 > flat. Homelessness is lower in most years (seed 1 year 20: 39 against 80;
 > seed 2: 41 against 96) but noisy. **The very poor are not fixed:** seeds 2
-> and 3 still sit at 14-18% in years 16-25 (seed 1 falls to 9%). So the farms weren't their cause; the houses
-> and workshops are the next suspects.
+> and 3 still sit at 14-18% in years 16-25 (seed 1 falls to 9%). So the farms
+> weren't their cause; the houses and workshops are the next suspects.
+
+#### Houses (plan, 2026-10-08)
+
+**What houses do today.** A house has no limit on who lives in it.
+Newborns live with their mother, a newcomer takes the dead person's home,
+and the homeless rent any house at random. So houses only get more crowded:
+8.4 people a house at import (6-15; 2-3 households in most), 9.9 by year 25.
+Nobody is ever homeless for want of room. People are homeless because they
+were evicted for rent they couldn't pay, and stay homeless until they hold a
+month's rent and food. In 3 seeds, 25 years, evictions run at a steady 16-20
+households a year. Seed 1's late homelessness (39-168 in years 17-25) came
+from its four famines; in seeds 2 and 3 homelessness stays flat or falls.
+(The v14 dashboard said "the houses ran out"; that was wrong and is
+corrected there.) Two more effects of houses that don't grow:
+- **Rent per head falls as the town grows.** Each house's rent is fixed (7%
+  of its value), split among whoever lives there. Total rent falls from
+  ~2,230 to ~1,870 fl a year (there are evictions and arrears), while the
+  town grows 18%. Per head that's ~1.18 fl to ~0.83, 30% less. So growth
+  makes lodging cheaper, the opposite of a real town filling up.
+- **A 20% room cap stands in for houses** (`ROOM_GROWTH` in the population
+  phenomenon): arrivals stop at 20% above the start.
+
+So new houses won't fix the very poor by themselves: today's houses cost them
+less as the town grows, not more. What houses would add: crowding that
+means something, rent that keeps its level per head, and wages for the
+builders.
+
+**Proposal.**
+- **Room.** Each house holds the number of people living in it at import (its
+  room). A house above its room is crowded.
+- **When to build.** Monthly: while the town's people exceed the room of all
+  its houses by more than half an average house (~4 people), the household
+  with the most free land outside builds one more (a "residence", sim-only).
+- **Its size and value.** The average house at import: room 8, a poor
+  house, worth 8 × ~17.6 = ~141 fl (the same rule the import uses).
+- **Who pays, and how.** The owner sells that much land outside the walls,
+  and the money pays builders in town: it goes into the month's day-labour
+  hiring, as public works do (~4 labourer-years a house). The owner's wealth
+  doesn't change (land becomes a house), and the town gains the wages. The
+  house then earns the same 7%, as rent from its tenants instead of from
+  outside.
+- **Who moves in.** From the most crowded houses, one household at a time,
+  the poorest first, until the new house is at its room.
+- **Room for arrivals.** `ROOM_GROWTH` goes: the 1% growth path already
+  limits arrivals, and houses now follow people.
+- **Homeless rent a share, not a house.** Today a homeless household needs
+  a whole random house's monthly rent (0.8-5 fl) to move in, whatever its
+  size. Instead they'd need their per-head share of a house with room, which
+  is what tenants pay.
+
+**Rough numbers.** ~340 more people over 25 years means ~40 houses, ~5,600
+fl of land sold outside and paid as wages, ~225 fl a year (7 day-labourer
+years a year, against ~30 unemployed). Total rent rises with the houses, so
+rent per head stays near import level instead of falling 30%.
+
+**Checks:** 3 seeds × 25 years. People per house holds near 8.4. Rent per
+head holds. Homelessness no worse than now. The very poor are no worse than
+now; if they get worse, the per-head rent is why. Money conserved within
+the town (the land sale is money in from outside, like exports). Quiet
+years don't drift.
+
+**Questions for you (my default in brackets):**
+1. Who pays for a new house: the owner sells land outside and the money
+   pays town builders; the owner builds from their own cash (merchant
+   houses hold 40-220 fl, so few could); or the commune builds and lets it?
+   [land sold, builders paid]
+2. Rent per head goes back to its import level as houses are built (today
+   it falls 30% as the town grows). Fine, even though it costs the poor
+   more than today? [yes: that's the town at equilibrium]
+3. The homeless rent their per-head share of a house with room, in this
+   slice? [yes]
+4. Who moves in: the poorest household of the most crowded house, or
+   newlyweds and newcomers first? [poorest of the most crowded]
+
+> Feedback:
