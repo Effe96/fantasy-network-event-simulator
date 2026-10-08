@@ -291,3 +291,95 @@ clothing, shoes and housewares 0.93 at first, rising to ~1.0 as the town
 grows into its workshops. Classes hold (very poor 11-15%, rich 10-12%),
 hungry 0-2, homeless 34-70. A coup in year 19 sent an heirless landlord's
 22 houses to the commune (households' money -5k, the commune's +).
+
+## 9. Slice 4 build plan: merchants in goods (2026-10-08) — for comments
+
+Today a merchant is a till. Anything the town lacks (grain beyond the
+farmers', wool, iron, timber, a missing craft good, the rich's luxuries)
+comes from outside the moment someone asks, through a merchant picked at
+random who keeps 15%. Nothing limits how much, nothing has to wait, and no
+merchant ever runs out of goods or money. Exports are the same: a
+workshop's surplus is sold outside at once.
+
+**A. Lines of trade.** Each merchant house trades one line (C): grain;
+wool and cloth; iron, timber and hides; luxuries. At import the ~13
+merchants are split across lines by what the town imports of each (the
+equilibrium rule). A dead merchant's line passes with the house.
+
+**B. Warehouses.** Imports are bought from a merchant's stock, no longer
+straight from outside. The merchant's grain counts in the town's stocks
+that set grain's price.
+
+**C. Orders take time.** Each month a merchant orders what their line has
+been selling (C: enough for about two months), paid up front from the
+house's cash. Grain comes up the river in about a month; wool, iron and
+timber in about two; luxuries in about three (C). After a sudden jump in
+demand (a bad harvest, a dead baker, a burnt workshop), prices climb until
+the cargo lands.
+
+**D. Money limits.** A merchant orders only what the house can pay for,
+keeping a cushion. A town whose grain merchants are poor can't import
+its way out of a famine; the granary and the rich's hoards matter more.
+
+**E. Exports.** Merchants buy a workshop's surplus only with cash they
+have. They are paid when the cargo sells outside, about two months later.
+Putting-out cloth stays as it is.
+
+**F. What it brings:** real shortages and their timing, merchants who
+grow rich in a dear year, and a town that depends on a handful of houses
+(a dead or ruined grain merchant shows up in the bread price).
+
+**Checks:** normal years unchanged within noise (no drift); in a famine
+grain rises above the import price for a month or two, then eases as
+cargo lands; money conserved; merchants stay in their class band; no
+line runs empty in quiet years. Speed: ~13 merchants a month, negligible.
+
+**Questions for you:**
+1. When every merchant in a line is out of stock: does the town go
+   without until the cargo lands (real shortages), or can it still buy
+   from outside at a steep price?
+2. One line per merchant house, or every merchant trades everything?
+3. Lost cargoes (shipwreck, bandits, a correspondent who goes bankrupt)
+   that can ruin a merchant house: now, or later?
+4. In a famine, do grain merchants sell at the market price, or hold
+   back for a higher one like the rich hoarders (and draw the same anger)?
+
+> Feedback:
+
+> **Decided (user, 2026-10-08):** a line out of stock goes without until
+> the cargo lands; one line per merchant house; lost cargoes (that can
+> ruin a house) in this slice; grain merchants sell at the market price
+> in a famine, without holding back.
+
+> **Built (2026-10-08), `merchants.py`.** As planned, with these choices
+> the checks forced:
+> - **Takings pay for the next cargo.** The 12-13 merchant houses hold only
+>   40-220 fl in cash (households spend down what's above their cushion),
+>   against an import bill of ~1,500 fl a month. So each merchant orders at
+>   the month's end from that month's takings, keeping two months of the
+>   household's needs; the cost of what they sold is set aside so the
+>   household doesn't spend it first. An imported town starts with its
+>   warehouses holding two months of sales and a cargo afloat for every
+>   month at sea (the equilibrium rule).
+> - **The lines** are split by what each sold in the first month: 3 grain,
+>   1 wool and cloth, 1 iron, timber and hides, 7-8 luxuries.
+> - **Merchants' grain doesn't set the price.** Counted in the town's
+>   stocks, it held a famine's price at 1.1 against an outside price of 2.
+>   Merchants sell at what grain costs to replace (the market price, or the
+>   import price if higher); their stock only decides whether imports cap
+>   the price. With no grain in any warehouse the cap lifts, up to 3x.
+> - **Losses:** 2% of cargoes are lost (river trade, below the 3-6% of sea
+>   voyages); a correspondent fails for 1% of merchants a year, taking all
+>   their cargo afloat. A loss that leaves a house under half of what it
+>   trades ruins it; the head looks for other work, and the head of the
+>   richest house that could trade takes up the line and the warehouse.
+>   About one house in 12 years (at 60%: 1-3 in 8 years; at 40%: none in 75).
+>
+> Three seeds, 25 years: no famine-time shortage of grain (the warehouses
+> hold ~7,000 staia, two months, and grain lands in one); in a forced famine
+> the price climbs to the import cap (2.1-2.4x) as before, and stays there.
+> Shortages in quiet years are tiny (at most 350 fl of cloth in 25 years).
+> Lost cargoes cost the town ~450 fl a year (~2% of imports), which slows the
+> old upward drift of town cash. At year 25 the very poor average 317
+> (before this slice 355) and the rich 258 (230; one seed lower, two higher:
+> the rich were already rising from ~155 before this slice).

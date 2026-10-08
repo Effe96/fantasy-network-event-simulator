@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from crafts import BASKET_SHARES as CRAFT_SHARES, CraftMarket
 from food import FoodMarket
+from merchants import MerchantTrade
 
 FLORIN_IN_SOLDI = 64  # book §1, 1349
 WORKING_DAYS = 250  # book §4d (Allen convention)
@@ -515,6 +516,7 @@ class EconomyPhenomenon:
         self.food = FoodMarket(13 / FLORIN_IN_SOLDI, LOCAL_GRAIN_SHARE, FAMINE_CHANCE, FAMINE_PRICE, FAMINE_AT,
                                IMPORT_MARGIN, CHILD_BASKET)  # goods slice 1
         self.crafts = CraftMarket(UNSKILLED_WAGE, IMPORT_MARGIN)  # goods slice 2
+        self.trade = MerchantTrade(GABELLE, IMPORT_MARGIN)  # goods slice 4: merchants' warehouses and cargoes
         self._fed_months: Dict[Any, int] = {}  # household -> months fed in a row, while it begs
         self._hardship_deaths = 0
         self._evictions = 0
@@ -596,6 +598,8 @@ class EconomyPhenomenon:
         month = 30 / 365
         alive = [n for n in graph.nodes.values() if n.alive]
         self._give_work(graph, alive, rng)
+        income = defaultdict(float)
+        self.trade.start_month(self, graph, alive, self.food, rng, income)  # cargoes land, heirs, ruin
         by_occupation = defaultdict(list)
         for node in alive:
             by_occupation[job_kind(node.occupation)].append(node)
@@ -604,7 +608,6 @@ class EconomyPhenomenon:
         self.crafts.start_month(alive)
         merchants = [n for n in by_occupation["merchant"]]
         farmers = by_occupation["farmer"]
-        income = defaultdict(float)
 
         # money in: property (land and houses; cash earns nothing: 7% on all
         # money compounded, +5% a year), public wages
@@ -710,7 +713,8 @@ class EconomyPhenomenon:
         hire = {household_key(s): max(0.0, income.get(household_key(s), 0.0)) * DAY_LABOUR_SHARE for s in sellers}
         for key in members:
             usual = self._income.get(key, income.get(key, 0.0))
-            wealth = max(0.0, graph.household_money.get(key, 0.0))
+            # a merchant's takings owed to the next order aren't theirs to spend
+            wealth = max(0.0, graph.household_money.get(key, 0.0) - self.trade.committed.get(key, 0.0))
             cushion = SAVINGS_CUSHION_YEARS * 12 * max(0.0, usual)
             saving = SAVING_SHARE * max(0.0, 1.0 - wealth / cushion) if cushion > 0 else SAVING_SHARE
             extra = (1.0 - saving) * max(0.0, usual - needs[key])
@@ -718,7 +722,7 @@ class EconomyPhenomenon:
             # this, merchants and masters kept gaining, town cash +4.4k a year)
             extra += EXCESS_CASH_SPENT_PER_YEAR * month * max(0.0, wealth - cushion)
             extra = min(extra, wealth)
-            self._import(graph, key, extra * LUXURY_IMPORT_SHARE, merchants, rng, income)
+            self.trade.sell(self, graph, key, "luxuries", extra * LUXURY_IMPORT_SHARE, merchants, rng, income)
             local = extra * (1 - LUXURY_IMPORT_SHARE)
             hire[key] = hire.get(key, 0.0) + local * DAY_LABOUR_OF_SPENDING  # builders, porters, carters
             goods = local * (1 - DAY_LABOUR_OF_SPENDING)
@@ -734,6 +738,7 @@ class EconomyPhenomenon:
             self._buy(graph, COMMUNE, works * (1 - DAY_LABOUR_OF_SPENDING), sellers, rng, income)
             self._year["commune: public works"] += works
         self.crafts.settle(self, graph, merchants, rng, income)  # workshops pay for their materials
+        self.trade.order(self, graph, alive, needs, self.food, members, rng)  # merchants send for next months' goods
         self._collect_alms(graph, members)
         needs[COMMUNE] = COMMUNE_RESERVE_MONTHS * self._public_bill
         self._housing(graph, members, needs, income, rng)
@@ -1344,6 +1349,7 @@ class EconomyPhenomenon:
             "economy_famines": self._famines,
             **{f"economy_{k}": v for k, v in self.food.summary().items()},
             **{f"economy_{k}": v for k, v in self.crafts.summary().items()},
+            **{f"economy_{k}": v for k, v in self.trade.summary().items()},
             "economy_debt_total": round(sum(d["amount"] for d in graph.debts), 1),
             "economy_debts": len(graph.debts),
             "economy_debts_behind": sum(1 for d in graph.debts if d["behind"] > 0),

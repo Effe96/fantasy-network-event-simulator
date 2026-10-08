@@ -9,7 +9,7 @@ that have them in stock; what none has is imported (the money leaves town).
 
 Every workshop works at capacity: it pays its people whether or not the
 town buys. What it makes beyond a month's stock goes to the merchants, who
-export it, as Florence exported its cloth and leather. Goods are counted in
+export it as far as their cash goes (goods slice 4), as Florence exported its cloth and leather. Goods are counted in
 florins' worth at their normal price; each good's price moves (slice 3)
 with how many months of demand the workshops' stocks cover, between what
 merchants pay to export it and what they charge to import it.
@@ -121,7 +121,7 @@ class CraftMarket:
             made = cap
             if share > 0:
                 credit = CREDIT_MONTHS * cap * share - sum(self.owed[building].values())
-                made = self._draw_input(building, source, min(cap * share, max(0.0, credit)), shops, farmers,
+                made = self._draw_input(econ, building, source, min(cap * share, max(0.0, credit)), shops, farmers,
                                         rng) / share
             self.stock[building] += made
             self.year[f"made {good}"] += made
@@ -151,11 +151,14 @@ class CraftMarket:
             target = min(1 + self.import_margin, max(EXPORT_PRICE, target))
             self.price[good] *= min(1 + PRICE_STEP, max(1 - PRICE_STEP, target / self.price[good]))
 
-    def _draw_input(self, building, source, value: float, shops, farmers, rng) -> float:
+    def _draw_input(self, econ, building, source, value: float, shops, farmers, rng) -> float:
         """Take `value` fl of materials on account: cloth or leather from the
-        town's workshops, hides from a farmer, the rest imported through the
-        merchants (at their margin). Returns what was taken."""
+        town's workshops, hides from a farmer, the rest from the merchants'
+        warehouses (at their margin; goods slice 4), as far as they have it.
+        Returns what was taken."""
         from economy import household_key
+        from merchants import GOOD_LINE
+        line = GOOD_LINE[CRAFTS[shops[building]["trade"]][1]]
         got = 0.0
         if source in ("cloth", "leather"):
             makers = [b for b, s in shops.items() if CRAFTS[s["trade"]][0] == source and self.stock[b] > 1e-9]
@@ -172,9 +175,15 @@ class CraftMarket:
             self.owed[building][farmer] += value
             got = value
         if got < value - 1e-9:  # wool, timber, iron, or what the town lacks
-            self.owed[building]["import"] += (value - got) * (1 + self.import_margin)
-            self.year[f"imported {source if source != 'import' else 'materials'}"] += value - got
-            got = value
+            label = f"imported {source if source != 'import' else 'materials'}"
+            if not econ.trade.trading:  # the first month: straight from outside
+                self.owed[building][("import", line)] += (value - got) * (1 + self.import_margin)
+                self.year[label] += value - got
+                return value
+            for merchant, units in econ.trade.take_on_account(line, (value - got) * (1 + self.import_margin), rng):
+                self.owed[building][("merchant", merchant)] += units
+                self.year[label] += units / (1 + self.import_margin)
+                got += units / (1 + self.import_margin)
         return got
 
     def settle(self, econ, graph, merchants, rng: random.Random, income) -> None:
@@ -189,10 +198,17 @@ class CraftMarket:
                 amount = min(debts[creditor], cash)
                 if amount <= 1e-9:
                     continue
-                if creditor == "import":
-                    before = graph.household_money.get(master, 0.0)
-                    econ._import(graph, master, amount, merchants, rng, income)
-                    paid = before - graph.household_money.get(master, 0.0)
+                if isinstance(creditor, tuple) and creditor[0] == "merchant":
+                    paid = econ.trade.collect(econ, graph, master, creditor[1], amount, income)
+                    if paid <= 1e-12:
+                        debts[creditor] = 0.0  # a dead merchant's account
+                elif isinstance(creditor, tuple) and creditor[0] == "import":
+                    if econ.trade.trading:  # left over from the first month
+                        before = graph.household_money.get(master, 0.0)
+                        econ._import(graph, master, amount, merchants, rng, income)
+                        paid = before - graph.household_money.get(master, 0.0)
+                    else:
+                        paid = econ.trade.sell(econ, graph, master, creditor[1], amount, merchants, rng, income)
                 else:
                     paid = econ._pay(graph, master, creditor, amount)
                     income[creditor] += paid
@@ -224,17 +240,11 @@ class CraftMarket:
         return got
 
     def _export(self, econ, graph, master, building, good, extra: float, merchants, rng, income) -> None:
-        """A merchant buys the surplus at EXPORT_PRICE and sells it outside at the local price."""
-        from economy import household_key
-        merchant = household_key(merchants[rng.randrange(len(merchants))])
-        paid = econ._pay(graph, merchant, master, extra * EXPORT_PRICE)
-        income[master] += paid
-        sold = paid / EXPORT_PRICE
+        """The merchants of the good's line buy the surplus at EXPORT_PRICE, as
+        far as their cash goes, and sell it outside (merchants.py)."""
+        sold = econ.trade.export(econ, graph, master, good, extra, merchants, rng, income)
         self.stock[building] -= sold
-        sale = econ._pay(graph, None, merchant, sold)
-        income[merchant] += sale - paid
         self.year[f"exported {good}"] += sold
-        econ._year["in: craft exports"] += sale
 
     # -- households -------------------------------------------------------------
 
@@ -250,11 +260,11 @@ class CraftMarket:
             self.wanted[good] += want / self.price[good]  # in goods, at the normal price
             got = self._from_workshops(econ, graph, key, good, want, shops, rng, income)
             spent += got
-            if got < want - 1e-9 and merchants:  # none in town: imported, dearer
-                before = graph.household_money.get(key, 0.0)
-                econ._import(graph, key, min(want - got, max(0.0, before)), merchants, rng, income)
-                spent += before - graph.household_money.get(key, 0.0)
-                self.year[f"imported {good}"] += before - graph.household_money.get(key, 0.0)
+            if got < want - 1e-9 and merchants:  # none in town: imported, dearer, if a merchant has it
+                from merchants import GOOD_LINE
+                bought = econ.trade.sell(econ, graph, key, GOOD_LINE[good], want - got, merchants, rng, income)
+                spent += bought
+                self.year[f"imported {good}"] += bought
         return spent
 
     def start_month(self, alive) -> None:

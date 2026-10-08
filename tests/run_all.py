@@ -12,6 +12,7 @@ from tests import (
     test_economy,
     test_food,
     test_crafts,
+    test_merchants,
     test_engine,
     test_everyday,
     test_friendship,
@@ -57,6 +58,7 @@ MODULES = [
     test_economy,
     test_food,
     test_crafts,
+    test_merchants,
     test_engine,
 ]
 

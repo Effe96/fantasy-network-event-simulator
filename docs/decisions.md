@@ -8,6 +8,38 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-08 — Goods slice 4: merchants in goods
+
+Plan and answers in `Project_Vision/04-goods-and-inventories.md` §9. The
+user chose: a line out of stock goes without until a cargo lands (no
+emergency imports); one line per merchant house; lost cargoes that can ruin
+a house, in this slice; grain merchants sell at the market price in a
+famine, without holding back.
+- **Working capital is the stock, not cash.** Merchant houses hold 40-220
+  fl, because every household spends down what's above three months of
+  income. Funding two months of stock from cash was impossible, so the
+  merchant pays for the next cargo from the month's takings, and the cost
+  of goods sold is kept out of the household's spending
+  (`MerchantTrade.committed`) until the order goes out. Rejected: a
+  separate merchant purse outside `household_money` (two places for one
+  house's money).
+- **The first month trades as before** (straight from outside) and records
+  what each line sells; the warehouses are then stocked for free with two
+  months of it and a cargo afloat per month at sea. Same reason as the
+  granary: the town has traded for decades.
+- **Merchants' grain is priced at its replacement cost**, not counted as
+  cheap supply. Counting it in the cover kept a famine at 1.1x while
+  outside grain cost 2x. Their stock decides only whether imports cap the
+  price; empty warehouses lift the cap (to 3x, C).
+- **Cargo loss 2%, correspondent failure 1% a merchant-year, ruin below
+  50%** of what the house trades. 3% cargo loss took ~450 fl a year out of
+  town in 8 years; ruin at 60% failed houses on one ordinary lost cargo,
+  at 40% none failed in 75 town-years. At 50%: about one in 12 years.
+- **Materials taken on account now come from a merchant's warehouse** and
+  are owed to that merchant (creditor `("merchant", id)` in
+  `CraftMarket.owed`); exports are bought with the merchant's cash and paid
+  when they land two months later.
+
 ## 2026-10-01 — Slice 5: houses, landlords, rent, eviction
 
 User's answers: a tenant who can pay buys its house from the owner;

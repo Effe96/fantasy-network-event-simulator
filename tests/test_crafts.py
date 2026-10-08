@@ -35,7 +35,7 @@ def test_a_workshop_takes_its_materials_on_account_and_pays_from_its_takings():
     nodes = graph.nodes
     crafts.produce(economy, graph, alive, [], [nodes[5]], random.Random(0), defaultdict(float))
     assert crafts.year["made cloth"] > 0 and crafts.year["made clothing"] > 0
-    assert crafts.owed[51]["import"] > 0 and crafts.owed[50][3] > 0  # wool from outside, cloth from the weaver
+    assert crafts.owed[51][("import", "cloth")] > 0 and crafts.owed[50][3] > 0  # wool from outside, cloth from the weaver
     crafts.settle(economy, graph, [nodes[5]], random.Random(0), defaultdict(float))
     assert crafts.owed[50][3] < 1e-9 and graph.household_money[3] > 10.0  # the tailor paid the weaver
 

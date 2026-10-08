@@ -34,6 +34,7 @@ HOARD_CASH_SHARE = 0.3  # C: spending at most this share of its cash on a hoard
 HOARD_BUY_BELOW = 1.0  # C: buying after harvests priced at most this
 HOARD_SELL_AT = 1.6  # C: and selling once the price reaches this
 HARVEST_DAY = 196  # C: mid-July, the Tuscan wheat harvest (day of the year; day 1 of a run is 1 January)
+SHORTAGE_PRICE = 3.0  # C: grain's price can climb this far when the merchants' warehouses are empty (1329: 2.4)
 HOARD_RESENTMENT = 0.05  # C: a hungry person's feeling toward a hoarder they know drops this, a month it sells
 
 
@@ -57,6 +58,7 @@ class FoodMarket:
         self._ration = 0.0  # set each month by start_month
         self._last_baker = None
         self._resented: set = set()
+        self.merchant_grain = None  # staia in the grain merchants' warehouses (merchants.py), once they trade
 
     def staia_needed(self, people) -> float:
         """Staia a household eats in a month."""
@@ -141,11 +143,17 @@ class FoodMarket:
                 self.hoards[key] = HOARD_YEARS * self.staia_needed(people) * 12
 
     def update_price(self, members) -> None:
-        """Move toward the price the town's stocks call for, capped by what imports cost."""
+        """Move toward the price the town's stocks call for, capped by what
+        imports cost while the merchants have grain to sell."""
         monthly = sum(self.staia_needed(people) for people in members.values() if not _stores(people))
         stock = sum(self.farm_stock.values()) + (sum(self.hoards.values()) if self.price >= HOARD_SELL_AT else 0.0)
         cover = stock / max(monthly, 1e-9)
+        # imports cap the price while the merchants have grain to sell (goods slice 4). Their
+        # grain isn't counted in the cover: they sell it at what it costs to replace
+        # (2026-10-08: counted, it held a famine's price at 1.1 against an outside price of 2)
         cap = self.outside * (1 + self.import_margin)
+        if self.merchant_grain is not None and self.merchant_grain <= 1e-9:
+            cap = max(cap, SHORTAGE_PRICE)
         target = min(cap, max(GLUT_PRICE, (NORMAL_COVER_MONTHS / max(cover, 0.05)) ** PRICE_ELASTICITY))
         self.price += (target - self.price) * PRICE_STEP
 
@@ -154,7 +162,7 @@ class FoodMarket:
     def _buy_grain(self, econ, graph, key, staia: float, price: float, farmers, merchants, rng, income,
                    local_only: bool = False, business: bool = False) -> float:
         """`key` buys up to `staia` at `price` a staio: from farmers' stocks,
-        then hoarders selling in a dear year, then imports. Returns staia bought.
+        then hoarders selling in a dear year, then the grain merchants. Returns staia bought.
         For a baker (`business`) it's a cost against income; for a household
         it's spending, which income doesn't count."""
         bought = 0.0
@@ -178,13 +186,12 @@ class FoodMarket:
                 self._resent(graph, seller)
             if paid < 1e-12:
                 break
-        if bought < staia - 1e-9 and not local_only:
-            cost = (staia - bought) * self.staio_fl * self.outside / (1 + BAKER_MARGIN) * (1 + self.import_margin)
-            before = graph.household_money.get(key, 0.0)
-            econ._import(graph, key, min(cost, max(0.0, before)), merchants, rng, income)
-            spent = before - graph.household_money.get(key, 0.0)
+        if bought < staia - 1e-9 and not local_only:  # from the grain merchants, at the market price
+            unit = max(econ.trade.import_price("grain", self), self.wholesale())
+            spent = econ.trade.sell(econ, graph, key, "grain", (staia - bought) * unit, merchants, rng, income,
+                                    price=unit)
             income[key] -= spent if business else 0.0
-            got = (staia - bought) * spent / cost if cost > 0 else 0.0
+            got = spent / unit
             bought += got
             self.year["imported"] += got
         return bought
@@ -285,6 +292,7 @@ class FoodMarket:
                 "food_hoards": round(sum(self.hoards.values()), 1),
                 "food_granary": round(self.granary, 1),
                 "food_outside_price": round(self.outside, 2),
+                "food_merchant_grain": round(self.merchant_grain or 0.0, 1),
                 **{f"food_{k}": round(v, 1) for k, v in self.year.items()}}
 
 
