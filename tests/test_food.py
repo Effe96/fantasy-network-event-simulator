@@ -116,6 +116,27 @@ def test_the_harvest_comes_once_a_year_in_summer_on_the_calendar():
     assert all(HARVEST_DAY <= (day - 1) % 365 < HARVEST_DAY + 30 for day in harvests)  # no drift
 
 
+def test_a_growing_town_gets_a_podere_whose_harvest_is_split_and_whose_land_stops_paying_rent():
+    graph, economy, members = _town()
+    food = economy.food
+    food.famine_chance = 0.0
+    for resident_id in (3, 4):
+        graph.nodes[resident_id].ses, graph.nodes[resident_id].occupation = "very_poor", "day_labourer"
+    graph.household_property = {4: 10_000.0}
+    food.yield_per_farm, food.podere_yield = 1.0, 20.0  # the farm grows far less than the town's share
+    _harvest(graph, economy, members)
+    (building, podere), = food.poderi.items()  # one couple to work it, so one podere
+    assert podere["owner"] == 4 and graph.building_types[building] == "podere"
+    assert all(graph.nodes[r].occupation == "sharecropper" and graph.nodes[r].workplace_building_id == building
+               for r in (3, 4))
+    assert food.land_in_hand(4) == podere["value"]
+    food.farm_stock.clear()
+    food._crop(graph, building, podere, 1.0, members)
+    assert food.farm_stock[3] == food.farm_stock[4] == 10.0  # mezzadria: half each
+    # the owner's half of a normal harvest, at the normal price, replaces the rent on that land
+    assert abs(10.0 * food.staio_fl / (1 + BAKER_MARGIN) - podere["value"] * 0.07) < 1e-9
+
+
 def _run_all():
     for name, test in list(globals().items()):
         if name.startswith("test_"):

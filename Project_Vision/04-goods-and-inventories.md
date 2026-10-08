@@ -457,3 +457,38 @@ monthly check per town, negligible.
    houses, then workshops]
 
 > Feedback:
+
+> **Decided (user, 2026-10-08):** 1% a year is fine as long as the town
+> builds for it; buildings may exist only in the sim for now; new farms are
+> contado land worked by sharecroppers; fields and the growth fix first,
+> then houses, then workshops.
+
+> **Built (2026-10-08): fields and the growth fix.** In `food.py` and the
+> population phenomenon, with these choices the reference town's numbers forced:
+> - **A podere, not a farmstead.** The 12 imported farmsteads each grow
+>   ~1,277 staia with a farmer and ~6 hands, so a farmstead's land would be
+>   worth ~1,600 fl, more than any one rich house holds. A podere is worked by
+>   a sharecropper couple and grows what two of the farms' workers do (~344
+>   staia, ~1% of the town's grain). The sharecropper's half comes to about an
+>   unskilled wage.
+> - **The owner doesn't pay cash** (merchant and rich houses hold 40-220 fl).
+>   The household with the most land outside takes some of it in hand: that
+>   land stops earning the 7% rent from outside, and the owner gets half the
+>   harvest instead, worth the same in a normal year. Nobody's wealth jumps,
+>   and the town imports less grain.
+> - **When:** at each harvest, while the farms and poderi grow less than the
+>   town's share at import (50%, within half a podere).
+> - **Growth target 1% a year:** an arriving family comes only below that path.
+> - **Farms that lost their farmer for good.** 2 of 12 farms lost theirs
+>   in 10 years (seed 1): a noble farmer killed in a coup (the title passes,
+>   the farm doesn't) and a farmer who inherited a merchant house. Their hands
+>   went unpaid. Now a farm left 6 months without a farmer goes to its eldest
+>   hand, and the harvest counts each farmstead once.
+>
+> Three seeds, 25 years: local grain holds at 50-54% (was 50% -> 38%); 11-13
+> poderi founded; the town grows 17-19% (0.7% a year), close to the old
+> run, near the houses' limit by year 25. Town cash flat. Homelessness is lower
+> in most years (seed 1 year 20: 41 against 80; seed 2: 41 against 96) but
+> noisy. **The very poor are not fixed:** seeds 2 and 3 still rise to 16-18%
+> in years 16-25 (seed 1: 14%). So the farms weren't their cause; the houses
+> and workshops are the next suspects.

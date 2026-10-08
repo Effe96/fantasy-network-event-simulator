@@ -447,6 +447,22 @@ def test_class_follows_resources_with_a_margin_before_dropping():
     assert class_for(130.0, "middling", lines) == "rich"  # clear of it by the same margin: risen
 
 
+def test_a_farm_left_without_a_farmer_goes_to_its_eldest_hand_after_six_months():
+    from economy import FARM_UNSTAFFED_MONTHS, _staff_farms
+    graph = SocialGraph()
+    for resident_id, age, occupation in [(1, 40, "farmhand"), (2, 50, "farmhand"), (3, 45, "merchant")]:
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, age=age, household_id=resident_id,
+                            occupation=occupation, workplace_building_id=60 if occupation == "farmhand" else None))
+    graph.employer = {1: 3, 2: 3}  # their farmer became a merchant house's heir
+    alive, unstaffed = list(graph.nodes.values()), {}
+    for _ in range(FARM_UNSTAFFED_MONTHS - 1):  # a newcomer might still come for a dead farmer's place
+        _staff_farms(graph, alive, unstaffed)
+    assert graph.nodes[2].occupation == "farmhand"
+    _staff_farms(graph, alive, unstaffed)
+    assert graph.nodes[2].occupation == "farmer" and graph.nodes[2].workplace_building_id == 60
+    assert graph.employer == {1: 2}
+
+
 def _run_all():
     test_starting_wealth_follows_the_prato_deciles()
     test_the_jobless_get_work_at_import()
@@ -484,6 +500,7 @@ def _run_all():
     test_adults_lose_and_find_work()
     test_five_classes_at_import_follow_the_town_s_shares()
     test_class_follows_resources_with_a_margin_before_dropping()
+    test_a_farm_left_without_a_farmer_goes_to_its_eldest_hand_after_six_months()
     print("OK")
 
 

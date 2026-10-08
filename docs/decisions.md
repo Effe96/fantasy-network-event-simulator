@@ -8,6 +8,25 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-08 — New farms: poderi worked by sharecroppers, growth at 1%
+
+Plan and answers in `Project_Vision/04-goods-and-inventories.md` §10. The
+user chose: 1% a year growth is fine if the town builds for it; buildings
+may exist only in the sim; new farms are contado land worked by
+sharecroppers; fields and the growth fix first.
+- **A podere (~344 staia, two workers' grain), not a farmstead (~1,277).**
+  A farmstead's land would cost ~1,600 fl, more than any one rich house holds.
+- **Land taken in hand, not bought with cash.** The owner's 7% outside rent on
+  that land stops (`FoodMarket.land_in_hand`), and half the harvest replaces it,
+  equal at the normal price. Rejected: buying it with cash (houses hold 40-220
+  fl) or creating land from nothing (the rich's wealth would jump).
+- **A farm without a farmer for 6 months goes to its eldest hand.** Noble
+  farmers' titles pass but their farms didn't, and an heir who took up a
+  merchant house left the farm. A newcomer fills a dead farmer's place in ~2
+  months, hence the wait; the harvest counts each farmstead once.
+- **Result:** local grain holds at 50-54% over 25 years (3 seeds). The very
+  poor still creep to 16-18% in two seeds, so the farms weren't their cause.
+
 ## 2026-10-08 — Goods slice 4: merchants in goods
 
 Plan and answers in `Project_Vision/04-goods-and-inventories.md` §9. The

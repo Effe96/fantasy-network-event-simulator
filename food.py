@@ -36,6 +36,11 @@ HOARD_SELL_AT = 1.6  # C: and selling once the price reaches this
 HARVEST_DAY = 196  # C: mid-July, the Tuscan wheat harvest (day of the year; day 1 of a run is 1 January)
 SHORTAGE_PRICE = 3.0  # C: grain's price can climb this far when the merchants' warehouses are empty (1329: 2.4)
 HOARD_RESENTMENT = 0.05  # C: a hungry person's feeling toward a hoarder they know drops this, a month it sells
+# new farms as the town grows (Project_Vision/04 §10, user 2026-10-08): contado land worked by sharecroppers
+PODERE_WORKERS = 2  # C: a sharecropper couple works a podere, as much grain as two of the farms' workers
+SHARECROPPER_SHARE = 0.5  # mezzadria: the harvest is split in half between sharecropper and owner
+SHARECROPPER_FROM = (None, "day_labourer")  # whose work a sharecropper leaves for the farm
+SHARECROPPER_AGES = (18, 50)  # C
 
 
 class FoodMarket:
@@ -59,6 +64,9 @@ class FoodMarket:
         self._last_baker = None
         self._resented: set = set()
         self.merchant_grain = None  # staia in the grain merchants' warehouses (merchants.py), once they trade
+        self.podere_yield = None  # staia a podere harvests in a normal year, set at the first harvest
+        self.poderi: Dict[int, Dict[str, Any]] = {}  # building -> {"owner": household, "value": fl of its land}
+        self.local_share_now = local_share  # what the farms and poderi grow in a normal year, of the town's grain
 
     def staia_needed(self, people) -> float:
         """Staia a household eats in a month."""
@@ -78,14 +86,24 @@ class FoodMarket:
         self.famines += famine
         self.outside = rng.uniform(*(self.famine_price if famine else OUTSIDE_RANGE))
         demand = sum(self.staia_needed(people) for people in members.values()) * 12
-        farms = [econ_key(n) for n in farmers]
+        # one harvest per farmstead, to its eldest farmer (two at one farm, a
+        # newcomer and a hand who took it over, don't double it)
+        by_farm = {}
+        for node in sorted(farmers, key=lambda n: (-(n.age or 0), n.resident_id)):
+            by_farm.setdefault(node.workplace_building_id, node)
+        farms = [econ_key(n) for n in by_farm.values()]
         if farms:
             if self.yield_per_farm is None:
                 self.yield_per_farm = self.local_share * demand / len(farms)
+                hands = sum(1 for n in graph.nodes.values() if n.alive and n.occupation == "farmhand")
+                self.podere_yield = PODERE_WORKERS * self.yield_per_farm * len(farms) / (len(farms) + hands)
             factor = rng.uniform(*(FAMINE_YIELD if famine else YIELD_RANGE))
             for key in farms:
                 self.farm_stock[key] += self.yield_per_farm * factor
                 self.year["harvested"] += self.yield_per_farm * factor
+            for building, podere in self.poderi.items():
+                self._crop(graph, building, podere, factor, members)
+            self._found_poderi(graph, members, demand, len(farms), rng)
         self.update_price(members)
         price = self.wholesale()
         # the rich lay in the year's grain, and a hoard while it's cheap
@@ -141,6 +159,86 @@ class FoodMarket:
             if _stores(people):
                 self.stores[key] = self.staia_needed(people) * months_left
                 self.hoards[key] = HOARD_YEARS * self.staia_needed(people) * 12
+
+    # -- new farms: contado land worked by sharecroppers ---------------------
+
+    def land_in_hand(self, key) -> float:
+        """The value of a household's land it works through sharecroppers: it
+        earns half their harvest, not the 7% rent land outside brings in."""
+        return sum(p["value"] for p in self.poderi.values() if p["owner"] == key)
+
+    def _podere_value(self) -> float:
+        """What a podere's land is worth: the owner's half of a normal harvest
+        is what it brought in as rent, so taking it in hand changes no one's wealth."""
+        from economy import PROPERTY_RETURN
+        return (1 - SHARECROPPER_SHARE) * self.podere_yield * self.staio_fl / (1 + BAKER_MARGIN) / PROPERTY_RETURN
+
+    def _landowner(self, graph, members, value: float):
+        """The household with the most land not yet in hand, if it covers `value`."""
+        def free(key):
+            return graph.household_property.get(key, 0.0) - self.land_in_hand(key)
+        owner = max(members, key=free, default=None)
+        return owner if owner is not None and free(owner) >= value else None
+
+    def _crop(self, graph, building, podere, factor, members) -> None:
+        """A podere's harvest, split between its sharecroppers and its owner.
+        With no sharecropper (dead, not yet replaced) the land lies fallow.
+        ponytail: an owner whose land went elsewhere (an estate split, a dowry,
+        a seizure) hands the podere to whoever now holds the most land; the
+        land itself doesn't follow the podere, only the right to its harvest."""
+        workers = [n for n in graph.nodes.values()
+                   if n.alive and n.occupation == "sharecropper" and n.workplace_building_id == building]
+        if not workers:
+            self.year["poderi fallow"] += 1
+            return
+        owner = podere["owner"]
+        if owner not in members or graph.household_property.get(owner, 0.0) < self.land_in_hand(owner):
+            podere["owner"] = None  # out of the count while a new holder is found
+            podere["owner"] = owner = self._landowner(graph, members, podere["value"])
+        grain = self.podere_yield * factor
+        kept = grain if owner is None else grain * SHARECROPPER_SHARE
+        self.farm_stock[econ_key(workers[0])] += kept
+        if owner is not None:
+            self.farm_stock[owner] += grain - kept
+        self.year["harvested"] += grain
+        self.year["harvested on poderi"] += grain
+
+    def _found_poderi(self, graph, members, demand: float, farms: int, rng: random.Random) -> None:
+        """While the farms and poderi grow less than the town's share of its
+        grain at import, the household with the most land outside takes some
+        in hand as a podere, worked by a poor couple who leave day labour or
+        idleness for it (mezzadria: Florentine citizens' land in the contado).
+        The podere exists only in the sim until TownShape can place it."""
+        normal = self.yield_per_farm * farms + self.podere_yield * len(self.poderi)
+        value = self._podere_value()
+        while normal + self.podere_yield / 2 < self.local_share * demand:
+            owner = self._landowner(graph, members, value)
+            workers = self._sharecroppers(graph, members, owner, rng) if owner is not None else []
+            if not workers:
+                break
+            building = max(graph.building_types, default=0) + 1
+            graph.building_types[building] = "podere"
+            self.poderi[building] = {"owner": owner, "value": value}
+            for node in workers:
+                node.occupation, node.workplace_building_id = "sharecropper", building
+                graph.employer.pop(node.resident_id, None)
+            normal += self.podere_yield
+            self.year["poderi founded"] += 1
+        self.local_share_now = normal / max(demand, 1e-9)
+
+    def _sharecroppers(self, graph, members, owner, rng: random.Random) -> List[Any]:
+        """A couple (or one adult) of a very poor household, else a poor one,
+        with neither in steady work."""
+        def able(n):
+            return (n.alive and not n.is_noble and n.occupation in SHARECROPPER_FROM and n.age is not None
+                    and SHARECROPPER_AGES[0] <= n.age <= SHARECROPPER_AGES[1])
+        for ses in ("very_poor", "poor"):
+            households = sorted((k for k, people in members.items()
+                                 if k != owner and any(able(n) and n.ses == ses for n in people)), key=str)
+            if households:
+                adults = [n for n in members[rng.choice(households)] if able(n)]
+                return sorted(adults, key=lambda n: (-n.age, n.resident_id))[:PODERE_WORKERS]
+        return []
 
     def update_price(self, members) -> None:
         """Move toward the price the town's stocks call for, capped by what
@@ -293,6 +391,8 @@ class FoodMarket:
                 "food_granary": round(self.granary, 1),
                 "food_outside_price": round(self.outside, 2),
                 "food_merchant_grain": round(self.merchant_grain or 0.0, 1),
+                "food_poderi": len(self.poderi),
+                "food_local_share": round(self.local_share_now, 3),
                 **{f"food_{k}": round(v, 1) for k, v in self.year.items()}}
 
 

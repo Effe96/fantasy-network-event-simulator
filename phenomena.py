@@ -2625,13 +2625,14 @@ class PopulationPhenomenon:
     name = "population"
 
     def __init__(self, arrival_daily_chance: float = 1 / 60, adult_age: int = 18,
-                 arrival_ages: Tuple[int, int] = (18, 35), annual_growth: float = 0.005,
+                 arrival_ages: Tuple[int, int] = (18, 35), annual_growth: float = 0.01,
                  family_share: float = 1 / 3):
         self.arrival_daily_chance = arrival_daily_chance  # per open vacancy: ~2 months on average
         self.adult_age = adult_age
         self.arrival_ages = arrival_ages
-        # ponytail: ~0.5%/yr, a plausible 13th-century town rate; make it a
-        # TownParameters dial if towns should grow at different speeds
+        # user, 2026-10-08: 1% a year is fine while the town builds for it (new
+        # farms, Project_Vision/04 §10); arriving families stop above this path.
+        # ponytail: make it a TownParameters dial if towns should grow at different speeds
         self.annual_growth = annual_growth
         # C: share of arrivals who come as a family (user, 2026-10-01): a
         # spouse and up to three children, filling open places without a job
@@ -2710,8 +2711,11 @@ class PopulationPhenomenon:
                 continue
             self._vacancies.remove(dead)
             family = 0
-            # priests are celibate; a family needs room
-            if graph.nodes[dead].role != "priest" and rng.random() < self.family_share * self._room(alive):
+            # priests are celibate; a family needs room, and comes only while the
+            # town is below its growth path (2026-10-08: unchecked, they grew it
+            # ~1% a year until the houses ran out)
+            if (graph.nodes[dead].role != "priest" and alive < target
+                    and rng.random() < self.family_share * self._room(alive)):
                 family = 1 + rng.randint(0, 3)
             newcomer = self._arrive(graph, dead, day, rng, family)
             alive += 1 + family

@@ -410,6 +410,37 @@ def _working_teen(node) -> bool:
             and node.ses not in RENTIER_CLASSES)
 
 
+FARM_UNSTAFFED_MONTHS = 6  # C: a dead farmer's place is taken by a newcomer in ~2 months; after this, nobody is coming
+
+
+def _staff_farms(graph, alive, unstaffed: Dict[Any, int]) -> None:
+    """A farm whose farmer left it with no place for a newcomer to fill (a
+    noble farmer's title passes to an heir, a farmer becomes a merchant house's
+    heir) goes to its eldest hand after FARM_UNSTAFFED_MONTHS, who takes on the
+    others (2026-10-08: 2 of 12 farms lost in 10 years, their hands unpaid,
+    their grain imported)."""
+    staffed = {n.workplace_building_id for n in alive if n.occupation == "farmer"}
+    hands = defaultdict(list)
+    for node in alive:
+        if node.occupation == "farmhand" and node.workplace_building_id not in staffed:
+            hands[node.workplace_building_id].append(node)
+    for farm in list(unstaffed):
+        if farm not in hands:
+            del unstaffed[farm]
+    for farm, farm_hands in hands.items():
+        unstaffed[farm] = unstaffed.get(farm, 0) + 1
+        if unstaffed[farm] < FARM_UNSTAFFED_MONTHS:
+            continue
+        del unstaffed[farm]
+        farmer = max(farm_hands, key=lambda n: (n.age or 0, -n.resident_id))
+        farmer.occupation = "farmer"
+        for node in farm_hands:
+            graph.employer.pop(node.resident_id, None)
+        for node in farm_hands:
+            if node is not farmer:
+                graph.employer[node.resident_id] = farmer.resident_id
+
+
 def building_types_items(graph):
     return getattr(graph, "building_types", {}).items()
 
@@ -523,6 +554,7 @@ class EconomyPhenomenon:
         self._houses_bought = 0
         self._famines = 0
         self._public_bill = 0.0
+        self._unstaffed: Dict[Any, int] = {}  # farm -> months without a farmer
 
     def init_state(self, graph) -> Dict[int, Any]:
         self._graph = graph  # summarize reads the town's money
@@ -598,6 +630,7 @@ class EconomyPhenomenon:
         month = 30 / 365
         alive = [n for n in graph.nodes.values() if n.alive]
         self._give_work(graph, alive, rng)
+        _staff_farms(graph, alive, self._unstaffed)
         income = defaultdict(float)
         self.trade.start_month(self, graph, alive, self.food, rng, income)  # cargoes land, heirs, ruin
         by_occupation = defaultdict(list)
@@ -612,6 +645,7 @@ class EconomyPhenomenon:
         # money in: property (land and houses; cash earns nothing: 7% on all
         # money compounded, +5% a year), public wages
         for key, owned in list(graph.household_property.items()):
+            owned -= self.food.land_in_hand(key)  # poderi pay their owners in grain (food.py)
             if owned > 0:
                 gain = self._pay(graph, None, key, owned * PROPERTY_RETURN * month)
                 income[key] += gain

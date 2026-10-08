@@ -1189,8 +1189,9 @@ Topics the user flagged to talk through before building. Each is
   poor 15% -> 11% by year 4 then 10-13% for 20 years; rich 9% -> 12% then
   11-13%. Left: the very poor start with less cash than they keep (135 fl
   against a 733 fl cushion) and save up to it in years 2-4.
-- **Local farms don't grow with the town** (added 2026-10-01) — **Open, to
-  solve (user).** Farms grow 50% of the town's grain at import and 38%
+- **Local farms don't grow with the town** (added 2026-10-01) — **Solved
+  2026-10-08** (poderi worked by sharecroppers, `Project_Vision/04` §10; local
+  grain holds at 50-54%). The very-poor creep below is **still open**. Farms grow 50% of the town's grain at import and 38%
   over 25 years: the harvest is fixed by the farmsteads at import while the
   town grows, and imports fill the gap. New farmsteads and fields are a
   TownShape question (with "New houses being built").
