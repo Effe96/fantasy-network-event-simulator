@@ -325,6 +325,23 @@ def test_a_crowded_town_builds_a_house_and_the_poorest_of_the_most_crowded_move_
     assert graph.nodes[4].home_building_id == graph.nodes[5].home_building_id == building
 
 
+def test_a_short_craft_opens_a_workshop_for_a_hand_on_a_patron_s_loan():
+    import economy as econ
+    graph, economy, members, needs = _lenders_and_borrower()
+    graph.building_types = {}
+    graph.nodes[3].occupation = "shoemaker_hand"  # household 2, no cash of its own
+    graph.household_money[1] = 500.0
+    economy.crafts.shortfall = lambda alive: {"shoes": 1e6, "cloth": -1.0}
+    alive = [n for n in graph.nodes.values() if n.alive]
+    economy._open_workshops(graph, alive, members, needs, random.Random(0))
+    master = graph.nodes[3]
+    assert master.occupation == "shoemaker" and graph.building_types[master.workplace_building_id] == "workshop"
+    assert [(d["debtor"], d["creditor"], d["kind"]) for d in graph.debts] == [(2, 1, "patron")]
+    assert graph.household_money[econ.BUILDERS] == econ.WORKSHOP_COST  # the cost pays builders
+    for hand in (4, 5):  # the jobless are its hands
+        assert graph.nodes[hand].occupation == "shoemaker_hand" and graph.employer[hand] == 3
+
+
 def test_the_evicted_share_a_room_with_a_single_they_know_when_family_can_t_feed_them():
     graph, economy, members, needs = _tenement()
     graph.household_money[3] = 0.0
@@ -512,6 +529,7 @@ def _run_all():
     test_a_tenant_behind_on_rent_is_evicted_onto_the_street()
     test_the_evicted_move_in_with_family_who_like_them()
     test_a_crowded_town_builds_a_house_and_the_poorest_of_the_most_crowded_move_in()
+    test_a_short_craft_opens_a_workshop_for_a_hand_on_a_patron_s_loan()
     test_the_evicted_share_a_room_with_a_single_they_know_when_family_can_t_feed_them()
     test_homeless_people_who_know_each_other_pool_to_rent_a_room()
     test_an_heirless_landlord_s_houses_go_to_the_commune()

@@ -18,7 +18,7 @@ import random
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
-from crafts import BASKET_SHARES as CRAFT_SHARES, CraftMarket
+from crafts import BASKET_SHARES as CRAFT_SHARES, CRAFTS, CraftMarket
 from food import FoodMarket
 from merchants import MerchantTrade
 
@@ -146,6 +146,7 @@ FARMHANDS_ADDED = 4  # decided: more farm work outside the walls
 WORKSHOP_TRADES = [("weaver", 3), ("dyer", 1), ("fuller", 1), ("tanner", 1), ("shoemaker", 2), ("tailor", 2),
                    ("carpenter", 2), ("cooper", 1), ("baker", 2), ("potter", 1), ("mason", 2)]
 WORKSHOP_HANDS = (3, 5)
+WORKSHOP_COST = HOUSE_VALUE_PER_PERSON * HOUSE_ROOM  # C: a new workshop costs what a house for eight does
 
 # occupation -> (yearly wage, who pays). "self": earns from what they sell;
 # "public": paid from outside (the commune or the Church) until taxes exist.
@@ -801,6 +802,8 @@ class EconomyPhenomenon:
         self._collect_alms(graph, members)
         needs[COMMUNE] = COMMUNE_RESERVE_MONTHS * self._public_bill
         self._build_houses(graph, members, needs)
+        if self._months % 12 == 0:
+            self._open_workshops(graph, alive, members, needs, rng)
         self._housing(graph, members, needs, income, rng)
         self._repay_debts(graph, needs, members, rng)
         self._sell_commune_land(graph, members)
@@ -910,6 +913,51 @@ class EconomyPhenomenon:
             graph.houses[building] = {"owner": None, "value": paid, "room": HOUSE_ROOM, "built": True, "left": paid}
             set_house_owner(graph, building, owner)
             rooms.append(HOUSE_ROOM)
+
+    def _open_workshops(self, graph, alive, members, needs, rng: random.Random) -> None:
+        """Yearly (Project_Vision/04 §10 D; user, 2026-10-09: workshops grow
+        with the town, as farms and houses do): a good whose workshops fall
+        short of their margin at import by more than half a new workshop gets
+        one. Its master is a hand of that trade, the eldest; their household
+        pays WORKSHOP_COST if it can spare it, else the household with the
+        most to spare lends it (a patron's loan). The money pays builders.
+        Hands come from the unemployed, then day labourers, then outworkers.
+        ponytail: the workshop works at once while its cost is paid out as
+        builders' wages, from the pot houses being built also draw on."""
+        weights = dict(WORKSHOP_TRADES)
+        for good, short in sorted(self.crafts.shortfall(alive).items()):
+            trades = sorted(t for t, craft in CRAFTS.items() if craft[0] == good)
+            trade = rng.choices(trades, [weights.get(t, 1) for t in trades])[0]
+            if short <= self.crafts.capacity({"trade": trade, "staff": 1 + sum(WORKSHOP_HANDS) / 2}) / 2:
+                continue
+            hands = [n for n in alive if (n.age or 0) >= 18 and n.occupation
+                     and n.occupation.endswith("_hand") and n.occupation[:-5] in trades]
+            if not hands:
+                continue
+            master = max(hands, key=lambda n: (n.occupation == f"{trade}_hand", n.age or 0, -n.resident_id))
+            trade, key = master.occupation[:-5], household_key(master)
+            if self._spare(graph, key, needs) >= WORKSHOP_COST:
+                self._pay(graph, key, BUILDERS, WORKSHOP_COST)
+                self._year["workshops: from savings"] += 1
+            else:
+                lender = max((k for k in members if k != key), key=lambda k: (self._spare(graph, k, needs), str(k)))
+                if self._spare(graph, lender, needs) < WORKSHOP_COST:
+                    continue
+                self._pay(graph, lender, BUILDERS, WORKSHOP_COST)
+                graph.debts.append({"debtor": key, "creditor": lender, "debtor_person": master.resident_id,
+                                    "creditor_person": max(members[lender], key=lambda n: (n.age or 0)).resident_id,
+                                    "amount": WORKSHOP_COST, "rate": DEBT_PATRON_RATE, "kind": "patron", "behind": 0})
+                self._year["workshops: from a patron's loan"] += 1
+            building = max([*graph.building_types, *graph.houses], default=0) + 1
+            graph.building_types[building] = "workshop"
+            graph.workshops_opened = getattr(graph, "workshops_opened", 0) + 1
+            master.occupation, master.workplace_building_id = trade, building
+            graph.employer.pop(master.resident_id, None)
+            pool = [n for job in (None, "day_labourer", "outworker") for n in alive
+                    if n.occupation == job and (n.age or 0) >= 18 and not n.is_noble and n.ses not in RENTIER_CLASSES]
+            for hand in pool[:rng.randint(*WORKSHOP_HANDS)]:
+                hand.occupation, hand.workplace_building_id = f"{trade}_hand", building
+                graph.employer[hand.resident_id] = master.resident_id
 
     def _raise_houses(self, graph, paid: float) -> None:
         """What the builders were paid this month goes to the houses being
@@ -1527,6 +1575,7 @@ class EconomyPhenomenon:
             "economy_houses_commune": sum(1 for h in graph.houses.values() if h["owner"] == COMMUNE),
             "economy_houses": len(graph.houses),
             "economy_houses_new": sum(1 for h in graph.houses.values() if h.get("built") and "left" not in h),
+            "economy_workshops_new": getattr(graph, "workshops_opened", 0),
             "economy_houses_building": sum(1 for h in graph.houses.values() if "left" in h),
             "economy_house_room": sum(h.get("room", 0) for h in graph.houses.values() if "left" not in h),
             "economy_hardship_deaths": self._hardship_deaths,

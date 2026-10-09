@@ -56,6 +56,8 @@ class CraftMarket:
         self.owed: Dict[Any, Dict[Any, float]] = defaultdict(lambda: defaultdict(float))  # workshop -> creditor -> fl
         self._masters: Dict[Any, Any] = {}  # workshop -> its master's household, this month
         self.price: Dict[str, float] = defaultdict(lambda: 1.0)  # good -> times its normal price (slice 3)
+        self.asked_year: Dict[str, float] = defaultdict(float)  # fl households asked for since `shortfall`, by good
+        self.months_asked = 0
 
     # -- workshops ------------------------------------------------------------
 
@@ -79,6 +81,30 @@ class CraftMarket:
         good, _, input_share, _ = CRAFTS[shop["trade"]]
         return shop["staff"] * WAGE_COVER * self.wage / 12 / (1 - input_share) * self.output.get(good, 1.0)
 
+    def _demand(self, shops, asked: Dict[str, float]) -> Dict[str, float]:
+        """Fl a month the town wants of each good: what households asked for;
+        cloth and leather, what the tailors and shoemakers use."""
+        demand = dict(asked)
+        for good in ("cloth", "leather"):
+            demand[good] = sum(self.capacity(s) * CRAFTS[s["trade"]][2] for s in shops.values()
+                               if CRAFTS[s["trade"]][3] == good)
+        return demand
+
+    def shortfall(self, alive) -> Dict[str, float]:
+        """Fl a month each good's workshops make short of CAPACITY_SLACK times
+        what the town wants, the margin they had at import, over the months
+        since the last call (Project_Vision/04 §10 D: workshops grow with the
+        town, user 2026-10-09). Negative: room to spare."""
+        if not self.output or not self.months_asked:
+            return {}
+        shops = self.workshops(alive)
+        demand = self._demand(shops, {g: v / self.months_asked for g, v in self.asked_year.items()})
+        self.asked_year, self.months_asked = defaultdict(float), 0
+        made = defaultdict(float)
+        for shop in shops.values():
+            made[CRAFTS[shop["trade"]][0]] += self.capacity(shop)
+        return {good: CAPACITY_SLACK * demand.get(good, 0.0) - made[good] for good in {c[0] for c in CRAFTS.values()}}
+
     def calibrate(self, alive, monthly: Dict[str, float]) -> None:
         """Once, after the first month: where a good's workshops can't make CAPACITY_SLACK
         times what households asked for that month (`monthly`, fl), each worker makes
@@ -89,11 +115,8 @@ class CraftMarket:
         if self.output or not any(monthly.values()):
             return  # done, or no month of demand seen yet
         shops = self.workshops(alive)
-        demand = dict(monthly)
+        demand = self._demand(shops, monthly)
         for good in ("clothing", "shoes", "housewares", "cloth", "leather"):
-            if good in ("cloth", "leather"):
-                demand[good] = sum(self.capacity(s) * CRAFTS[s["trade"]][2] for s in shops.values()
-                                   if CRAFTS[s["trade"]][3] == good)
             made = sum(self.capacity(s) for s in shops.values() if CRAFTS[s["trade"]][0] == good)
             if made > 0:
                 self.output[good] = max(1.0, CAPACITY_SLACK * demand.get(good, 0.0) / made)
@@ -111,6 +134,9 @@ class CraftMarket:
         from economy import household_key
         self.calibrate(alive, self.wanted)
         asked, self.wanted = self.wanted, defaultdict(float)
+        for good, value in asked.items():
+            self.asked_year[good] += value
+        self.months_asked += 1
         shops = self.workshops(alive)
         self._masters = {b: household_key(s["master"]) for b, s in shops.items()}
         uses_town_goods = lambda b: CRAFTS[shops[b]["trade"]][3] in ("cloth", "leather")
@@ -138,10 +164,7 @@ class CraftMarket:
         month (households; cloth and leather: what the tailors and shoemakers
         use), dearer when short, cheaper in a glut. Never above what merchants
         charge to import it, nor below what they pay to export it."""
-        demand = dict(asked)
-        for good in ("cloth", "leather"):
-            demand[good] = sum(self.capacity(s) * CRAFTS[s["trade"]][2] for s in shops.values()
-                               if CRAFTS[s["trade"]][3] == good)
+        demand = self._demand(shops, asked)
         for good in {CRAFTS[s["trade"]][0] for s in shops.values()}:
             if demand.get(good, 0.0) <= 1e-9:
                 continue

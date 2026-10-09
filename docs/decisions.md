@@ -8,6 +8,29 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-10 — Workshops grow with the town
+
+Plan `Project_Vision/04` §10 D; the user chose the trigger (2026-10-09).
+- **Why:** over 25 years the town grows ~25% but workshops, farms, merchants
+  and public posts stay as imported, so nearly all the extra adults become
+  outworkers (0.7x a labourer's wage): outworker households go from ~1/3 of
+  the town to nearly 1/2 (seeds 2-3, diagnostic).
+- **Trigger: grow with the town, not "only when short".** Once a year, a
+  good whose workshops make less than 1.2x what the town wants (their margin
+  at import, `CAPACITY_SLACK`) by more than half a new workshop gets one. The
+  planned trigger, a price at the import cap for a year, barely fires before
+  year 20: the 20% margin lasts most of a run.
+- **Who:** the eldest hand of a trade making the good becomes master; their
+  household pays `WORKSHOP_COST` (what a house for eight costs) if it can
+  spare it, else the household with most to spare lends it (patron, 10%).
+  The money pays builders. Hands: the unemployed, then day labourers, then
+  outworkers.
+- **Result (12 seeds):** 1-8 workshops per run (mean 4), craft imports
+  fall, but the very poor don't move (15.9% years 19-25, as before) and
+  homelessness is within noise (27.0 vs 25.8 per 1,000). ~20 jobs at a
+  labourer's wage are too few against ~150 more outworkers.
+- **Next (user):** cap outworking by what merchants' cloth trade pays.
+
 ## 2026-10-09 — Newcomers who come for work come alone
 
 User, 2026-10-09: find why the very poor rose 13.5% -> 17.5% (years 19-25)
