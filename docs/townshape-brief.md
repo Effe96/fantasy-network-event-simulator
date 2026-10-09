@@ -68,18 +68,23 @@ fills them; TownShape's own code doesn't need to read them.
 ### 2. Accept the social sim's values
 
 No schema change is needed for these; TownShape's code, viewer and narrative
-just need to handle them.
+just need to handle them. **Treat each list below as open:** the sim keeps
+adding values (new diseases, new kinds of tie, new trades), so code should
+show an unknown value as it is rather than reject or drop it.
 
 - **Causes of death** (the owner's decision: accept them as they are, no
   mapping): `old age`, `plague`, `flu`, `diarrhea`, `famine`, `hardship`,
-  `violence`, `riot`, `execution`, `coup`. `deaths.reported_by_building_id`
-  may be `NULL`.
+  `violence`, `riot`, `execution`, `coup`. Coming: one cause per epidemic
+  disease (for example `typhus`, `dysentery`, `influenza`) in place of
+  `plague` for all of them. `deaths.reported_by_building_id` may be `NULL`.
 - **Occupations:** besides TownShape's own, `merchant`, `outworker`,
   `day_labourer`, `rentier`, `sharecropper`, and craft masters and hands, for
   example `dyer`, `fuller`, `weaver_hand`, `tailor_hand`, `tanner_hand`,
   `carpenter_hand`, `cooper_hand`, `mason_hand`, `shoemaker_hand`.
-- **Relationship types:** `friend` and `shopkeeper_customer`, besides
-  TownShape's own.
+- **Relationship types:** `friend`, `acquaintance` and `shopkeeper_customer`,
+  besides TownShape's own. Coming: wider family (for example `grandparent`,
+  `aunt_uncle`, `cousin`); TownShape's `coworker` and `classmate` will also
+  be created mid-run.
 - **Homeless residents:** `residents.home_building_id` is `NULL`. The schema
   already allows it; the viewer should show them as homeless.
 - **Ids:** the sim adds `residents` and `households` rows with ids it assigns
@@ -111,9 +116,9 @@ not on call order. It can wrap the existing `draw_first_name` and
 preferred_district_id=None) -> building_id` (in `town_shaper` or `town_db`,
 wherever fits).
 
-When the sim builds a house (today: when the town has more people than room,
-eight people per house) or, later, a shop or workshop, it calls this to get
-a plot. It should:
+When the sim builds a house (when the town has more people than room,
+eight people per house) or a workshop (when a craft can't keep up with the
+town, since 2026-10-10), it calls this to get a plot. It should:
 - find free ground inside the walls, in the preferred district if possible;
 - insert a `buildings` row with position, size, rotation and footprint, like
   a generated building;
