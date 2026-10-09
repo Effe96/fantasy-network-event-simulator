@@ -2736,8 +2736,9 @@ class PopulationPhenomenon:
         (2026-10-08: was a room cap 20% above the start; houses are built
         as the town grows now). They come
         without work and look for it, so they raise unemployment themselves.
-        They lodge with a household, or come as a family (family_share) into
-        a home of their own in the same building."""
+        They come alone and lodge with a household (user, 2026-10-09: families
+        coming without work were most of the very poor's rise); families come
+        only for a dead person's place (`_arrive`)."""
         pull = max(0.0, 1.0 - getattr(graph, "unemployment_rate", 0.0) / UNEMPLOYMENT_DETERS)
         # only while there's work to spare (user, 2026-10-09: unchecked, 1% a year
         # brought labourers the town couldn't employ: homeless 25 -> 36 per 1,000)
@@ -2752,7 +2753,6 @@ class PopulationPhenomenon:
             if not hosts:
                 break
             host = rng.choice(hosts)
-            family = 1 + rng.randint(0, 3) if rng.random() < self.family_share else 0
             age = rng.randint(*self.arrival_ages)
             year = graph.reference_year + (day - 1) // 365 if graph.reference_year is not None else None
             neighbours = [(o, "neighbor") for o in graph.neighbors(host.resident_id)
@@ -2761,20 +2761,15 @@ class PopulationPhenomenon:
                 "ses": "poor", "gender": rng.choice(("female", "male")),
                 "birth_date": f"{year - age:04d}-01-01" if year is not None else None,
                 "occupation": None, "is_noble": 0,
-                "household_id": new_household_id(graph) if family else host.household_id,
+                "household_id": host.household_id,
                 "home_building_id": host.home_building_id, "workplace_building_id": None,
             }, neighbours, rng)
             graph.nodes[newcomer].age = age
             self._shop_ties += household_shop_ties(graph, graph.nodes[newcomer], rng, model=host)
-            self._arrivals += 1 + family
-            self._came_for_work += 1 + family
-            if family:
-                self._families += 1
-                self._bring_family(graph, newcomer, family, year, rng)
-            else:
-                self._lodgers += 1
-            events.append(Event(day, self.name, "came_for_work", newcomer, host.resident_id,
-                                f"came for work{' with a family' if family else ''}"))
+            self._arrivals += 1
+            self._came_for_work += 1
+            self._lodgers += 1
+            events.append(Event(day, self.name, "came_for_work", newcomer, host.resident_id, "came for work"))
         return events
 
     def _move_out(self, graph, day: int, rng: random.Random) -> List[Event]:

@@ -8,6 +8,23 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-09 — Newcomers who come for work come alone
+
+User, 2026-10-09: find why the very poor rose 13.5% -> 17.5% (years 19-25)
+after the new houses. Means over 12 seeds, years 19-25:
+- **Before the houses:** 13.3% (se 0.6). **With them:** 17.6% (se 0.5).
+- **Newcomers come alone:** 15.9% (se 0.6). A third of those who came for work
+  brought a family of 2-5 with nothing but the arrival savings and no work;
+  households with an arrived member were 22-27% very poor vs ~13% native.
+  Families still come to take a dead person's place, where there is work.
+- **Savings for each newcomer, not each household** (the user's choice, tried
+  with arriving alone): 17.1% (se 0.8), no better, so not kept.
+- **Day labour isn't the limit:** paid equals wanted, 30-45% of the budget
+  unspent. The ~2.6 points left follow the growth (outworkers are the largest
+  very-poor group); open.
+- Ablations (houses without building, without moving, building free, room
+  capped) were each within noise of one another (14.3-15.6%, 6 seeds).
+
 ## 2026-10-09 — Memory: ties stored leaner, identical results
 
 User, 2026-10-09: before trying a 100,000-person town, cut memory. Measured on

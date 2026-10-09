@@ -1203,6 +1203,10 @@ Topics the user flagged to talk through before building. Each is
   growth (newcomers arrive poor and join large labourer families), ~1.3 from
   building houses and moving the poorest in. Finding why is the next step,
   after a trial year of a 100,000-person town (`Project_Vision/04` §10).
+  *Partly solved (2026-10-09):* newcomers who come for work now come alone
+  (families only for a dead person's place): 17.6% -> 15.9% (12 seeds; 13.3%
+  before the houses). Savings for each newcomer made no difference. The
+  ~2.6 points left go with the growth itself; next to find out.
 
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 
