@@ -569,4 +569,26 @@ years don't drift.
 4. Who moves in: the poorest household of the most crowded house, or
    newlyweds and newcomers first? [poorest of the most crowded]
 
-> Feedback:
+> Feedback: 1. I think there can be all three options. 2. yes. 3. first poorest of most crowded that can afford the rent, then newlyweds, then newcomers.
+
+> **Decided (user, 2026-10-08):** all three ways of paying; rent per head
+> back to its import level; new houses fill with the poorest household of
+> the most crowded house that can afford the rent, then newlyweds, then
+> newcomers. Question 3 (the homeless rent a share) went unanswered; built
+> with my default, yes. 
+
+**Built (2026-10-09).** Each house holds the people who lived in it at import
+(`room`). While the town is over its room by more than half a house, a house
+for 8 is started, paid in order by the household with the most cash (keeping a
+cushion), the one with the most land outside (selling some), or the commune;
+the money pays day labourers until it is finished. Rent is split by people,
+over at least the room, so empty places cost the owner. A household moves into
+a new house only if its usual income still covers food at the dearer rent (a
+crowded house splits rent more ways); the homeless take a house with room only
+if their income covers it, else they crowd in. The 20% room cap on arrivals is
+gone; instead people come for work only while the town's day-labour budget is
+above what its labourers take (user, 2026-10-09). 6 seeds x 25 years: 63-65
+houses, ~8.3 people a house throughout, growth ~1% a year, homeless 26.7 per
+1,000 in years 10-25 (24.8 before). **Very poor rise 13.5% -> 17.5% (years
+19-25)**: ~2 points from growth, ~1.3 from building and moving the poorest in,
+the new rent rules within noise. Next: find why (user, 2026-10-09).

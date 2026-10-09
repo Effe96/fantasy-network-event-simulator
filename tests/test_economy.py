@@ -302,6 +302,29 @@ def test_the_evicted_move_in_with_family_who_like_them():
     assert graph.nodes[4].home_building_id == 11 and graph.nodes[4].household_id == graph.nodes[3].household_id
 
 
+def test_a_crowded_town_builds_a_house_and_the_poorest_of_the_most_crowded_move_in():
+    import economy as econ
+    graph, economy, members, needs = _tenement()
+    graph.houses[10]["room"], graph.houses[11]["room"] = 1, 1  # 4 people in a house for 1: crowded
+    graph.household_money[3] = 10.0
+    total = sum(graph.household_money.values())
+    room, econ.HOUSE_ROOM = econ.HOUSE_ROOM, 2  # 5 people, room for 2: one more house of 2
+    try:
+        economy._build_houses(graph, members, needs)
+    finally:
+        econ.HOUSE_ROOM = room
+    (building, house), = [(b, h) for b, h in graph.houses.items() if h.get("built")]
+    assert house["owner"] == 1 and house["left"] == house["value"]  # the richest in cash builds
+    assert abs(sum(graph.household_money.values()) - total) < 1e-9  # its cash is set aside for the builders
+    economy._raise_houses(graph, house["value"])  # the builders are paid: finished
+    assert "left" not in house
+    economy._move_in(graph, needs)
+    assert graph.nodes[4].home_building_id != building  # no usual income to pay the dearer rent: they stay
+    economy._income[3] = needs[3] + 1.0
+    economy._move_in(graph, needs)
+    assert graph.nodes[4].home_building_id == graph.nodes[5].home_building_id == building
+
+
 def test_the_evicted_share_a_room_with_a_single_they_know_when_family_can_t_feed_them():
     graph, economy, members, needs = _tenement()
     graph.household_money[3] = 0.0
@@ -488,6 +511,7 @@ def _run_all():
     test_a_landlord_living_in_the_house_is_not_bought_out()
     test_a_tenant_behind_on_rent_is_evicted_onto_the_street()
     test_the_evicted_move_in_with_family_who_like_them()
+    test_a_crowded_town_builds_a_house_and_the_poorest_of_the_most_crowded_move_in()
     test_the_evicted_share_a_room_with_a_single_they_know_when_family_can_t_feed_them()
     test_homeless_people_who_know_each_other_pool_to_rent_a_room()
     test_an_heirless_landlord_s_houses_go_to_the_commune()

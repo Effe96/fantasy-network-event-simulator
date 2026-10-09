@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from economy import BASKET_PER_PERSON, follow_if_emptied, form_household, household_key, new_household_id
+from economy import (BASKET_PER_PERSON, follow_if_emptied, form_household, household_key, mark_new_household,
+                     new_household_id)
 from graph import (FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, befriend, edge_from_relationship,
                    household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
@@ -2600,7 +2601,7 @@ class QuarantinePhenomenon:
 # tried first: the town's labourers always covered it, so nobody came.
 WORK_ARRIVALS_PER_1000 = 0.5
 UNEMPLOYMENT_DETERS = 0.08  # C
-ROOM_GROWTH = 0.2  # C: no room left once the town is this much above its start (no new houses yet)
+WORK_SPARE_DRAWS = 0.2  # C: all come while the town's day-labour budget is this much above what its labourers take; none at 0
 MOVE_OUT_STRESS = 0.7  # C: a household this stressed on average may leave
 MOVE_OUT_AFTER_MONTHS = 12  # C: ...for this long (a year of grief alone sent 282 away in 25 years)
 MOVE_OUT_PER_MONTH = 0.02  # C: while it also holds a year of its basket
@@ -2711,31 +2712,37 @@ class PopulationPhenomenon:
                 continue
             self._vacancies.remove(dead)
             family = 0
-            # priests are celibate; a family needs room, and comes only while the
-            # town is below its growth path (2026-10-08: unchecked, they grew it
-            # ~1% a year until the houses ran out)
+            # priests are celibate; a family comes only while the town is below
+            # its growth path (2026-10-08: unchecked, they grew it ~1% a year
+            # until the room cap stopped them; houses are built for it now)
             if (graph.nodes[dead].role != "priest" and alive < target
-                    and rng.random() < self.family_share * self._room(alive)):
+                    and rng.random() < self.family_share):
                 family = 1 + rng.randint(0, 3)
             newcomer = self._arrive(graph, dead, day, rng, family)
             alive += 1 + family
             self._arrivals += 1 + family
             events.append(Event(day, self.name, "arrived", newcomer, dead, "took over the place of"))
         if day % 30 == 0:
-            events += self._come_for_work(graph, day, rng, alive)
+            events += self._come_for_work(graph, day, rng, alive, target)
             events += self._move_out(graph, day, rng)
         return events
 
-    def _come_for_work(self, graph, day: int, rng: random.Random, alive: int) -> List[Event]:
+    def _come_for_work(self, graph, day: int, rng: random.Random, alive: int, target: float) -> List[Event]:
         """People come for work (user: wages and work are why they leave their
         villages): WORK_ARRIVALS_PER_1000 a month while work is easy to find,
         fewer as the town's unemployment (graph.unemployment_rate, set by the
-        economy) nears UNEMPLOYMENT_DETERS and as homes fill. They come
+        economy) nears UNEMPLOYMENT_DETERS or day labour runs out
+        (graph.day_labour_spare), and none above the town's growth path
+        (2026-10-08: was a room cap 20% above the start; houses are built
+        as the town grows now). They come
         without work and look for it, so they raise unemployment themselves.
         They lodge with a household, or come as a family (family_share) into
         a home of their own in the same building."""
         pull = max(0.0, 1.0 - getattr(graph, "unemployment_rate", 0.0) / UNEMPLOYMENT_DETERS)
-        expected = WORK_ARRIVALS_PER_1000 * alive / 1000 * pull * self._room(alive)
+        # only while there's work to spare (user, 2026-10-09: unchecked, 1% a year
+        # brought labourers the town couldn't employ: homeless 25 -> 36 per 1,000)
+        pull *= min(1.0, max(0.0, getattr(graph, "day_labour_spare", WORK_SPARE_DRAWS) / WORK_SPARE_DRAWS))
+        expected = WORK_ARRIVALS_PER_1000 * alive / 1000 * pull * (alive < target)
         hosts = None
         events = []
         for _ in range(int(expected) + (1 if rng.random() < expected % 1 else 0)):
@@ -2769,10 +2776,6 @@ class PopulationPhenomenon:
             events.append(Event(day, self.name, "came_for_work", newcomer, host.resident_id,
                                 f"came for work{' with a family' if family else ''}"))
         return events
-
-    def _room(self, alive: int) -> float:
-        """1 while the homes have room, down to 0 at ROOM_GROWTH above the start (no new houses yet)."""
-        return max(0.0, 1.0 - (alive / self._start_size - 1.0) / ROOM_GROWTH)
 
     def _move_out(self, graph, day: int, rng: random.Random) -> List[Event]:
         """A household under very high stress that can afford it may leave
@@ -2905,6 +2908,7 @@ class PopulationPhenomenon:
                       if graph.get_edge(newcomer, o).source_type == "neighbor"]
         base = {"ses": head.ses, "occupation": None, "is_noble": 0, "household_id": head.household_id,
                 "home_building_id": head.home_building_id, "workplace_building_id": None}
+        mark_new_household(graph, household_key(head), "newcomers")  # first in line for new houses, after the crowded
         spouse_age = max(18, min(60, head.age + rng.randint(-6, 6)))
         spouse = graph.add_resident(dict(base, gender="female" if head.gender == "male" else "male",
                                          birth_date=f"{year - spouse_age:04d}-01-01" if year is not None else None),

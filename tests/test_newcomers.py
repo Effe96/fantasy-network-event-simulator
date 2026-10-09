@@ -191,7 +191,7 @@ def test_work_easy_to_find_draws_people_who_lodge():
     assert all(graph.nodes[e.resident_a].occupation is None for e in came)  # they come looking for work
 
 
-def test_no_room_no_arrivals():
+def test_no_arrivals_above_the_growth_path():
     graph = _guard_post()
     for resident_id in (1, 2, 3):
         graph.nodes[resident_id].household_id = 5
@@ -199,8 +199,28 @@ def test_no_room_no_arrivals():
     state = population.init_state(graph)
     graph.add_node(Node(resident_id=9, ses="poor", alive=True, age=0))  # 4 people where 3 lived: +33%
     graph.unemployment_rate = 0.0
-    assert not any(e.kind == "came_for_work" for month in range(1, 2000)
+    # the 1% a year path reaches 4 only after ~29 years
+    assert not any(e.kind == "came_for_work" for month in range(1, 12 * 25)
                    for e in population.end_of_day(graph, state, day=30 * month, rng=random.Random(month)))
+
+
+def test_nobody_comes_for_work_the_town_has_no_spare_work_for():
+    def arrivals(spare):
+        graph = _guard_post()
+        for resident_id in (1, 2, 3):
+            graph.nodes[resident_id].household_id = 5
+        population = PopulationPhenomenon(family_share=0.0)
+        state = population.init_state(graph)
+        graph.unemployment_rate, graph.day_labour_spare = 0.0, spare
+        return sum(e.kind == "came_for_work" for month in range(1, 24)
+                   for e in population.end_of_day(graph, state, day=30 * month, rng=random.Random(month)))
+    import phenomena
+    rate, phenomena.WORK_ARRIVALS_PER_1000 = phenomena.WORK_ARRIVALS_PER_1000, 100.0  # a tiny town: many a month
+    try:
+        assert arrivals(0.0) == 0  # the labourers already take all the day labour there is
+        assert arrivals(0.5) > 0
+    finally:
+        phenomena.WORK_ARRIVALS_PER_1000 = rate
 
 
 def test_a_desperate_household_that_can_afford_it_moves_out():
@@ -323,7 +343,8 @@ def _run_all():
     test_a_dead_guard_is_replaced_by_an_arrival_who_takes_over_the_post()
     test_a_place_without_work_is_not_refilled()
     test_work_easy_to_find_draws_people_who_lodge()
-    test_no_room_no_arrivals()
+    test_no_arrivals_above_the_growth_path()
+    test_nobody_comes_for_work_the_town_has_no_spare_work_for()
     test_a_desperate_household_that_can_afford_it_moves_out()
     test_a_job_is_refilled_even_when_the_town_is_at_full_size()
     test_the_town_may_grow_past_its_starting_size()

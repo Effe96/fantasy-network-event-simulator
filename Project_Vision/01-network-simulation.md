@@ -1198,6 +1198,11 @@ Topics the user flagged to talk through before building. Each is
   *Also (2026-10-01):* in 2 of 3 seeds the very poor creep from ~11% to
   16-18% in years 16-25 while the town grows ~19% on the farms, houses and
   workshops it was imported with (seed 3 stays at 12-14%).
+  *Next (user, 2026-10-09):* with new houses and growth by spare work, the
+  very poor rise 13.5% -> 17.5% in years 19-25 (6 seeds): ~2 points from
+  growth (newcomers arrive poor and join large labourer families), ~1.3 from
+  building houses and moving the poorest in. Finding why is the next step,
+  after a trial year of a 100,000-person town (`Project_Vision/04` §10).
 
 ### Event taxonomy & personal properties (needs a decision, not just a list)
 

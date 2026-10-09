@@ -8,6 +8,28 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-09 — New houses, and newcomers only while there's work
+
+Plan and answers in `Project_Vision/04-goods-and-inventories.md` §10.
+- **Room is who lived there at import, not a size from TownShape.** Buildings
+  have no capacity in the database; the import is taken as full.
+- **Rent split over at least the room.** Over people only, a house losing
+  tenants to deaths charged the rest more; the owner bears empty places.
+- **Moving needs usual income to cover the dearer rent, not a month of cash.**
+  A crowded house splits rent more ways, so the poorest who moved paid ~50%
+  more per head; with only a month's cash they moved, fell behind and were
+  evicted. Same for the homeless and houses with room.
+- **Newcomers by spare day labour, not by unemployment or the room cap.**
+  Without the cap, 1% a year raised homelessness 25 -> 36 per 1,000 (6
+  seeds). Unemployment sits at ~3% whatever arrives (day labour is found at a
+  monthly chance, then shared), so it never deterred them; the day-labour
+  budget runs 1.1-1.4x what labourers take and falls as they multiply.
+  Ablation (6 seeds): houses with the old cap kept homelessness at 25.
+- **Builders' money hires first**, so a house in progress is real work and
+  draws newcomers.
+- **Open:** very poor 13.5% -> 17.5% in years 19-25; no-build variant 14.3%,
+  houses with the old cap 15.6%. Next step.
+
 ## 2026-10-08 — New farms: poderi worked by sharecroppers, growth at 1%
 
 Plan and answers in `Project_Vision/04-goods-and-inventories.md` §10. The
