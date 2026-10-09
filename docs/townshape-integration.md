@@ -141,8 +141,7 @@ decided):* cap neighbour ties per person in big towns.
 
 ## 5. Order of work
 
-1. Agree the Priority 1-2 interfaces in TownShape's `CONTRACTS.md` (its
-   rule: shared interfaces are written down before anyone builds on them).
+1. Hand TownShape's agent `docs/townshape-brief.md` (what to build, in order).
 2. TownShape: tables (1.1), capacity (1.3), names (2.2), deaths and
    departures (2.3), occupations (2.5), `friend` and row-level writes (2.6).
 3. Sim: the pipeline (1.2), load and save (2.1, 2.4).
