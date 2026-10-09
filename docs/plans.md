@@ -6,11 +6,32 @@
 > feature backlog — still the source of truth for *scope* on each item
 > below) and `docs/decisions.md` (*why* past choices were made). This file
 > is *what's queued and in what order*, kept current as work lands or the
-> plan changes. Last updated 2026-09-23: the pipeline was reassessed with
-> the user after the equilibrium principle, city-wide parameters and
-> everyday favors were added to Project_Vision. **The "Pipeline" section
-> below is the current order**; older per-topic sections further down
+> plan changes. Last updated 2026-10-09. **"Current order" below is
+> what's next**; the 2026-09-23 "Pipeline" and older per-topic sections further down
 > keep their detail.
+
+## Current order (user, 2026-10-09)
+
+The pipeline below (2026-09-23) is mostly done: turnover, faith, favors,
+riots, executions and the economy were built (see `docs/decisions.md`).
+Still open from it: seeding thieves and bodyguards at natural levels (6),
+the coup redesign (10), taxes as an event against the governor (11),
+parameters that change naturally (12) and the role items (14).
+
+1. **Very poor:** the ~2.6 points of the rise left after newcomers came
+   alone (15.9% against 13.3% before the houses, 12 seeds). They follow
+   growth; outworkers are the largest very-poor group.
+2. **Workshops** (`Project_Vision/04` §10 D): new workshops when a craft's
+   price holds near the import cap.
+3. **Epidemics:** what causes an outbreak (the tally's "What causes an
+   epidemic").
+4. **Missing ties:** classmates, coworkers for new workers, fuller
+   families, feuds (the tally's "Kinds of ties" and "Ties forming and
+   fading").
+
+Waiting on TownShape: `docs/townshape-brief.md`; then our side of the
+creation pipeline (`docs/townshape-integration.md` §5).
+Also open: the rich rising 8% -> 12%; a 100,000-person trial year.
 
 ## Topics to discuss with the user
 
