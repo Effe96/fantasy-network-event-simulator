@@ -2959,7 +2959,10 @@ class EverydayPhenomenon:
         self.pull_per_year = pull_per_year
         self._pull_per_month = 1.0 - (1.0 - pull_per_year) ** (1.0 / 12.0)
         self._pull_rate = -math.log(1.0 - pull_per_year) if 0.0 < pull_per_year < 1.0 else pull_per_year
-        self._target: Dict[Tuple[Tuple[int, int], int], float] = {}  # (tie, feeler) -> where the pull aims
+        # tie -> where the pull aims (lower id's feeling, higher id's): one entry
+        # per tie (2026-10-09: two, keyed (tie, feeler), held 174 B a tie, 319 MB
+        # in a 21,000-person town)
+        self._target: Dict[Tuple[int, int], Tuple[float, float]] = {}
         self._favors = 0
         self._scorns = 0
 
@@ -2989,13 +2992,15 @@ class EverydayPhenomenon:
         # lost later shift it a little. Recompute if feelings start drifting.
         stats: Dict[int, Tuple[int, float]] = {}
         for key, edge in graph.edges.items():
-            if (key, edge.resident_a) in self._target:
+            if key in self._target:
                 continue
             a, b = key
+            aims = []
             for feeler, other in ((a, b), (b, a)):
                 push = self._yearly_nudges(graph, other, edge, stats) * self.nudge  # per unit of other's feeling
                 offset = push / self._pull_rate if self._pull_rate else 0.0
-                self._target[(key, feeler)] = edge.valence_from(feeler) - offset * edge.valence_from(other)
+                aims.append(edge.valence_from(feeler) - offset * edge.valence_from(other))
+            self._target[key] = (aims[0], aims[1])
 
     def add_resident(self, graph, state, resident_id: int) -> None:
         state[resident_id] = {}
@@ -3039,8 +3044,8 @@ class EverydayPhenomenon:
         for key, edge in graph.edges.items():
             # both feelings written directly, then one change report for the tie
             # (speed-up 2026-09-30: 160,000 writes a month, each reported)
-            to_b = targets[(key, edge.resident_a)]
-            to_a = targets[(key, edge.resident_b)]
+            low, high = targets[key]
+            to_b, to_a = (low, high) if edge.resident_a == key[0] else (high, low)
             object.__setattr__(edge, "valence_a_to_b", edge.valence_a_to_b + (to_b - edge.valence_a_to_b) * pull)
             object.__setattr__(edge, "valence_b_to_a", edge.valence_b_to_a + (to_a - edge.valence_b_to_a) * pull)
             for log in listeners:

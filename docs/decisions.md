@@ -8,6 +8,23 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-09 — Memory: ties stored leaner, identical results
+
+User, 2026-10-09: before trying a 100,000-person town, cut memory. Measured on
+a 21,000-person TownShape town (1.83M ties) after a month, PyPy: 1,084 MB live.
+The largest parts were the everyday pull-back targets (319 MB, two entries a tie
+keyed (tie, feeler)), the tie objects (~300 MB) and a serial-number table (89 MB).
+- **Targets:** one entry a tie, both feelings' aims as a pair.
+- **Serial numbers on the ties**, not in a table; a stronger tie replacing one
+  keeps its number.
+- **Result:** 793 MB live (-27%); seed 1 over 5 years identical to before.
+- **The process peak didn't move** (2.05 GB): PyPy grows to well above live
+  data between full collections. `PYPY_GC_MAJOR_COLLECT=1.2` brings a year's
+  peak to 1.79 GB but takes 24% longer, so it's a launch option, not a default.
+- **Not done:** the per-tie listener slot (~5%; would share change logs across
+  graphs) and dropping targets of retired ties (a tie that returns reuses its
+  old target today).
+
 ## 2026-10-09 — New houses, and newcomers only while there's work
 
 Plan and answers in `Project_Vision/04-goods-and-inventories.md` §10.

@@ -80,7 +80,7 @@ _TRACKED_TIE_FIELDS = frozenset(("valence_a_to_b", "valence_b_to_a", "source_typ
 
 class TieFilter:
     """The keys of every live tie matching `predicate(edge)`, in the order the
-    ties were added (graph.edge_serial) -- what a full scan of graph.edges
+    ties were added (each tie's _serial) -- what a full scan of graph.edges
     would give, kept up to date from tie change reports."""
 
     def __init__(self, predicate):
@@ -108,7 +108,7 @@ class TieFilter:
             for key in [key for key in keys if key not in edges]:  # retired since
                 keys.discard(key)
         self._log.clear()
-        return sorted(self._keys, key=graph.edge_serial.__getitem__)
+        return sorted(self._keys, key=lambda key: edges[key]._serial)
 
 
 @dataclass
@@ -226,8 +226,8 @@ class SocialGraph:
         # add_edge and the retire methods. A tie lookup is two dict reads,
         # no key to build (2026-09-30 speed-up: 8.5M lookups a year)
         self._links: Optional[Dict[int, Dict[int, Edge]]] = None
-        # each live tie's number in the order ties were added (= graph.edges order)
-        self.edge_serial: Dict[Tuple[int, int], int] = {}
+        # each live tie carries its number in the order ties were added (= graph.edges
+        # order) as _serial (2026-10-09: a table of them held 51 B a tie)
         self._next_serial = 0
         self._tie_listeners: List[List[Edge]] = []  # change logs of this graph's TieFilters
         # Residents added mid-run (births, arrivals) enter through the same
@@ -313,8 +313,10 @@ class SocialGraph:
             return
         self.edges[key] = edge
         if existing is None:
-            self.edge_serial[key] = self._next_serial
+            object.__setattr__(edge, "_serial", self._next_serial)  # not a field: no effect on ==
             self._next_serial += 1
+        else:  # the stronger tie takes the old one's place
+            object.__setattr__(edge, "_serial", existing._serial)
         object.__setattr__(edge, "_listeners", self._tie_listeners)  # not a field: no effect on ==
         for log in self._tie_listeners:  # a tie joining the graph is news too
             log.append(edge)
@@ -349,7 +351,6 @@ class SocialGraph:
             self.archived_ties.append(self._archive_record(edge, day, None, reason))
             del links[a][b]
             del links[b][a]
-            del self.edge_serial[key]
             self.last_retired_keys.append(key)
             moved += 1
         self._ties_to_retire = []
@@ -360,7 +361,6 @@ class SocialGraph:
             for other in list(links.get(dead, ())):
                 key = self._key(dead, other)
                 edge = self.edges.pop(key)
-                del self.edge_serial[key]
                 self.last_retired_keys.append(key)
                 record = self._archive_record(edge, before_day - 1, dead, "death")
                 self.archived_ties.append(record)
