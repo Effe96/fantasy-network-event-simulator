@@ -1,193 +1,153 @@
-# TownShape integration: what TownShape needs to implement
+# TownShape integration: what each side needs to implement
 
-> Rewritten 2026-10-09 (first version 2026-09-23). What TownShape needs so
-> that a town it generates can be run in the social sim and come back,
-> grouped by priority. Each item says what the sim does today, what TownShape
-> would add, and why. Checked against TownShape at `7e1d02a` and
-> `demo_riverport_town.db`.
+> Rewritten 2026-10-09 around the user's picture of the two tools (first
+> version 2026-09-23). Grouped by priority; each item says what exists today,
+> what is needed, and on which side. Checked against TownShape at `7e1d02a`
+> and `demo_riverport_town.db`.
 
-## 0. Where things stand
+## 0. The picture (user, 2026-10-09)
 
-**The sim now owns the town once it is imported.** The 2026-09-23 version
-recommended a yearly loop with TownShape owning births, households, jobs and
-income. The sim has since grown all of these itself, daily (in effect option
-B of that version): births, newcomers coming for work, households moving
-away, households formed at marriage, evictions and the homeless, jobs and
-unemployment, money, land, houses and rent, debts, classes, farms (new ones
-too), workshops, merchants and their cargoes, and the deaths of all of them.
+1. **Starting a town creates everything it needs:** the physical town (map,
+   districts, buildings), households and people with names and every
+   feature, their ties, jobs, money and the town's parameters.
+2. **From then on this simulator drives every interaction and every
+   development of the town:** births, deaths, marriages, newcomers, jobs,
+   trade, crime, faith, building. TownShape's own yearly advance
+   (`advance_town`) is retired for these towns: it would re-derive every
+   relationship and add a second set of births and deaths.
+3. **What the sim builds appears in the physical town:** new houses, shops
+   and workshops get a place on the map.
 
-So the integration is now:
-1. **TownShape generates** the town: map, buildings, households, residents,
-   relationships.
-2. **The sim imports and runs it** for months or decades.
-3. **The result goes back** to TownShape, to be viewed, edited and run again.
+**Decided (user, 2026-10-09): one creation pipeline, both tools.** "Create
+town" runs TownShape's generator, then the sim's setup (traits, tie strength
+and feelings, the jobs TownShape doesn't make, money, property, houses, class
+lines), and saves everything into the town's database. Each tool keeps the
+code it already has; nothing is written twice.
 
-`advance_town` must **not** run on a town the sim has advanced. It would
-re-derive every relationship (feelings lost), add a second set of births and
-deaths, and re-fill jobs the sim manages. If TownShape wants to keep features
-the sim doesn't model (school, military service), they need to run on their
-own, without the demography and relationship steps.
+**The town database is the single source of truth.** Everything the sim
+knows lives there, so one file is the whole town at any point in its history,
+and the sim can stop and resume from it.
 
-**What the sim reads today** (`graph.import_snapshot`): `residents` (living),
-`households.wealth` (as a ranking only), `relationships`,
-`shop_relationships`, `buildings` (type, district) with `districts.zone_type`,
-`town_state.aggression` and `year_start`. Everything else is invented at
-import (section 3) or kept only in memory (section 2).
+## 1. Priority 1: creating a complete town
 
-## 1. Priority 1: needed for a first round trip
-
-Without these, a town the sim has run can't be written back. Each one is a
-TownShape-side function or schema change that the sim's write-back calls.
-
-**1.1 New residents: names and rows.** The sim creates people (births,
-newcomers and their families) as TownShape-shaped rows, but without names or
-race. `residents.first_name`, `last_name` and `race` are `NOT NULL`.
-- *Needed:* a function that names a new resident: given gender, race and
-  household (a newborn takes the family name; a newcomer gets a new one),
-  return first and last name, using TownShape's name lists and `rng_for`.
-- *Needed:* `insert_residents` / `insert_births` accepting sim-made rows with
-  the ids the sim already assigned (max + 1, the same rule as TownShape's
-  AUTOINCREMENT), and `births` rows with the mother and father ids.
-
-**1.2 Deaths in the sim's vocabulary, and departures that aren't deaths.**
-- The sim's causes: `old age`, `plague` and everyday ailments (`flu`,
-  `diarrhea`), `famine` and `hardship` (hunger), `violence` (murder),
-  `riot`, `execution`, `coup`. TownShape's are `illness`, `accident`,
-  `childbirth`, `old age`, `plague` and skirmishes. *Needed:* either accept
-  the sim's causes in `deaths.cause`, or agree a mapping (e.g. flu and
-  diarrhea -> illness).
-- `moved away` and `banished` are recorded by the sim as deaths, but the
-  person left town alive. *Needed:* a place for departures that isn't
-  `death_date`: a `departures` table (resident, date, reason) or a column.
-- `deaths.reported_by_building_id` (a temple, or a guard post for
-  skirmishes): the sim has no reporter; TownShape picks one, or the column
-  stays empty.
-
-**1.3 Households the sim forms and changes.** The sim makes new households
-(a couple at marriage, a newcomer family, homeless people who pool to rent a
-room) and merges others (the evicted taken in by kin, a widow joining a
-child). *Needed:* insert `households` rows (`family_name`, `race`, `wealth`
-are `NOT NULL`: name from the head, race from the head, wealth from the sim's
-money and property), and update `residents.household_id`.
-
-**1.4 Changed residents.** The sim changes a resident's
-- `home_building_id`: moves, evictions, new houses; **`NULL` for the
-  homeless**, which the schema already allows (worth saying it is valid);
-- `occupation` and `workplace_building_id`: jobs found and lost;
-- `ses`: class is re-judged every year from wealth and income.
-
-*Needed:* an `update_resident` write that TownShape accepts, and agreement
-that these values are legal (next item).
-
-**1.5 The sim's occupations.** TownShape generates `acolyte, barkeep,
-blacksmith, farmer, farmhand, guard, laborer, noble, priest, servant,
-shop_staff, shopkeep, smith_apprentice, tavern_staff, warehouse_clerk`. The
-sim adds `merchant`, `outworker` (spinning and carding for a merchant),
-`day_labourer`, `rentier`, `sharecropper`, and craft masters and hands for
-the workshops TownShape leaves empty (seen in runs: `dyer`, `fuller`,
-`weaver_hand`, `tailor_hand`, `tanner_hand`, `carpenter_hand`, `cooper_hand`,
-`mason_hand`, `shoemaker_hand`).
-*Needed:* TownShape's job market, viewer and narrative accept them.
-
-**1.6 Relationships: a merge, never a re-derivation.** The sim adds
-`friend` ties (and `shopkeeper_customer` from `shop_relationships`), lets
-acquaintances fade, retires the ties of the dead, and gives every tie
-strength and feelings in both directions. `derive_relationships` deletes and
-re-derives everything. *Needed:* accept `friend` as a `relationship_type`
-and a write-back that inserts and removes individual rows; never call
-`derive_relationships` on a town the sim has run. Feelings themselves can
-stay sim-side (2.1).
-
-**1.7 Dates.** The sim counts days from 1. *Needed:* the write-back sets
-`town_state."current_date"` to `year_start + days run` and dates every birth,
-death and departure as start + day (365-day years, as in TownShape).
-
-## 2. Priority 2: needed to stop and resume a run
-
-The sim keeps a lot of state only in memory. A run can be written back
-(section 1), but resuming it later needs this state too.
-
-**2.1 Recommended: a sim-side save file, keyed by TownShape ids.** The sim
-owns these values, so it should store them. TownShape only has to keep ids
-stable (residents, households, buildings) and not reuse them. What the file
-would hold:
+**1.1 Tables for the sim's state (TownShape schema; the sim writes them).**
+New tables, keyed by TownShape ids:
 - per resident: religiousness, skepticism, cunning, loyalty, ex-soldier,
-  stress, beggar, thief;
-- per tie: time, intimacy, services, both feelings, former type;
+  stress, beggar, thief (`resident_traits`);
+- per tie: time, intimacy, services, both feelings, former type (columns on
+  `relationships`, or a `relationship_state` table);
 - per household: cash, land outside the walls, debts, rent arrears, usual
-  income;
-- per house: owner, value, room, building in progress;
-- the commune's and the Church's money, the class lines, the granary, the
+  income (`households.wealth` can hold cash plus property in florins);
+- per house: owner, value, room, building in progress (`house_tenure`);
+- the town: the commune's and the Church's money, class lines, granary, the
   rich's grain hoards, workshop stocks and accounts, merchants' warehouses
-  and cargoes at sea, new farms and who works them.
+  and cargoes at sea, new farms and who works them, the sim's clock and its
+  parameters (loyalty, religiosity, strictness, beside `aggression` in
+  `town_state`).
 
-**2.2 Optional: the values TownShape can show.** If TownShape's viewer
-should show the economy, a few belong in its tables: `households.wealth`
-(the sim's cash plus property, in florins), and who owns each house
-(a `house_tenure` table: building, owner household, value, rent). Only if
-TownShape wants to use them; the save file covers the sim either way.
+A few tables with JSON columns for the town-level state are enough to start;
+they can be split later if TownShape needs to query them.
 
-## 3. Priority 3: generate what the sim now invents at import
+**1.2 The pipeline (both sides).** A `create_town(parameters, path)` entry
+point: TownShape's `generate_town_from_parameters` and
+`derive_relationships`, then the sim's import and setup, then the sim writes
+1.1. TownShape's generator needs nothing new for this: the sim's setup
+already fills the gaps (staff for the workshops TownShape leaves empty, 28 in
+Riverport; merchants; outworkers; day labour; working teens; wealth in
+florins).
 
-These work today because the sim's importer fills the gaps. They belong in
-TownShape's generator, so a generated town is already whole.
+**1.3 House capacity (both sides).** The sim takes a house's room to be who
+lived there at import. TownShape's `buildings.capacity` already holds it:
+Riverport's residences have 1,624 places for 1,646 people, 39 of 203 houses
+over. TownShape keeps every house within capacity at generation; the sim
+reads `capacity`.
 
-**3.1 Jobs** (`economy.setup_economy`, user 2026-09-29 and 2026-10-01):
-- **Merchants:** the head (30+, not noble) of each of the richest houses
-  trades, about one per 150 residents. TownShape gives the richest houses'
-  heads odd posts (guards, servants who are nobles, farmhands); employers
-  and public posts keep theirs.
-- **Trades for the workshops:** TownShape's 28 workshops in Riverport have no
-  one working in them. The sim staffs each with a master and 3-5 hands of one
-  trade.
-- **Putting-out work** for merchants, **day labour**, more farmhands.
-- **Teenagers (12-17) of households that aren't rich** spin and card for
-  merchants.
+## 2. Priority 2: the sim running a stored town
 
-**3.2 Wealth in florins.** The sim reads `households.wealth` only as a
-ranking and sets amounts from the book (most households own little, the
-richest tenth most of it). TownShape could generate florin amounts directly.
+**2.1 Load and save (sim side).** The sim loads a town from the database,
+including 1.1, and saves back the clock (`town_state."current_date"`), every
+changed table and the events below. Dates are `year_start` plus days run, in
+365-day years.
 
-**3.3 House capacity.** The sim takes each house's room to be the number of
-people living in it at import. TownShape's `buildings.capacity` already says
-it: Riverport's residences hold 1,624 places for 1,646 people, with 39 of
-203 over capacity. *Needed (both sides):* TownShape keeps every house within
-its capacity at generation, and the sim reads `capacity` instead of
-guessing.
+**2.2 Names for new people (TownShape function, called by the sim).** The
+sim creates people daily (births, newcomers and their families). TownShape
+provides a function that names one: gender, race and household in (a
+newborn takes the family name, a newcomer gets a new one); first and last
+name out, from TownShape's name lists and `rng_for`. `first_name`,
+`last_name` and `race` are `NOT NULL`.
 
-**3.4 Randomness.** TownShape draws everything through
-`rng_for(seed, *parts)`; the sim uses one `random.Random(seed)`. Only matters
-if the two ever run inside one loop: pass each side a derived seed per run.
+**2.3 Deaths and departures (TownShape schema).**
+- The sim's causes: `old age`, `plague`, `flu`, `diarrhea`, `famine`,
+  `hardship`, `violence`, `riot`, `execution`, `coup`. TownShape's today:
+  `illness`, `accident`, `childbirth`, `old age`, `plague`, skirmishes.
+  Since the sim drives everything, the simplest is for `deaths.cause` to
+  accept the sim's causes. *Open: confirm.*
+- `moved away` and `banished` are recorded by the sim as deaths, but the
+  person left alive: a `departures` table (resident, date, reason).
+- `deaths.reported_by_building_id`: the sim has no reporter; TownShape picks
+  the temple, or the column stays empty.
 
-## 4. Priority 4: buildings the sim creates
+**2.4 Households and residents that change (the sim writes; TownShape
+accepts).** New households (a couple at marriage, a newcomer family,
+homeless people pooling to rent a room) and merged ones (the evicted taken
+in by kin, a widow joining a child): `households` rows with `family_name`,
+`race` and `wealth`. Residents' `household_id`, `home_building_id` (`NULL`
+for the homeless, which the schema allows), `occupation`,
+`workplace_building_id` and `ses` (re-judged yearly).
 
-The user's decision (2026-10-08): new buildings exist only in the sim for
-now. When TownShape should show them:
-- **New houses** (from 2026-10-09): built while the town has more people
-  than room, 8 people each, ids `max(building ids) + 1`, type `residence`.
-- **New farms (poderi):** land outside the walls worked by sharecroppers.
-  They need no building inside the town, but could be shown as farmsteads.
-- **New workshops:** planned next.
+**2.5 The sim's occupations (TownShape's viewer and narrative).** Beside
+TownShape's own (`acolyte, barkeep, blacksmith, farmer, farmhand, guard,
+laborer, noble, priest, servant, shop_staff, shopkeep, smith_apprentice,
+tavern_staff, warehouse_clerk`): `merchant`, `outworker`, `day_labourer`,
+`rentier`, `sharecropper`, and craft masters and hands (seen in runs:
+`dyer`, `fuller`, `weaver_hand`, `tailor_hand`, `tanner_hand`,
+`carpenter_hand`, `cooper_hand`, `mason_hand`, `shoemaker_hand`).
 
-*Needed:* a function that places a building: type, capacity and preferred
-district in; id, position, footprint and district out, so the map and
-`building_districts` stay right. The sim would call it when it builds, or
-the write-back places them all at once.
+**2.6 Relationships, changed row by row (TownShape accepts).** The sim adds
+`friend` ties, lets acquaintances fade and retires the ties of the dead. So
+`friend` becomes a `relationship_type`, rows are inserted and deleted one at
+a time, and `derive_relationships` never runs again after creation.
 
-## 5. Priority 5: large towns
+## 3. Priority 3: what the sim builds appears in the town
+
+**3.1 Placing a building (TownShape function, called by the sim).** When the
+sim starts a house (today: while the town has more people than room, 8
+people each) or, later, a workshop or shop, it asks TownShape for a plot:
+type, capacity and preferred district in; id, position, footprint and
+district out, inserted into `buildings`. TownShape knows the map
+(settlemaker's geometry: free ground inside the walls, roads, districts); the
+sim doesn't. Today the sim makes up ids (`max + 1`) and has no position.
+
+**3.2 Showing it (TownShape viewer).** The viewer draws settlemaker's SVG,
+made once at generation, with building outlines from `buildings` on top. A
+placed building appears as an outline at once; the map underneath won't show
+it unless the SVG is re-rendered or new buildings are drawn in the same
+style.
+
+**3.3 Farms outside the walls.** New farms (poderi) are land in the
+countryside. They need no plot inside the town, but could be shown as
+farmsteads at the edge if wanted.
+
+## 4. Priority 4: large towns
 
 Measured 2026-10-09 on a 21,220-person town generated with Riverport's
 settings (target 29,000): one simulated year takes 8 minutes and peaks at
 about 2 GB in PyPy, nearly all of it ties. TownShape generates 26
 relationships per person at Riverport's size and 36 at 21,000, because
 neighbour ties grow with how densely the town is built; the sim then adds
-shop ties, for about 86 ties a person. A 100,000-person town would take about
-50-60 minutes and 9-10 GB a year.
+shop ties, for about 86 a person. A 100,000-person town would take about
+50-60 minutes and 9-10 GB a year. *Possible change (the user's call, not
+decided):* cap neighbour ties per person in big towns.
 
-*Possible change (a model choice, not decided):* cap neighbour ties per
-person in big towns (own building and the nearest few), so ties grow with
-the population rather than faster. This would change results, so it's the
-user's call.
+## 5. Order of work
+
+1. Agree the Priority 1-2 interfaces in TownShape's `CONTRACTS.md` (its
+   rule: shared interfaces are written down before anyone builds on them).
+2. TownShape: tables (1.1), capacity (1.3), names (2.2), deaths and
+   departures (2.3), occupations (2.5), `friend` and row-level writes (2.6).
+3. Sim: the pipeline (1.2), load and save (2.1, 2.4).
+4. TownShape: placing buildings (3.1) and showing them (3.2); the sim calls
+   it when it builds.
 
 ## Reference: how TownShape creates and advances its population
 
@@ -210,7 +170,7 @@ user's call.
 **Advancing a year** (`town_db.simulation.advance_town`): income, disease,
 births and deaths, skirmishes, household formation, job market, purchases,
 taxes, school and military, then **every relationship is deleted and
-re-derived**. This is why it must not run on a sim-advanced town (section 0).
+re-derived**. This is why it is retired for sim-run towns (section 0).
 
 **External edits** (`town_db.edits.kill_resident`) record a death the way a
 write-back needs: `death_date`, a `deaths` row with cause and reporter, and
