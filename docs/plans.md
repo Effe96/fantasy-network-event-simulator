@@ -18,11 +18,11 @@ Still open from it: seeding thieves and bodyguards at natural levels (6),
 the coup redesign (10), taxes as an event against the governor (11),
 parameters that change naturally (12) and the role items (14).
 
-1. **Very poor:** the ~2.6 points of the rise left after newcomers came
-   alone (15.9% against 13.3% before the houses, 12 seeds). They follow
-   growth; outworkers are the largest very-poor group.
-2. **Workshops** (`Project_Vision/04` §10 D): new workshops when a craft's
-   price holds near the import cap.
+1. ~~Very poor~~ and ~~workshops~~: workshops built 2026-10-10; capping
+   putting-out made things worse and was dropped. **Come back later** to the
+   ~2.6 points of very poor that follow growth (`docs/decisions.md`).
+2. **Proposals decided** (user, 2026-10-10, all defaults):
+   `Project_Vision/05-epidemics-and-ties.md`.
 3. **Epidemics:** what causes an outbreak (the tally's "What causes an
    epidemic").
 4. **Missing ties:** classmates, coworkers for new workers, fuller

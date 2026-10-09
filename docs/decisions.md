@@ -8,6 +8,17 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-10 — Capping putting-out: tried, dropped, to come back to
+
+Putting-out held at its size at import (the rest keep looking for work).
+Seeds 1-6, years 19-25: very poor 17.3% (15.8% without), homelessness 44
+per 1,000 (27), unemployment 43 (36); the town grew only a little less
+(2,340 vs 2,376). Those without putting-out stay and earn nothing; most
+growth is the town's own children, whom unemployment doesn't deter.
+Dropped (user, 2026-10-10). **To come back to:** the ~2.6 points of very
+poor that follow growth (15.9% against 13.3% before the houses). Ideas not
+tried: outworkers' pay, emigration when there's no work.
+
 ## 2026-10-10 — Workshops grow with the town
 
 Plan `Project_Vision/04` §10 D; the user chose the trigger (2026-10-09).
@@ -29,7 +40,7 @@ Plan `Project_Vision/04` §10 D; the user chose the trigger (2026-10-09).
   fall, but the very poor don't move (15.9% years 19-25, as before) and
   homelessness is within noise (27.0 vs 25.8 per 1,000). ~20 jobs at a
   labourer's wage are too few against ~150 more outworkers.
-- **Next (user):** cap outworking by what merchants' cloth trade pays.
+- **Next (user):** cap outworking (tried and dropped, entry above).
 
 ## 2026-10-09 — Newcomers who come for work come alone
 
