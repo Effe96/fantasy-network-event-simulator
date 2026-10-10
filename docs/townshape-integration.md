@@ -3,7 +3,7 @@
 > Rewritten 2026-10-09 around the user's picture of the two tools (first
 > version 2026-09-23). Grouped by priority; each item says what exists today,
 > what is needed, and on which side. Checked against TownShape at `7e1d02a`
-> and `demo_riverport_town.db`.
+> and `demo_riverport_town.db`. Updated 2026-10-10 for epidemics and ties.
 
 ## 0. The picture (user, 2026-10-09)
 
@@ -77,11 +77,12 @@ name out, from TownShape's name lists and `rng_for`. `first_name`,
 `last_name` and `race` are `NOT NULL`.
 
 **2.3 Deaths and departures (TownShape schema).**
-- The sim's causes: `old age`, `plague`, `flu`, `diarrhea`, `famine`,
-  `hardship`, `violence`, `riot`, `execution`, `coup`. TownShape's today:
-  `illness`, `accident`, `childbirth`, `old age`, `plague`, skirmishes.
-  Since the sim drives everything, the simplest is for `deaths.cause` to
-  accept the sim's causes. *Open: confirm.*
+- The sim's causes: `old age`, `flu`, `diarrhea`, `famine`, `hardship`,
+  `violence`, `riot`, `execution`, `coup`, and one per epidemic disease
+  (`influenza`, `measles`, `typhus`, `dysentery`, `plague`, `pneumonic
+  plague`, since 2026-10-10). TownShape's today: `illness`, `accident`,
+  `childbirth`, `old age`, `plague`, skirmishes. **Decided (user,
+  2026-10-09):** `deaths.cause` accepts the sim's causes as they are.
 - `moved away` and `banished` are recorded by the sim as deaths, but the
   person left alive: a `departures` table (resident, date, reason).
 - `deaths.reported_by_building_id`: the sim has no reporter; TownShape picks
@@ -104,9 +105,14 @@ tavern_staff, warehouse_clerk`): `merchant`, `outworker`, `day_labourer`,
 `carpenter_hand`, `cooper_hand`, `mason_hand`, `shoemaker_hand`).
 
 **2.6 Relationships, changed row by row (TownShape accepts).** The sim adds
-`friend` ties, lets acquaintances fade and retires the ties of the dead. So
-`friend` becomes a `relationship_type`, rows are inserted and deleted one at
-a time, and `derive_relationships` never runs again after creation.
+`friend` ties, lets acquaintances fade and retires the ties of the dead.
+Since 2026-10-10 it also keeps TownShape's `coworker`, `neighbor` and
+`classmate` ties in step with jobs, moves and school (old neighbours become
+friends who drift apart), links grown children's households to their
+parents' at setup, and adds `grandparent`, `aunt_uncle`, `cousin` and
+`feud` ties. So these become `relationship_type`s, rows are inserted and
+deleted one at a time, and `derive_relationships` never runs again after
+creation. Open feuds and per-disease immunity go in `sim_state`.
 
 ## 3. Priority 3: what the sim builds appears in the town
 
@@ -117,6 +123,9 @@ type, capacity and preferred district in; id, position, footprint and
 district out, inserted into `buildings`. TownShape knows the map
 (settlemaker's geometry: free ground inside the walls, roads, districts); the
 sim doesn't. Today the sim makes up ids (`max + 1`) and has no position.
+Since workshops (2026-10-10) the sim builds those too, and a move now
+changes neighbours, so a position also decides who a new house's
+neighbours are; until then its first household keeps its old street.
 
 **3.2 Showing it (TownShape viewer).** The viewer draws settlemaker's SVG,
 made once at generation, with building outlines from `buildings` on top. A

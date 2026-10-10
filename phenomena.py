@@ -1,13 +1,14 @@
 import math
 import random
 from dataclasses import dataclass
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
 from economy import (BASKET_PER_PERSON, follow_if_emptied, form_household, household_key, mark_new_household,
                      new_household_id)
-from graph import (FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, befriend, edge_from_relationship,
-                   household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
+from graph import (FAMILY, FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
+                   edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
 
 @dataclass
@@ -45,6 +46,10 @@ CONTAGION_TYPE_WEIGHTS = {
     "shopkeeper_customer": 0.15,
     "friend": 0.5,
     "acquaintance": 0.1,
+    "grandparent": 0.5,  # C: kin who visit, not who live with you
+    "aunt_uncle": 0.3,
+    "cousin": 0.3,
+    "feud": 0.05,
 }
 
 
@@ -66,6 +71,22 @@ DEFAULT_EPIDEMIC_TIER = 3
 # starting on a random day with a random patient zero, instead of always
 # resident 1 on day 0 -- which fizzled in ~1 run in 8, always the same way.
 DEFAULT_OUTBREAK_YEARLY_CHANCE = 0.25
+# Outbreaks by cause (user, 2026-10-10, Project_Vision/05 A): each cause
+# brings its own disease, with that disease's tier. Immunity is to a disease.
+EPIDEMIC_DISEASES = {"influenza": 1, "measles": 2, "typhus": 3, "dysentery": 3, "plague": 4, "pneumonic plague": 5}
+TIER_DISEASE = {1: "influenza", 2: "measles", 3: "typhus", 4: "plague", 5: "pneumonic plague"}  # a run forced to one tier
+IMMUNITY_YEARS = {"influenza": 3}  # C: the others, for life
+# Yearly chances at the reference town (C), adding up to the old flat ~1 in 4;
+# scaled by outbreak_yearly_chance / DEFAULT_OUTBREAK_YEARLY_CHANCE (0: none).
+CARGO_DISEASE_CHANCE = 0.07 / 120  # each import cargo landing (~120 a year, measured): plague comes this way or with newcomers
+CARGO_DISEASES = {"plague": 0.5, "pneumonic plague": 0.05, "typhus": 0.2, "influenza": 0.15, "measles": 0.1}  # C
+ARRIVAL_DISEASE_CHANCE = 0.03 / 20  # each newcomer, ~20 a year
+ARRIVAL_DISEASES = {"measles": 0.3, "typhus": 0.3, "influenza": 0.3, "plague": 0.1}  # C
+FAMINE_TYPHUS_PER_YEAR = 0.5  # C: in the two years after a famine harvest (Great Famine 1315-17, then typhus)
+FAMINE_FEVER_DAYS = 730
+DYSENTERY_PER_YEAR = 0.08  # at the crowding of import, times crowding squared; summer x2, else x0.5
+INFLUENZA_PER_YEAR = 0.07  # winter x3, else x1/3
+SUMMER_DAYS, WINTER_DAYS = (152, 273), (335, 59)  # day of year: June-September; December-February
 
 # ties to people you live with -- quarantine shuts people indoors, so these
 # keep carrying disease inside a sealed district while the rest mostly stop
@@ -76,15 +97,15 @@ class ContagionPhenomenon:
     name = "contagion"
 
     @classmethod
-    def from_tier(cls, graph, tier: int = DEFAULT_EPIDEMIC_TIER,
+    def from_tier(cls, graph, tier: Optional[int] = DEFAULT_EPIDEMIC_TIER,
                   outbreak_yearly_chance: Optional[float] = DEFAULT_OUTBREAK_YEARLY_CHANCE,
                   **kwargs) -> "ContagionPhenomenon":
         """Build the epidemic from an EPIDEMIC_TIERS row. R0 = infectious days
         * base_rate * (a resident's summed tie_strength * type weight), the
         doc's R0 = beta * c * D on this graph, so base_rate is solved from the
         town's own mean tie sum. case_fatality_rate is set so the town-wide
-        average matches the tier once SES_VULNERABILITY scales it per person."""
-        _, fatality, r0, infectious_days = EPIDEMIC_TIERS[tier]
+        average matches the tier once SES_VULNERABILITY scales it per person.
+        tier None: outbreaks come by cause, each with its own disease's tier."""
         tie_sum = {resident_id: 0.0 for resident_id in graph.nodes}
         for (a, b), edge in graph.edges.items():
             weighted = edge.tie_strength * CONTAGION_TYPE_WEIGHTS.get(edge.source_type, 0.2)
@@ -92,13 +113,14 @@ class ContagionPhenomenon:
             tie_sum[b] += weighted
         mean_tie_sum = sum(tie_sum.values()) / max(1, len(tie_sum))
         mean_vulnerability = sum(disease_fatality_factor(n) for n in graph.nodes.values()) / max(1, len(graph.nodes))
-        return cls(
-            base_rate=r0 / (infectious_days * max(mean_tie_sum, 1e-9)),
-            infectious_days=infectious_days,
-            case_fatality_rate=fatality / mean_vulnerability,
-            outbreak_yearly_chance=outbreak_yearly_chance,
-            **kwargs,
-        )
+        by_tier = {t: (r0 / (days * max(mean_tie_sum, 1e-9)), days, fatality / mean_vulnerability)
+                   for t, (_, fatality, r0, days) in EPIDEMIC_TIERS.items()}
+        base_rate, infectious_days, case_fatality_rate = by_tier[tier if tier is not None else DEFAULT_EPIDEMIC_TIER]
+        contagion = cls(base_rate=base_rate, infectious_days=infectious_days, case_fatality_rate=case_fatality_rate,
+                        outbreak_yearly_chance=outbreak_yearly_chance,
+                        disease=TIER_DISEASE[tier] if tier is not None else "typhus", **kwargs)
+        contagion.by_tier, contagion.by_cause = by_tier, tier is None
+        return contagion
 
     def __init__(
         self,
@@ -116,8 +138,15 @@ class ContagionPhenomenon:
         # outbreak starts each day with the daily share of this yearly chance,
         # from a random resident who hasn't had it (survivors stay immune).
         outbreak_yearly_chance: Optional[float] = None,
+        disease: str = "plague",
     ):
         self.base_rate = base_rate
+        self.disease = disease  # the outbreak's (or the last one's): the cause of death and of immunity
+        self.by_tier: Dict[int, Tuple[float, int, float]] = {}  # tier -> (base_rate, infectious_days, fatality), from_tier
+        self.by_cause = False  # outbreaks by cause (from_tier with no tier), else one disease at the flat chance
+        self._arrived: List[int] = []  # newcomers since the last check
+        self._crowding = (0, 1.0)  # (day computed, people per place in houses)
+        self.outbreaks_by_cause: Dict[str, int] = defaultdict(int)
         self.outbreak_yearly_chance = outbreak_yearly_chance
         self._outbreak_daily_chance = (
             1.0 - (1.0 - outbreak_yearly_chance) ** (1.0 / 365.0) if outbreak_yearly_chance is not None else 0.0
@@ -158,6 +187,8 @@ class ContagionPhenomenon:
     def add_resident(self, graph, state, resident_id: int) -> None:
         self._district[resident_id] = graph.nodes[resident_id].district_id
         state[resident_id] = {"status": "susceptible", "days_left": 0}
+        if (graph.nodes[resident_id].age or 0) >= 1:  # came from outside, not born here
+            self._arrived.append(resident_id)
 
     def candidate_edges(self, graph, state):
         # transmission needs an infected endpoint; new infections only take
@@ -196,8 +227,11 @@ class ContagionPhenomenon:
         for resident_id, resident_state in state.items():
             if resident_state["status"] != "infected" or resident_id in just_infected:
                 continue
-            # the dead don't recover (violence may have removed them)
+            # the dead don't recover (violence may have removed them); they're
+            # no longer sick either (2026-10-10: left "infected", they kept the
+            # outbreak open for years and no other could start)
             if not graph.nodes[resident_id].alive:
+                resident_state["status"] = "deceased"
                 continue
             resident_state["days_left"] -= 1
             if resident_state["days_left"] <= 0:
@@ -206,11 +240,12 @@ class ContagionPhenomenon:
                     fatality_p *= self.quarantined_fatality_multiplier
                 if rng.random() < min(1.0, fatality_p):
                     resident_state["status"] = "deceased"
-                    graph.record_death(resident_id, day, "plague")
+                    graph.record_death(resident_id, day, self.disease)
                     events.append(Event(day, self.name, "died", resident_id, resident_id, "died from infection"))
                 else:
                     resident_state["status"] = "recovered"
-                    graph.record_recovery(resident_id, day, "plague")
+                    resident_state.setdefault("immune", {})[self.disease] = day
+                    graph.record_recovery(resident_id, day, self.disease)
                     events.append(Event(day, self.name, "recovered", resident_id, resident_id, "recovered"))
         events.extend(self._maybe_start_outbreak(graph, state, day, rng))
         return events
@@ -218,23 +253,93 @@ class ContagionPhenomenon:
     def _maybe_start_outbreak(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         if self.outbreak_yearly_chance is None:
             return []
+        arrived, self._arrived = self._arrived, []
+        landed, graph.cargoes_landed = getattr(graph, "cargoes_landed", []), []
         if any(resident_state["status"] == "infected" for resident_state in state.values()):
             return []
-        if rng.random() >= self._outbreak_daily_chance:
-            return []
-        candidates = [rid for rid, rs in state.items() if rs["status"] == "susceptible" and graph.nodes[rid].alive]
-        if not candidates:
-            return []
-        patient_zero = rng.choice(candidates)
-        state[patient_zero] = {"status": "infected", "days_left": self.infectious_days}
+        if not self.by_cause:  # one disease (the run's tier) at a flat chance
+            if rng.random() >= self._outbreak_daily_chance:
+                return []
+            return self._start(graph, state, self.disease, list(state), day, "flat", rng)
+        scale = self.outbreak_yearly_chance / DEFAULT_OUTBREAK_YEARLY_CHANCE
+        draw = lambda mix: rng.choices(sorted(mix), [mix[d] for d in sorted(mix)])[0]
+        for merchant in landed:  # brought in with a cargo: the merchant's household catches it first
+            if rng.random() < CARGO_DISEASE_CHANCE * scale and graph.nodes[merchant].alive:
+                home = graph.nodes[merchant].household_id
+                household = [r for r, n in graph.nodes.items() if n.alive and home is not None and n.household_id == home]
+                return self._start(graph, state, draw(CARGO_DISEASES), household or [merchant], day, "trade", rng)
+        for newcomer in arrived:
+            if rng.random() < ARRIVAL_DISEASE_CHANCE * scale and graph.nodes[newcomer].alive:
+                return self._start(graph, state, draw(ARRIVAL_DISEASES), [newcomer], day, "newcomer", rng)
+        daily = lambda yearly: 1.0 - (1.0 - min(0.99, yearly * scale)) ** (1.0 / 365.0)
+        day_of_year = (day - 1) % 365
+        alive = [n for n in graph.nodes.values() if n.alive]
+        famine = getattr(graph, "last_famine_day", None)
+        if famine is not None and day - famine <= FAMINE_FEVER_DAYS and rng.random() < daily(FAMINE_TYPHUS_PER_YEAR):
+            hungry = [n.resident_id for n in alive if n.hungry_months > 0] or [n.resident_id for n in alive]
+            return self._start(graph, state, "typhus", hungry, day, "famine", rng)
+        summer = SUMMER_DAYS[0] <= day_of_year <= SUMMER_DAYS[1]
+        crowding = self._crowding_now(graph, day)
+        if rng.random() < daily(DYSENTERY_PER_YEAR * crowding ** 2 * (2.0 if summer else 0.5)):
+            return self._start(graph, state, "dysentery", self._most_crowded(graph, alive), day, "crowding", rng)
+        winter = day_of_year >= WINTER_DAYS[0] or day_of_year <= WINTER_DAYS[1]
+        if rng.random() < daily(INFLUENZA_PER_YEAR * (3.0 if winter else 1 / 3)):
+            return self._start(graph, state, "influenza", [n.resident_id for n in alive], day, "season", rng)
+        return []
+
+    def _start(self, graph, state, disease: str, candidates: List[int], day: int, cause: str,
+               rng: random.Random) -> List[Event]:
+        """An outbreak of `disease` from one of `candidates` who can catch it:
+        who caught it before is immune (influenza only for IMMUNITY_YEARS).
+        2026-10-10: a patient zero who'd had it stopped the outbreak, and
+        crowding always picked the same house, so 1 in 12 a year started
+        instead of 1 in 4."""
+        if self.by_tier:
+            self.base_rate, self.infectious_days, self.case_fatality_rate = self.by_tier[EPIDEMIC_DISEASES[disease]]
+        self.disease = disease
+        for resident_state in state.values():
+            if resident_state["status"] == "deceased":
+                continue
+            caught = resident_state.get("immune", {}).get(disease)
+            immune = caught is not None and day - caught < IMMUNITY_YEARS.get(disease, 10 ** 6) * 365
+            resident_state["status"] = "recovered" if immune else "susceptible"
+        can_catch = [r for r in candidates if state[r]["status"] == "susceptible" and graph.nodes[r].alive]
+        if not can_catch:
+            return []  # they all had it: nothing starts
+        patient_zero = rng.choice(can_catch)
+        state[patient_zero].update(status="infected", days_left=self.infectious_days)
         self._outbreaks += 1
-        return [Event(day, self.name, "outbreak", patient_zero, patient_zero, "an epidemic breaks out")]
+        self.outbreaks_by_cause[f"{cause}: {disease}"] += 1
+        return [Event(day, self.name, "outbreak", patient_zero, patient_zero, f"{disease} breaks out ({cause})")]
+
+    def _crowding_now(self, graph, day: int) -> float:
+        """People per place in houses (1.0 at import), recomputed monthly."""
+        if day - self._crowding[0] >= 30 or self._crowding[0] == 0:
+            houses = getattr(graph, "houses", {})
+            room = sum(h.get("room") or 0 for h in houses.values() if "left" not in h)
+            housed = sum(1 for n in graph.nodes.values() if n.alive and n.home_building_id in houses)
+            self._crowding = (day, housed / room if room else 1.0)
+        return self._crowding[1]
+
+    @staticmethod
+    def _most_crowded(graph, alive, share: float = 0.1) -> List[int]:
+        """The people of the most crowded tenth of houses (everyone, in a town without houses)."""
+        houses = getattr(graph, "houses", {})
+        living = defaultdict(list)
+        for node in alive:
+            if node.home_building_id in houses:
+                living[node.home_building_id].append(node.resident_id)
+        if not living:
+            return [n.resident_id for n in alive]
+        ranked = sorted(sorted(living), key=lambda b: -len(living[b]) / max(1, houses[b].get("room") or len(living[b])))
+        return [r for b in ranked[:max(1, round(len(ranked) * share))] for r in living[b]]
 
     def summarize(self, state) -> Dict[str, int]:
         counts = {"susceptible": 0, "infected": 0, "recovered": 0, "deceased": 0}
         for resident_state in state.values():
             counts[resident_state["status"]] += 1
         counts["outbreaks"] = self._outbreaks
+        counts.update({f"outbreaks {k}": v for k, v in self.outbreaks_by_cause.items()})
         return counts
 
 
@@ -675,6 +780,7 @@ class ViolencePhenomenon:
         # docs/decisions.md's 2026-09-21 entry.
         self.group_action_rate = group_action_rate
         self._group_kills = 0
+        self._feuds_started = self._feuds_ended = self._feuds_open = 0
         self.coup_animosity_threshold = coup_animosity_threshold
         self.coup_start_rate = coup_start_rate
         self.coup_hire_rate = coup_hire_rate
@@ -798,9 +904,16 @@ class ViolencePhenomenon:
             self._new_candidates.append(graph._key(neighbor_id, culprit))
             events.append(Event(day, self.name, "grief_shock", neighbor_id, culprit, f"valence -{shock:.3f}"))
 
+        # after grief, so grief reaches only ties that were there before the killing
+        if killer is not None:
+            self._feuds_started += start_feud(graph, victim, killer, day, rng)
+            self._feuds_open = len(getattr(graph, "feuds", ()))
         return events
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        if day % 365 == 0:
+            self._feuds_ended += settle_feuds(graph, rng)
+            self._feuds_open = len(getattr(graph, "feuds", ()))
         return (
             self._check_group_violence(graph, state, day, rng)
             + self._check_mercenary_hiring(graph, state, day, rng)
@@ -1108,6 +1221,8 @@ class ViolencePhenomenon:
             edge_to_ringleader.set_valence_from(neighbor_id, new_valence)
             events.append(Event(day, self.name, "grief_shock", neighbor_id, ringleader, f"valence -{shock:.3f}"))
 
+        self._feuds_started += start_feud(graph, victim, ringleader, day, rng)  # after grief, as above
+        self._feuds_open = len(getattr(graph, "feuds", ()))
         return events
 
     def summarize(self, state) -> Dict[str, int]:
@@ -1117,6 +1232,9 @@ class ViolencePhenomenon:
             "alive": alive,
             "dead": len(state) - alive,
             "group_kills": self._group_kills,
+            "feuds_started": self._feuds_started,
+            "feuds_ended": self._feuds_ended,
+            "feuds_open": self._feuds_open,
             "killers_caught": self._killers_caught,
             "killers_hanged": self._killers_hanged,
             "killers_banished": self._killers_banished,
@@ -1211,7 +1329,7 @@ class RomancePhenomenon:
         threshold = self.love_threshold
         if getattr(self, "_eligible", None) is None:  # kept from tie change reports (speed-up 2026-09-30)
             self._eligible = TieFilter(lambda edge: edge.source_type == "spouse"
-                                       or (edge.source_type not in ("parent", "sibling")
+                                       or (edge.source_type not in FAMILY
                                            and edge.valence_a_to_b > threshold and edge.valence_b_to_a > threshold))
         return self._eligible.keys(graph)
 
@@ -1225,8 +1343,8 @@ class RomancePhenomenon:
                 return 0.0
             return self.birth_base_rate * edge.tie_strength
 
-        if edge.source_type in ("parent", "sibling"):
-            return 0.0  # no romance within family
+        if edge.source_type in FAMILY:
+            return 0.0  # no romance within family (canon law forbade cousins too)
         if state_a["married"] or state_b["married"]:
             return 0.0  # monogamy: no divorce (a widow(er) is free again, see end_of_day)
         if state_a["celibate"] or state_b["celibate"]:
@@ -1281,6 +1399,7 @@ class RomancePhenomenon:
         }, [(mother, "parent"), (father, "parent")] + [(sibling, "sibling") for sibling in siblings]
            + [(neighbour, "neighbor") for neighbour in neighbours], rng)
         graph.nodes[baby].age = 0  # also when the graph has no reference year
+        add_wider_family(graph, rng, [baby])  # grandparents, aunts and uncles, cousins
         return baby
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
@@ -1336,7 +1455,7 @@ class RomancePhenomenon:
     @staticmethod
     def _are_family(graph, a: int, b: int) -> bool:
         edge = graph.get_edge(a, b)
-        return edge is not None and edge.source_type in ("parent", "sibling")
+        return edge is not None and edge.source_type in FAMILY and edge.source_type != "spouse"
 
     def summarize(self, state) -> Dict[str, int]:
         return {
@@ -1697,10 +1816,11 @@ class RiotPhenomenon:
 # swap for that once it exists
 BRIBE_WEALTH_FACTOR = {"very_poor": 0.25, "poor": 0.5, "middling": 1.0, "rich": 2.0, "very_rich": 3.0}
 # graph.deaths causes that count as "disease" for priests' curer blame
-SICKNESS_CAUSES = {"plague", "flu", "diarrhea"}
+SICKNESS_CAUSES = {"flu", "diarrhea", *EPIDEMIC_DISEASES}
 # how much surviving each sickness moves a resident toward faith and the
 # clergy (user's ordering: very bad diseases most, diarrhea less, flu much less)
-RECOVERY_SEVERITY = {"plague": 1.0, "diarrhea": 0.3, "flu": 0.1}
+RECOVERY_SEVERITY = {"plague": 1.0, "pneumonic plague": 1.0, "typhus": 0.8, "dysentery": 0.5, "measles": 0.5,
+                     "influenza": 0.2, "diarrhea": 0.3, "flu": 0.1}
 
 
 def refresh_classes(graph, state) -> None:
@@ -1879,6 +1999,83 @@ THIEF_STRESS_THRESHOLD = 0.6
 # for homicide. ponytail: banishment is recorded as a death with cause
 # "banished" (the resident leaves for good) until emigration exists.
 KILLER_CAUGHT = 0.5  # C
+# feuds (vendetta; user, 2026-10-10, Project_Vision/05 B4): a killing sets the
+# victim's close kin against the killer and theirs, and nothing softens it
+# until a peace (pace) is made or the families marry
+# C: the victim's kin toward the killer's side, just under the hatred floor (0.6),
+# so a feud kills only once grief or a quarrel pushes it further (user, 2026-10-10:
+# bring killings down; 0.75 raised them ~50%, 0.65 ~20%)
+FEUD_AVENGER_HOSTILITY = 0.55
+FEUD_DEFENDER_HOSTILITY = 0.5  # C: the killer's side back, wary but short of hatred
+FEUD_PEACE_PER_YEAR = 0.1  # C: a pace, often brokered by the Church or the commune; ~10 years on average
+
+
+def _close_kin(graph, resident_id: int) -> List[int]:
+    return sorted(o for o, e in graph.ties_of(resident_id).items()
+                  if e.source_type in ("spouse", "parent", "sibling") and graph.nodes[o].alive)
+
+
+def start_feud(graph, victim: int, killer: int, day: int, rng: random.Random) -> int:
+    """A killing starts a feud: the victim's close kin turn on the killer and
+    the killer's close kin (FEUD_AVENGER_HOSTILITY), who turn wary of them
+    (FEUD_DEFENDER_HOSTILITY). Two who had no tie get a `feud` tie. Both
+    feelings are held there while the feud lasts (EverydayPhenomenon's pull),
+    just short of the hatred that kills: the existing violence kills only if
+    something pushes further. Returns 1 if a feud started (the victim left
+    kin), else 0."""
+    avengers = [k for k in _close_kin(graph, victim) if k != killer]
+    if not avengers:
+        return 0
+    killers = [killer] + [k for k in _close_kin(graph, killer) if k not in avengers and k != victim]
+    if not graph.nodes[killer].alive:
+        killers = killers[1:]
+    if not killers:
+        return 0
+    if not hasattr(graph, "feuds"):
+        graph.feuds, graph.feud_ties = [], {}
+    keys = []
+    for a in avengers:
+        for k in killers:
+            edge = graph.get_edge(a, k)
+            if edge is None:
+                edge = edge_from_relationship(graph, a, k, "feud", rng)
+                graph.add_edge(edge)
+            edge.set_valence_from(a, min(edge.valence_from(a), -FEUD_AVENGER_HOSTILITY))
+            edge.set_valence_from(k, min(edge.valence_from(k), -FEUD_DEFENDER_HOSTILITY))
+            key = (min(a, k), max(a, k))
+            keys.append(key)
+            # where the pull aims while the feud lasts: (lower id's feeling, higher id's)
+            graph.feud_ties[key] = ((-FEUD_AVENGER_HOSTILITY, -FEUD_DEFENDER_HOSTILITY) if a < k
+                                    else (-FEUD_DEFENDER_HOSTILITY, -FEUD_AVENGER_HOSTILITY))
+    graph.feuds.append({"avengers": avengers, "killers": killers, "keys": keys, "day": day})
+    return 1
+
+
+def settle_feuds(graph, rng: random.Random) -> int:
+    """Yearly: a feud ends in a peace (FEUD_PEACE_PER_YEAR), when the two
+    families marry, or when one side is gone. Its ties soften again (the
+    everyday pull back), and `feud` ties become acquaintances that fade.
+    Returns how many ended."""
+    kept, ended = [], 0
+    for feud in getattr(graph, "feuds", []):
+        sides = [[r for r in feud[side] if graph.nodes[r].alive] for side in ("avengers", "killers")]
+        married = any(graph.get_edge(a, k) is not None and graph.get_edge(a, k).source_type == "spouse"
+                      for a in sides[0] for k in sides[1])
+        if all(sides) and not married and rng.random() >= FEUD_PEACE_PER_YEAR:
+            kept.append(feud)
+            continue
+        ended += 1
+    if ended:
+        still = {key: graph.feud_ties[key] for feud in kept for key in feud["keys"] if key in graph.feud_ties}
+        for feud in graph.feuds:
+            if feud in kept:
+                continue
+            for key in feud["keys"]:
+                edge = graph.edges.get(key)
+                if key not in still and edge is not None and edge.source_type == "feud":
+                    edge.source_type, edge.fiske_type = "acquaintance", FISKE_TAGS["acquaintance"]
+        graph.feuds, graph.feud_ties = kept, still
+    return ended
 KILLER_HANGED = 0.5  # C
 ASSASSIN_NAMES_PATRON = 0.5  # C: a caught hired assassin names the noble who paid
 
@@ -2529,7 +2726,7 @@ class QuarantinePhenomenon:
         last_death_day: Dict[int, int] = {}
         nobles_alarmed = False
         for death in graph.deaths:
-            if death["cause"] != "plague":
+            if death["cause"] not in EPIDEMIC_DISEASES:
                 continue
             node = graph.nodes[death["resident_id"]]
             district = node.district_id
@@ -2578,6 +2775,8 @@ class QuarantinePhenomenon:
                 if caller == "noble" and other != graph.governor_id:
                     shock *= self.other_noble_anger_share
                 edge = graph.get_edge(resident_id, other)
+                if edge is None:  # the tie faded since the cache was built (ties come and go since 2026-09-29)
+                    continue
                 edge.set_valence_from(resident_id, max(-1.0, edge.valence_from(resident_id) - shock))
                 hit = True
             angered += hit
@@ -2863,7 +3062,7 @@ class PopulationPhenomenon:
             # the place's ties, not the person's: a friendship counts as what it
             # was (a neighbour, a customer); acquaintances and family don't pass
             kind = record.get("former_type") if record["source_type"] == "friend" else record["source_type"]
-            if graph.nodes[other].alive and kind not in (None, "acquaintance", "spouse", "parent", "sibling"):
+            if graph.nodes[other].alive and kind not in (None, "acquaintance", *FAMILY):
                 (shops if kind == "shopkeeper_customer" else ties).append((other, dict(record, source_type=kind)))
         newcomer = graph.add_resident({
             "ses": old.ses, "gender": rng.choice(("female", "male")),
@@ -3036,10 +3235,14 @@ class EverydayPhenomenon:
     def _pull_back(self, graph) -> None:
         self._register_ties(graph)  # ties created since (births, weddings, arrivals)
         pull, targets, listeners = self._pull_per_month, self._target, graph._tie_listeners
+        feuding = getattr(graph, "feud_ties", {})
         for key, edge in graph.edges.items():
             # both feelings written directly, then one change report for the tie
             # (speed-up 2026-09-30: 160,000 writes a month, each reported)
-            low, high = targets[key]
+            # a feud is pulled toward its own hostility, not the tie's old feeling:
+            # it doesn't soften by itself (settle_feuds ends it), and grief or a
+            # quarrel on top fades back to it (2026-10-10: frozen, feuds raised killings ~20%)
+            low, high = feuding.get(key) or targets[key]
             to_b, to_a = (low, high) if edge.resident_a == key[0] else (high, low)
             object.__setattr__(edge, "valence_a_to_b", edge.valence_a_to_b + (to_b - edge.valence_a_to_b) * pull)
             object.__setattr__(edge, "valence_b_to_a", edge.valence_b_to_a + (to_a - edge.valence_b_to_a) * pull)
@@ -3068,9 +3271,12 @@ class FriendshipPhenomenon:
     name = "friendship"
 
     def __init__(self, meetings_per_year: float = 1.0, acquaintance_fade_per_year: float = 0.4,
-                 friend_min_age: int = 6):
+                 friend_min_age: int = 6, moved_away_fade_per_year: float = 0.7):
         self.meetings_per_year = meetings_per_year
         self._fade_per_month = 1.0 - (1.0 - acquaintance_fade_per_year) ** (1.0 / 12.0)
+        # C: old neighbours, friends since one moved away (user, 2026-10-10), drift apart;
+        # at 0.3 they piled up to 5x the town's other friendships in 25 years
+        self._moved_away_fade_per_month = 1.0 - (1.0 - moved_away_fade_per_year) ** (1.0 / 12.0)
         self.friend_min_age = friend_min_age
         self._met = 0
         self._befriended = 0
@@ -3121,19 +3327,28 @@ class FriendshipPhenomenon:
         return []
 
     def _monthly(self, graph, day: int, rng: random.Random) -> None:
+        fading = getattr(graph, "fading_friends", set())
         for (a, b), edge in list(graph.edges.items()):
             if not (graph.nodes[a].alive and graph.nodes[b].alive):
                 continue
             coolest = min(edge.valence_a_to_b, edge.valence_b_to_a)
             if edge.source_type == "friend":
-                if coolest < FRIEND_COOLED:
+                if coolest < FRIEND_COOLED and (a, b) not in fading:  # old neighbours drift apart instead (below)
                     unfriend(edge)
                     self._cooled += 1
-            elif edge.source_type not in ("spouse", "parent", "sibling") and coolest >= FRIEND_WARMTH:
+            elif edge.source_type not in FAMILY and coolest >= FRIEND_WARMTH:
                 befriend(edge)
                 self._befriended += 1
             elif edge.source_type == "acquaintance" and rng.random() < self._fade_per_month:
                 graph.retire_tie(a, b, day, "faded")
+                self._faded += 1
+        for key in sorted(fading):
+            edge = graph.edges.get(key)
+            if edge is None or edge.source_type != "friend":
+                fading.discard(key)  # gone, or cooled into an acquaintance (which fades on its own)
+            elif rng.random() < self._moved_away_fade_per_month:
+                fading.discard(key)
+                graph.retire_tie(key[0], key[1], day, "drifted apart")
                 self._faded += 1
         self._count(graph)
 

@@ -199,6 +199,7 @@ class MerchantTrade:
                 self.year["cargoes lost fl"] += units * cost
                 losers.add(merchant)
                 continue
+            graph.cargoes_landed = getattr(graph, "cargoes_landed", []) + [merchant]  # disease can come with it
             held = self.stock[merchant]
             self.cost[merchant] = (held * self.cost[merchant] + units * cost) / max(held + units, 1e-12)
             self.stock[merchant] = held + units

@@ -4,11 +4,11 @@ import csv
 import json
 from dataclasses import asdict
 from pathlib import Path
+from typing import Optional
 
 from graph import import_snapshot
 from phenomena import (
     CommonAilmentsPhenomenon,
-    DEFAULT_EPIDEMIC_TIER,
     DEFAULT_OUTBREAK_YEARLY_CHANCE,
     EPIDEMIC_TIERS,
     ContagionPhenomenon,
@@ -39,7 +39,7 @@ VIOLENCE_RATE_PER_DEGREE = 0.0018
 PARAMETER_FLAGS = ("aggression", "loyalty", "religiosity", "strictness", "same_sex_share")
 
 
-def build_phenomena(graph, epidemic_tier: int = DEFAULT_EPIDEMIC_TIER,
+def build_phenomena(graph, epidemic_tier: Optional[int] = None,
                     outbreak_chance: float = DEFAULT_OUTBREAK_YEARLY_CHANCE,
                     transmission_rate=None, infectious_days=None, fatality_rate=None):
     """The standard phenomenon set, in engine order, calibrated to this town.
@@ -110,10 +110,11 @@ def main(argv=None) -> None:
     parser.add_argument("--days", type=int, default=365)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", default="output")
-    parser.add_argument("--epidemic-tier", type=int, default=DEFAULT_EPIDEMIC_TIER, choices=sorted(EPIDEMIC_TIERS),
-                         help="epidemic severity tier (see EPIDEMIC_TIERS; 3 = average, the default)")
+    parser.add_argument("--epidemic-tier", type=int, default=None, choices=sorted(EPIDEMIC_TIERS),
+                         help="force every epidemic to one tier (see EPIDEMIC_TIERS); default: each outbreak's"
+                              " cause (trade, newcomers, famine, crowding, the season) brings its own disease")
     parser.add_argument("--outbreak-chance", type=float, default=DEFAULT_OUTBREAK_YEARLY_CHANCE,
-                         help="yearly chance an epidemic breaks out (random day, random patient zero)")
+                         help="yearly chance an epidemic breaks out in a quiet year (scales every cause; 0: none)")
     parser.add_argument("--transmission-rate", type=float, default=None,
                          help="override the tier's per-edge daily transmission hazard")
     parser.add_argument("--infectious-days", type=int, default=None,

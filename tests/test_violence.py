@@ -98,7 +98,8 @@ def test_grief_shock_increases_neighbors_animosity_toward_culprit():
         graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True))
     # 1 and 2 are the violent pair; 3 is close to 1 (the victim) and already knows 2 (the culprit)
     graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
-    graph.add_edge(Edge(1, 3, "sibling", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))
+    # a friend, not kin: kin would also start a feud (test below)
+    graph.add_edge(Edge(1, 3, "friend", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))
     graph.add_edge(Edge(2, 3, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, 0.1, 0.1))
 
     phenomenon = ViolencePhenomenon(base_rate=1.0, grief_shock=0.15)
@@ -164,7 +165,7 @@ def test_summarize_counts_alive_and_dead():
     state = phenomenon.init_state(graph)
     state[1]["alive"] = False
     assert phenomenon.summarize(state) == {
-        "alive": 1, "dead": 1, "group_kills": 0, "killers_caught": 0, "killers_hanged": 0, "killers_banished": 0,
+        "alive": 1, "dead": 1, "group_kills": 0, "feuds_started": 0, "feuds_ended": 0, "feuds_open": 0, "killers_caught": 0, "killers_hanged": 0, "killers_banished": 0,
         "hired_assassinations": 0, "mercenaries_hired": 0,
         "coups_attempted": 0, "coups_succeeded": 0, "coup_mercenaries_hired": 0,
     }
@@ -192,7 +193,7 @@ def test_noble_culprit_hires_an_assassin_with_reduced_grief_shock():
     graph.add_node(Node(resident_id=3, ses="middling", alive=True))  # victim's neighbor
     graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
     graph.add_edge(Edge(1, 3, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, 0.1, 0.1))
-    graph.add_edge(Edge(2, 3, "sibling", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))
+    graph.add_edge(Edge(2, 3, "friend", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))  # not kin: no feud
 
     phenomenon = ViolencePhenomenon(
         base_rate=1.0, success_base_rate=1.0, grief_shock=0.15, noble_hired_assassin_shock_factor=0.5,
@@ -218,7 +219,7 @@ def test_non_noble_culprit_gets_full_grief_shock_not_the_hired_discount():
     graph.add_node(Node(resident_id=3, ses="middling", alive=True))
     graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
     graph.add_edge(Edge(1, 3, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, 0.1, 0.1))
-    graph.add_edge(Edge(2, 3, "sibling", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))
+    graph.add_edge(Edge(2, 3, "friend", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))  # not kin: no feud
 
     phenomenon = ViolencePhenomenon(base_rate=1.0, success_base_rate=1.0, grief_shock=0.15)
     phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 1
@@ -755,6 +756,31 @@ def test_mild_dislike_never_turns_deadly():
     assert abs(phenomenon.edge_probability(edge, state[1], state[2], day=1) - 0.5 * 0.75 * edge.tie_strength) < 1e-9
 
 
+def test_a_killing_starts_a_feud_that_doesn_t_soften_until_peace():
+    import phenomena as ph
+    graph = SocialGraph()
+    for resident_id in range(1, 6):
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, age=40))
+    graph.add_edge(Edge(1, 2, "sibling", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))  # victim 1, brother 2
+    graph.add_edge(Edge(3, 4, "spouse", "Communal Sharing", 0.8, 0.8, 0.8, 0.7, 0.7))  # killer 3, wife 4
+    graph.record_death(1, 10, "violence", killed_by=3)
+    assert ph.start_feud(graph, 1, 3, 10, random.Random(0)) == 1
+    assert graph.get_edge(2, 4).source_type == "feud"  # strangers before
+    assert graph.get_edge(2, 3).valence_from(2) <= -ph.FEUD_AVENGER_HOSTILITY
+    assert graph.get_edge(2, 3).valence_from(3) <= -ph.FEUD_DEFENDER_HOSTILITY
+    everyday = ph.EverydayPhenomenon(pull_per_year=0.9)
+    everyday.init_state(graph)
+    everyday._target[(2, 3)] = (0.0, 0.0)
+    everyday._pull_back(graph)
+    assert graph.get_edge(2, 3).valence_from(2) <= -ph.FEUD_AVENGER_HOSTILITY  # no softening
+    peace, ph.FEUD_PEACE_PER_YEAR = ph.FEUD_PEACE_PER_YEAR, 1.0
+    try:
+        assert ph.settle_feuds(graph, random.Random(0)) == 1
+    finally:
+        ph.FEUD_PEACE_PER_YEAR = peace
+    assert graph.get_edge(2, 4).source_type == "acquaintance" and not graph.feud_ties
+
+
 def _run_all():
     test_positive_valence_edges_never_fire()
     test_edge_probability_formula()
@@ -763,6 +789,7 @@ def _run_all():
     test_aggressor_is_the_more_hostile_side_when_vulnerability_is_equal()
     test_loyalty_dampens_own_odds_of_being_the_aggressor()
     test_grief_shock_increases_neighbors_animosity_toward_culprit()
+    test_a_killing_starts_a_feud_that_doesn_t_soften_until_peace()
     test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse()
     test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit()
     test_summarize_counts_alive_and_dead()

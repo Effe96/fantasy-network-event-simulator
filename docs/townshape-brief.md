@@ -60,8 +60,9 @@ fills them; TownShape's own code doesn't need to read them.
   queries for living residents respect that.
 - `sim_state(key TEXT PRIMARY KEY, value TEXT NOT NULL)`, JSON values, for the
   sim's town-level state (the commune's and Church's money, class lines,
-  granary, workshop stocks, merchants' cargoes, debts, its clock). Opaque to
-  TownShape.
+  granary, workshop stocks, merchants' cargoes, debts, open feuds, who is
+  immune to which disease and since when, the outbreak under way, its
+  clock). Opaque to TownShape.
 - New nullable columns on `town_state`: `loyalty REAL, religiosity REAL,
   strictness REAL`, the sim's town parameters beside `aggression`.
 
@@ -74,17 +75,27 @@ show an unknown value as it is rather than reject or drop it.
 
 - **Causes of death** (the owner's decision: accept them as they are, no
   mapping): `old age`, `plague`, `flu`, `diarrhea`, `famine`, `hardship`,
-  `violence`, `riot`, `execution`, `coup`. Coming: one cause per epidemic
-  disease (for example `typhus`, `dysentery`, `influenza`) in place of
-  `plague` for all of them. `deaths.reported_by_building_id` may be `NULL`.
+  `violence`, `riot`, `execution`, `coup`, and since 2026-10-10 one per epidemic
+  disease: `influenza`, `measles`, `typhus`, `dysentery`, `plague`,
+  `pneumonic plague` (`flu` and `diarrhea` are everyday ailments, separate
+  from them). `deaths.reported_by_building_id` may be `NULL`.
 - **Occupations:** besides TownShape's own, `merchant`, `outworker`,
   `day_labourer`, `rentier`, `sharecropper`, and craft masters and hands, for
   example `dyer`, `fuller`, `weaver_hand`, `tailor_hand`, `tanner_hand`,
   `carpenter_hand`, `cooper_hand`, `mason_hand`, `shoemaker_hand`.
-- **Relationship types:** `friend`, `acquaintance` and `shopkeeper_customer`,
-  besides TownShape's own. Coming: wider family (for example `grandparent`,
-  `aunt_uncle`, `cousin`); TownShape's `coworker` and `classmate` will also
-  be created mid-run.
+- **Relationship types:** besides TownShape's own, `friend`,
+  `acquaintance`, `shopkeeper_customer`, and since 2026-10-10 the wider
+  family (`grandparent`, `aunt_uncle`, `cousin`) and `feud` (two families
+  set against each other by a killing). The sim also creates and ends
+  TownShape's own `coworker`, `neighbor` and `classmate` ties mid-run: on a
+  new job, a move (old neighbours become friends, the new street's people
+  neighbours) and starting or leaving school. `relationships.former_type`
+  records what a tie was before it changed (for example a coworker who
+  became an acquaintance).
+- **Family across households:** at setup the sim links grown children's
+  households to their parents' (TownShape's parent ties stay within a
+  household), adding `parent` ties between households, and wider family
+  from those. Nothing to do for TownShape beyond accepting the rows.
 - **Homeless residents:** `residents.home_building_id` is `NULL`. The schema
   already allows it; the viewer should show them as homeless.
 - **Ids:** the sim adds `residents` and `households` rows with ids it assigns
@@ -123,6 +134,11 @@ town, since 2026-10-10), it calls this to get a plot. It should:
 - insert a `buildings` row with position, size, rotation and footprint, like
   a generated building;
 - return the new id, or `None` if there is no room.
+
+Position matters to the sim too: since 2026-10-10 a household that moves
+gets the new street's people as neighbours, TownShape's rule of the nearest
+buildings. Until a sim-built house has a place, its first household keeps
+the street it came from.
 
 The viewer draws building outlines from `buildings`, so a placed building
 shows at once. The settlemaker SVG underneath is made once at generation and

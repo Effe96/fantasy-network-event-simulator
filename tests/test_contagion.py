@@ -96,7 +96,7 @@ def test_dead_residents_do_not_recover():
     state = phenomenon.init_state(graph)
     events = phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
     assert events == []
-    assert state[1]["status"] == "infected"  # frozen, not recovered
+    assert state[1]["status"] == "deceased"  # not recovered, and no longer keeping the outbreak open
 
 
 def test_occasional_outbreak_mode_starts_with_nobody_infected():
@@ -127,8 +127,47 @@ def test_an_outbreak_starts_from_a_random_susceptible_resident():
     assert certain.summarize(state)["outbreaks"] == 1
 
 
+def _three():
+    graph = SocialGraph()
+    for resident_id in (1, 2, 3):
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, age=30))
+    graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, 0.0, 0.0))
+    return graph
+
+
+def test_immunity_is_to_a_disease_and_influenza_s_fades():
+    graph = _three()
+    contagion = ContagionPhenomenon(outbreak_yearly_chance=0.25)
+    state = contagion.init_state(graph)
+    state[1].update(status="recovered", immune={"typhus": 100, "influenza": 100})
+    contagion._start(graph, state, "plague", [2], 200, "trade", random.Random(0))
+    assert state[1]["status"] == "susceptible" and contagion.disease == "plague"  # typhus doesn't protect
+    state[2]["status"] = "recovered"
+    assert contagion._start(graph, state, "typhus", [1], 300, "famine", random.Random(0)) == []  # 1 had typhus: nothing starts
+    contagion._start(graph, state, "influenza", [3], 100 + 4 * 365, "season", random.Random(0))
+    assert state[1]["status"] == "susceptible"  # influenza immunity is gone after 3 years
+
+
+def test_a_cargo_can_bring_an_outbreak_to_its_merchant():
+    import phenomena as ph
+    graph = _three()
+    contagion = ContagionPhenomenon(outbreak_yearly_chance=0.25)
+    contagion.by_cause = True
+    state = contagion.init_state(graph)
+    graph.cargoes_landed = [2]
+    chance, ph.CARGO_DISEASE_CHANCE = ph.CARGO_DISEASE_CHANCE, 1.0
+    try:
+        events = contagion._maybe_start_outbreak(graph, state, 10, random.Random(0))
+    finally:
+        ph.CARGO_DISEASE_CHANCE = chance
+    assert [e.resident_a for e in events] == [2] and state[2]["status"] == "infected"
+    assert contagion.disease in ph.CARGO_DISEASES and graph.cargoes_landed == []
+
+
 def _run_all():
     test_edge_probability_matches_worked_example()
+    test_immunity_is_to_a_disease_and_influenza_s_fades()
+    test_a_cargo_can_bring_an_outbreak_to_its_merchant()
     test_probability_is_zero_when_neither_endpoint_infected()
     test_infected_recovers_after_infectious_days()
     test_infected_can_die_instead_of_recovering()

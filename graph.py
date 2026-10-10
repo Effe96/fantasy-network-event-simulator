@@ -422,7 +422,16 @@ RELATIONSHIP_TYPE_BASELINES = {
     # person you know; a friendship is normally a warmed-up tie of another type
     "acquaintance": {"time": (0.15, 0.10), "intimacy": (0.10, 0.08), "services": (0.10, 0.10), "valence": (0.00, 0.30)},
     "friend":    {"time": (0.45, 0.20), "intimacy": (0.55, 0.20), "services": (0.40, 0.20), "valence": (0.50, 0.25)},
+    # wider family (2026-10-10, Project_Vision/05 B3), C: below close family, above neighbours
+    "grandparent": {"time": (0.40, 0.20), "intimacy": (0.55, 0.20), "services": (0.45, 0.20), "valence": (0.35, 0.40)},
+    "aunt_uncle":  {"time": (0.30, 0.20), "intimacy": (0.40, 0.20), "services": (0.35, 0.20), "valence": (0.20, 0.40)},
+    "cousin":      {"time": (0.30, 0.20), "intimacy": (0.35, 0.20), "services": (0.30, 0.20), "valence": (0.15, 0.40)},
+    # a vendetta between two families who had no tie (2026-10-10, Project_Vision/05 B4)
+    "feud":        {"time": (0.10, 0.05), "intimacy": (0.05, 0.05), "services": (0.00, 0.02), "valence": (-0.60, 0.15)},
 }
+CLOSE_FAMILY = ("spouse", "parent", "sibling")
+WIDER_FAMILY = ("grandparent", "aunt_uncle", "cousin")
+FAMILY = CLOSE_FAMILY + WIDER_FAMILY
 
 # A non-family tie warm both ways at FRIEND_WARMTH or more is a friendship;
 # it goes back to what it was once either side cools below FRIEND_COOLED.
@@ -442,6 +451,10 @@ FISKE_TAGS = {
     "shopkeeper_customer": "Market Pricing",
     "acquaintance": "Equality Matching",
     "friend": "Communal Sharing",
+    "grandparent": "Communal Sharing",
+    "aunt_uncle": "Communal Sharing",
+    "cousin": "Communal Sharing",
+    "feud": "Equality Matching",  # Fiske: revenge is balanced reciprocity
 }
 
 
@@ -903,6 +916,265 @@ def household_shop_ties(graph: SocialGraph, node: Node, rng: random.Random, mode
     return added
 
 
+# 2026-10-10: at 0.5, 3 and heads to 45, wider family grew 4.5x in 25 years as the
+# sim's own families deepened; these match what 25 years of births build (~1 aunt
+# or uncle and ~1 cousin a person), so it holds instead
+LINEAGE_SHARE = 1.0  # C: of younger households, those whose parents live in town (if any fit)
+LINEAGE_GAP = (20, 40)  # C: a parent's age over their child's
+GROWN_HOUSEHOLDS_MAX = 5  # C: grown children's households an older couple can have
+LINEAGE_YOUNG_HEAD = (18, 55)  # a household head this age may have parents in town
+
+
+def _parents_of(graph: SocialGraph, resident_id: int) -> List[int]:
+    age = graph.nodes[resident_id].age or 0
+    return sorted(o for o, e in graph.ties_of(resident_id).items()
+                  if e.source_type == "parent" and (graph.nodes[o].age or 0) > age)
+
+
+def _children_of(graph: SocialGraph, resident_id: int) -> List[int]:
+    age = graph.nodes[resident_id].age or 0
+    return sorted(o for o, e in graph.ties_of(resident_id).items()
+                  if e.source_type == "parent" and (graph.nodes[o].age or 0) < age)
+
+
+def _siblings_of(graph: SocialGraph, resident_id: int) -> List[int]:
+    return sorted(o for o, e in graph.ties_of(resident_id).items() if e.source_type == "sibling")
+
+
+def _add_kin(graph: SocialGraph, a: int, b: int, kind: str, rng: random.Random) -> int:
+    if a == b or graph.get_edge(a, b) is not None:
+        return 0
+    graph.add_edge(edge_from_relationship(graph, a, b, kind, rng))
+    return 1
+
+
+def link_lineages(graph: SocialGraph, rng: random.Random) -> int:
+    """TownShape records parent ties only inside a household, so a grown
+    child who moved out is nobody's kin (user, 2026-10-10: link households at
+    import). LINEAGE_SHARE of the younger households (LINEAGE_YOUNG_HEAD) get
+    an older one of the same rank and class as the head's or spouse's
+    parents, preferring the same district: parent ties to the older couple,
+    sibling ties to its children at home and its other grown children.
+    Returns how many households were linked."""
+    households = defaultdict(list)
+    for node in graph.nodes.values():
+        if node.alive and node.household_id is not None:
+            households[node.household_id].append(node)
+
+    def couple(members):
+        head = max(members, key=lambda n: (n.age or 0, -n.resident_id))
+        return [head] + [n for n in members if n is not head and graph.get_edge(head.resident_id, n.resident_id)
+                         is not None and graph.get_edge(head.resident_id, n.resident_id).source_type == "spouse"]
+
+    couples = {h: couple(m) for h, m in sorted(households.items())}
+    young = [h for h, c in couples.items() if LINEAGE_YOUNG_HEAD[0] <= (c[0].age or 0) <= LINEAGE_YOUNG_HEAD[1]]
+    rng.shuffle(young)
+    grown, linked = defaultdict(list), 0
+    for h in young:
+        if rng.random() >= LINEAGE_SHARE:
+            continue
+        child = rng.choice(couples[h])
+        age = child.age or 0
+        options = [o for o, c in couples.items() if o != h and len(grown[o]) < GROWN_HOUSEHOLDS_MAX
+                   and c[0].ses == child.ses and c[0].is_noble == child.is_noble
+                   and LINEAGE_GAP[0] <= (c[0].age or 0) - age <= LINEAGE_GAP[1]
+                   and all((p.age or 0) - age >= 15 for p in c)]
+        if not options:
+            continue
+        o = rng.choices(options, [3 if couples[o][0].district_id == child.district_id else 1 for o in options])[0]
+        parents = [p.resident_id for p in couples[o]]
+        at_home = {k for p in parents for k in _children_of(graph, p)}
+        for p in parents:
+            _add_kin(graph, p, child.resident_id, "parent", rng)
+        for sibling in sorted(at_home) + grown[o]:
+            _add_kin(graph, sibling, child.resident_id, "sibling", rng)
+        grown[o].append(child.resident_id)
+        linked += 1
+    return linked
+
+
+def add_wider_family(graph: SocialGraph, rng: random.Random, people: Optional[List[int]] = None) -> int:
+    """Grandparents, aunts and uncles, and first cousins (Project_Vision/05
+    B3, user 2026-10-10), found through parent and sibling ties, for
+    `people` (default: everyone alive): at import and for each newborn.
+    Returns how many ties were added."""
+    if people is None:
+        people = sorted(r for r, n in graph.nodes.items() if n.alive)
+    added = 0
+    for c in people:
+        parents = _parents_of(graph, c)
+        siblings = set(_siblings_of(graph, c))
+        for p in parents:
+            grandparents = _parents_of(graph, p)
+            for g in grandparents:
+                added += _add_kin(graph, c, g, "grandparent", rng)
+            aunts = set(_siblings_of(graph, p)) | {x for g in grandparents for x in _children_of(graph, g)}
+            for a in sorted(aunts - set(parents) - {p}):
+                if not graph.nodes[a].alive:
+                    continue
+                added += _add_kin(graph, c, a, "aunt_uncle", rng)
+                for k in _children_of(graph, a):
+                    if k not in siblings and graph.nodes[k].alive:
+                        added += _add_kin(graph, c, k, "cousin", rng)
+    return added
+
+
+def _workplace(graph: SocialGraph, node: Node):
+    """Where a resident works with others: their workplace building, or for
+    an outworker the merchant they spin for; None for day labour and the jobless."""
+    if node.workplace_building_id is not None:
+        return ("building", node.workplace_building_id)
+    if node.occupation == "outworker" and graph.employer.get(node.resident_id) is not None:
+        return ("merchant", graph.employer[node.resident_id])
+    return None
+
+
+def sync_coworkers(graph: SocialGraph, rng: random.Random) -> int:
+    """Coworkers (Project_Vision/05 B1, user 2026-10-10): people at the same
+    workplace (a workshop, farm, shop) are tied, and an outworker to their
+    merchant. Whoever's workplace changed since the last call gets ties to
+    the new one's people; their coworker ties to people they no longer work
+    with become acquaintances, which fade unless warm (FriendshipPhenomenon).
+    Called at import and monthly (economy), so every way a job changes is
+    covered. Returns how many ties were added."""
+    seen = getattr(graph, "workplace_seen", {})
+    current, places = {}, defaultdict(list)
+    for node in graph.nodes.values():
+        place = _workplace(graph, node) if node.alive else None
+        if place is not None:
+            current[node.resident_id] = place
+            places[place].append(node.resident_id)
+
+    def together(a, b):
+        return current.get(a) is not None and (current[a] == current.get(b) or current[a] == ("merchant", b)
+                                               or current.get(b) == ("merchant", a))
+
+    added = 0
+    for resident_id in set(seen) | set(current):
+        if seen.get(resident_id) == current.get(resident_id) or not graph.nodes[resident_id].alive:
+            continue
+        for other, edge in list(graph.ties_of(resident_id).items()):
+            if _was(edge, "coworker") and not together(resident_id, other):
+                _drop_to_acquaintance(edge)
+        place = current.get(resident_id)
+        if place is None:
+            continue
+        others = places[place] if place[0] == "building" else [place[1]]
+        for other in others:
+            if other != resident_id and graph.get_edge(resident_id, other) is None:
+                graph.add_edge(edge_from_relationship(graph, resident_id, other, "coworker", rng))
+                added += 1
+    graph.workplace_seen = current
+    return added
+
+
+def _was(edge: "Edge", kind: str) -> bool:
+    """A tie of this kind, or a friendship that started as one."""
+    return kind in (edge.source_type, edge.former_type)
+
+
+def _drop_to_acquaintance(edge: "Edge") -> None:
+    """A tie whose reason is gone (a left job, a left street) becomes an
+    acquaintance, which fades unless warm; a friendship stays, and would
+    cool back to an acquaintance."""
+    if edge.source_type == "friend":
+        edge.former_type = "acquaintance"
+    else:
+        edge.source_type, edge.fiske_type = "acquaintance", FISKE_TAGS["acquaintance"]
+
+
+def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
+    """New neighbours when moving (Project_Vision/05 B2, user 2026-10-10).
+    Whoever's home changed since the last call gets the new street: the
+    people already living in that building and the neighbours of one of
+    them (the one with the median count: a union of everyone's tripled
+    neighbour ties in 25 years). Their old neighbours become friends (user,
+    2026-10-10) who drift apart: `graph.fading_friends`, ended a few each year
+    by FriendshipPhenomenon, unless they become neighbours again. Covers every
+    move (new houses, eviction, joining family, the homeless housed). Called
+    at import and monthly (economy).
+    ponytail: the first household into a house that exists only in the sim
+    keeps its old street, until TownShape can place the house on the map.
+    Returns how many ties were added."""
+    seen = getattr(graph, "home_seen", {})
+    now = {n.resident_id: n.home_building_id for n in graph.nodes.values()
+           if n.alive and n.home_building_id is not None}
+    moved = {r for r, b in now.items() if r in seen and seen[r] != b}
+    added = 0
+    if moved:
+        living = defaultdict(list)
+        for resident_id, building in now.items():
+            living[building].append(resident_id)
+        streets: Dict[int, Optional[set]] = {}
+        for resident_id in sorted(moved):
+            building = now[resident_id]
+            if building not in streets:
+                stayers = [r for r in living[building] if r not in moved]
+                street = None
+                if stayers:
+                    sets = sorted(({o for o, e in graph.ties_of(r).items() if _was(e, "neighbor") and graph.nodes[o].alive}
+                                   for r in stayers), key=len)
+                    street = set(stayers) | sets[len(sets) // 2]
+                streets[building] = street
+            street = streets[building]
+            if street is None:
+                continue
+            fading = graph.__dict__.setdefault("fading_friends", set())
+            for other, edge in list(graph.ties_of(resident_id).items()):
+                if _was(edge, "neighbor") and other not in street and now.get(other) != building:
+                    if edge.source_type != "friend":
+                        befriend(edge)
+                    edge.former_type = "acquaintance"  # if it cools, it's an acquaintance
+                    fading.add(graph._key(resident_id, other))
+            for other in sorted(street):
+                if other == resident_id:
+                    continue
+                if graph.get_edge(resident_id, other) is None:
+                    graph.add_edge(edge_from_relationship(graph, resident_id, other, "neighbor", rng))
+                    added += 1
+                else:
+                    fading.discard(graph._key(resident_id, other))  # neighbours again
+    seen.update(now)  # the homeless keep their last home: they're still about the old street
+    graph.home_seen = seen
+    return added
+
+
+SCHOOL_AGES = (7, 14)  # C: reading, then the abacus school
+SCHOOLED_CLASSES = ("middling", "rich", "very_rich")  # user, 2026-10-10: poorer children work from 12
+CLASSMATES = 8  # C: classmates a child gets, of about their age in their district
+
+
+def sync_classmates(graph: SocialGraph, rng: random.Random) -> int:
+    """Classmates (Project_Vision/05 B5, user 2026-10-10): children of the
+    middling and richer classes go to school in their district at
+    SCHOOL_AGES. A child starting school gets classmate ties to up to
+    CLASSMATES schoolchildren there within 2 years of their age; one who
+    leaves keeps them as acquaintances, which fade unless warm. Called at
+    import and monthly (economy). Returns how many ties were added."""
+    seen = getattr(graph, "school_seen", {})
+    now = {n.resident_id: n.district_id for n in graph.nodes.values()
+           if n.alive and n.age is not None and SCHOOL_AGES[0] <= n.age <= SCHOOL_AGES[1]
+           and n.ses in SCHOOLED_CLASSES and n.district_id is not None}
+    added = 0
+    for resident_id in sorted(set(seen) - set(now)):
+        if graph.nodes[resident_id].alive:
+            for other, edge in list(graph.ties_of(resident_id).items()):
+                if _was(edge, "classmate"):
+                    _drop_to_acquaintance(edge)
+    schools = defaultdict(list)
+    for resident_id, district in sorted(now.items()):
+        schools[district].append(resident_id)
+    for resident_id in sorted(set(now) - set(seen)):
+        age = graph.nodes[resident_id].age
+        mates = [o for o in schools[now[resident_id]] if o != resident_id and abs(graph.nodes[o].age - age) <= 2
+                 and graph.get_edge(resident_id, o) is None]
+        for other in rng.sample(mates, min(CLASSMATES, len(mates))):
+            graph.add_edge(edge_from_relationship(graph, resident_id, other, "classmate", rng))
+            added += 1
+    graph.school_seen = now
+    return added
+
+
 def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float]] = None,
                     reshape: bool = True) -> SocialGraph:
     """overrides: TownParameters fields to set instead of the snapshot's own
@@ -927,14 +1199,19 @@ def import_snapshot(db_path: str, seed: int, overrides: Optional[Dict[str, float
             reshape_to_settled_town(graph, seed)
             # TownShape has no friendships: warm ties both ways are ones
             for edge in graph.edges.values():
-                if (edge.source_type not in ("spouse", "parent", "sibling")
+                if (edge.source_type not in FAMILY
                         and min(edge.valence_a_to_b, edge.valence_b_to_a) >= FRIEND_WARMTH):
                     befriend(edge)
         _mark_same_sex_spouses(graph)
         _load_districts(conn, graph)
         if reshape:
+            link_lineages(graph, rng)
+            add_wider_family(graph, rng)
             from economy import setup_economy  # imported here: economy reads graph objects, not the module
             setup_economy(graph, _building_types(conn), _household_wealth(conn), seed)
+            sync_coworkers(graph, rng)  # the jobs setup_economy gave out
+            sync_neighbours(graph, rng)  # where everyone lives, to see who moves
+            sync_classmates(graph, rng)
     finally:
         conn.close()
     return graph

@@ -145,7 +145,10 @@ class FoodMarket:
         year, day_of_year = (day - 1) // 365, (day - 1) % 365
         if day_of_year >= HARVEST_DAY and (self.harvest_year is None or year > self.harvest_year):
             self.harvest_year = year
+            famines = self.famines
             self.harvest(econ, graph, members, farmers, merchants, rng, income)
+            if self.famines > famines:
+                graph.last_famine_day = day  # fevers follow a famine (contagion)
         else:
             self.update_price(members)
 

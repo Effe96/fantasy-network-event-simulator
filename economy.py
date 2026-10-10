@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from crafts import BASKET_SHARES as CRAFT_SHARES, CRAFTS, CraftMarket
 from food import FoodMarket
+from graph import FAMILY, sync_classmates, sync_coworkers, sync_neighbours
 from merchants import MerchantTrade
 
 FLORIN_IN_SOLDI = 64  # book §1, 1349
@@ -818,6 +819,9 @@ class EconomyPhenomenon:
         for key in members:  # the month is complete: update each household's usual income
             usual = self._income.get(key, income.get(key, 0.0))
             self._income[key] = usual + (income.get(key, 0.0) - usual) * INCOME_MEMORY
+        self._year["coworker ties added"] += sync_coworkers(graph, rng)  # this month's job changes
+        self._year["neighbour ties added"] += sync_neighbours(graph, rng)  # and moves
+        self._year["classmate ties added"] += sync_classmates(graph, rng)
 
     def _housing(self, graph, members, needs, income, rng: random.Random) -> None:
         """Once food is bought (user: food first): tenants pay rent; a tenant
@@ -1250,7 +1254,7 @@ class EconomyPhenomenon:
                 if not lender.alive or household_key(lender) == key:
                     continue
                 feeling = edge.valence_a_to_b if edge.resident_a == other else edge.valence_b_to_a
-                if edge.source_type in ("parent", "sibling", "spouse", "friend") and feeling >= DEBT_FAMILY_WARMTH:
+                if (edge.source_type in FAMILY or edge.source_type == "friend") and feeling >= DEBT_FAMILY_WARMTH:
                     family.append((other, pid))
                 elif lender.ses in RENTIER_CLASSES and feeling >= 0:
                     patrons.append((other, pid))
@@ -1598,7 +1602,7 @@ class EconomyPhenomenon:
 # --- Households forming and passing on (economy slice 2, user 2026-09-30) ---
 
 DOWRY_SHARE = 0.10  # book §7: a daughter's marriage moves ~5-15% of her family's wealth
-FAMILY_TIES = ("spouse", "parent", "sibling")
+FAMILY_TIES = FAMILY  # wider family takes in the evicted too (2026-10-10)
 
 
 def _move_wealth(graph, from_key, to_key, fraction: float) -> float:

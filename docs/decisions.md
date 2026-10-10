@@ -8,6 +8,56 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-10 — Epidemics come from causes, each with its own disease
+
+Plan `Project_Vision/05` A; the user took every default.
+- **Causes:** a landed import cargo (`CARGO_DISEASES`, mostly plague; the
+  merchant's household catches it first), a newcomer (`ARRIVAL_DISEASES`),
+  a famine (typhus among the hungry for two years), crowding (dysentery,
+  rising with people per place in houses, peaking in summer), the season
+  (influenza, peaking in winter). Plague comes only by trade or newcomers.
+- **Immunity per disease:** surviving typhus doesn't protect against plague;
+  influenza's lasts `IMMUNITY_YEARS` (3), the others' for life. A death's
+  cause is the disease's name (`typhus`, `influenza`...), not `plague`.
+- **Calibration:** chances sum to ~1 outbreak in 4 years in a quiet year.
+  Measured (6 seeds x 25 years, `--outbreak-chance 0.25`): 0.27 a year;
+  seasonal influenza 19, famine typhus 6, crowding dysentery 5, plague 4
+  (about once a generation), ~45 deaths each.
+- **Fixed on the way:** the infected who died stayed "infected" and blocked
+  every later outbreak; a patient zero who'd had the disease stopped the
+  outbreak (now drawn from those who can catch it).
+- `--epidemic-tier N` still forces one disease at a flat chance.
+- **Open:** attack rates are high (typhus ~58%, influenza ~88%), from the
+  tier settings; to review.
+
+## 2026-10-10 — Missing ties: coworkers, neighbours on moving, wider family, feuds, classmates
+
+Plan `Project_Vision/05` B; the user took every default. Each kind is kept
+in sync monthly by diffing a last-seen map (workplace, home, school) on the
+graph, so every caller that changes a job or a home is covered.
+- **Coworkers:** ties with the people at the same workplace; an outworker
+  to their merchant. On leaving, the tie becomes an acquaintance and fades.
+- **Neighbours on moving (user, 2026-10-10: "the old neighbor ties change
+  to friendship ties, and those dwindle"):** old neighbours become friends
+  who drift apart (`moved_away_fade_per_year` 0.7, exempt from the usual
+  cooling); the new street's people become neighbours. A house only in the
+  sim takes the street of its first household until TownShape places it.
+- **Wider family:** households are linked into lineages at import (grown
+  children's households to their parents', ages 20-40 apart), then
+  grandparents, aunts and uncles and cousins follow from parent and sibling
+  ties, and at each birth. Kin lend, mourn and avenge like close family.
+- **Feuds:** a killing sets the victim's close kin against the killer's
+  (`feud` tie for strangers), held at hostility just short of killing until
+  peace (10% a year), a marriage between them, or one side gone. Killings
+  only through the existing violence. First try froze the feelings and
+  started the feud before grief, so grief stacked on it: killings 152 vs
+  123. Held at a level, after grief: 136 (6 seeds, 25 years), ~115 feuds.
+- **Classmates:** middling and richer children 7-14, up to 8 in their
+  district; leavers' classmates become acquaintances.
+- **Cost:** ~+8% ties, as estimated. Friends ~6,500 -> 8,000 over 25 years
+  (12,800 before moved-away friends faded). Very poor (15.7%) and
+  homelessness unchanged within noise.
+
 ## 2026-10-10 — Capping putting-out: tried, dropped, to come back to
 
 Putting-out held at its size at import (the rest keep looking for work).
