@@ -929,19 +929,25 @@ class EconomyPhenomenon:
             land = max(members, key=lambda k: free.get(k, 0.0) - self.food.land_in_hand(k))
             if (graph.household_money.get(cash, 0.0) - self.trade.committed.get(cash, 0.0)
                     >= value + BUY_CUSHION_MONTHS * needs.get(cash, 0.0)):
-                owner, paid = cash, self._pay(graph, cash, BUILDERS, value)
-                self._year["houses: built from cash"] += 1
+                owner, how = cash, "cash"
             elif free.get(land, 0.0) - self.food.land_in_hand(land) >= value:
-                free[land] -= value  # sold outside the walls: money in from outside
-                owner, paid = land, self._pay(graph, None, BUILDERS, value)
-                self._year["houses: built from land sold"] += 1
-                self._year["in: land sold"] += value
+                owner, how = land, "land"
             elif graph.household_money.get(COMMUNE, 0.0) - COMMUNE_FUND_MONTHS * self._public_bill >= value:
-                owner, paid = COMMUNE, self._pay(graph, COMMUNE, BUILDERS, value)
-                self._year["houses: built by the commune"] += 1
+                owner, how = COMMUNE, "commune"
             else:
                 return
-            building = max([*graph.building_types, *graph.houses], default=0) + 1
+            building = new_building(graph, "residence", HOUSE_ROOM, members.get(owner, ()))
+            if how == "cash":
+                paid = self._pay(graph, cash, BUILDERS, value)
+                self._year["houses: built from cash"] += 1
+            elif how == "land":
+                free[land] -= value  # sold outside the walls: money in from outside
+                paid = self._pay(graph, None, BUILDERS, value)
+                self._year["houses: built from land sold"] += 1
+                self._year["in: land sold"] += value
+            else:
+                paid = self._pay(graph, COMMUNE, BUILDERS, value)
+                self._year["houses: built by the commune"] += 1
             graph.building_types[building] = "residence"
             graph.houses[building] = {"owner": None, "value": paid, "room": HOUSE_ROOM, "built": True, "left": paid}
             set_house_owner(graph, building, owner)
@@ -969,19 +975,20 @@ class EconomyPhenomenon:
                 continue
             master = max(hands, key=lambda n: (n.occupation == f"{trade}_hand", n.age or 0, -n.resident_id))
             trade, key = master.occupation[:-5], household_key(master)
+            if self._spare(graph, key, needs) < WORKSHOP_COST:
+                lender = max((k for k in members if k != key), key=lambda k: (self._spare(graph, k, needs), str(k)))
+                if self._spare(graph, lender, needs) < WORKSHOP_COST:
+                    continue
+            building = new_building(graph, "workshop", 0, [master])
             if self._spare(graph, key, needs) >= WORKSHOP_COST:
                 self._pay(graph, key, BUILDERS, WORKSHOP_COST)
                 self._year["workshops: from savings"] += 1
             else:
-                lender = max((k for k in members if k != key), key=lambda k: (self._spare(graph, k, needs), str(k)))
-                if self._spare(graph, lender, needs) < WORKSHOP_COST:
-                    continue
                 self._pay(graph, lender, BUILDERS, WORKSHOP_COST)
                 graph.debts.append({"debtor": key, "creditor": lender, "debtor_person": master.resident_id,
                                     "creditor_person": max(members[lender], key=lambda n: (n.age or 0)).resident_id,
                                     "amount": WORKSHOP_COST, "rate": DEBT_PATRON_RATE, "kind": "patron", "behind": 0})
                 self._year["workshops: from a patron's loan"] += 1
-            building = max([*graph.building_types, *graph.houses], default=0) + 1
             graph.building_types[building] = "workshop"
             graph.workshops_opened = getattr(graph, "workshops_opened", 0) + 1
             master.occupation, master.workplace_building_id = trade, building
@@ -1655,9 +1662,26 @@ def _move_wealth(graph, from_key, to_key, fraction: float) -> float:
     return moved
 
 
+def new_building(graph, building_type: str, capacity: int, people) -> int:
+    """The id of a building the sim puts up. While the town is stored in a
+    database (town.py), TownShape places it on the map, near where `people`
+    live (graph.place_building). The sim's rules decide what gets built
+    (user, 2026-10-11: TownShape draws the town, it doesn't set its rules):
+    with no room on the map it's built all the same, unplaced, with an id
+    below zero, clear of TownShape's. Not stored: the next free id."""
+    if graph.place_building is None:
+        return max([*graph.building_types, *getattr(graph, "houses", {})], default=0) + 1
+    district = next((n.district_id for n in people if n.district_id is not None), None)
+    building = graph.place_building(building_type, capacity, district)
+    if building is None:
+        building = min(min(graph.building_types, default=0), 0) - 1
+    return building
+
+
 def new_household_id(graph) -> int:
     ids = [n.household_id for n in graph.nodes.values() if isinstance(n.household_id, int)]
-    graph.next_household_id = max(getattr(graph, "next_household_id", 0), max(ids, default=0) + 1)
+    graph.next_household_id = max(getattr(graph, "next_household_id", 0), max(ids, default=0) + 1,
+                                  getattr(graph, "max_stored_household_id", 0) + 1)
     graph.next_household_id += 1
     return graph.next_household_id - 1
 

@@ -5,6 +5,24 @@
 > what is needed, and on which side. Checked against TownShape at `7e1d02a`
 > and `demo_riverport_town.db`. Updated 2026-10-10 for epidemics and ties, 2026-10-11 for soldiers.
 
+> **Status 2026-10-11:** TownShape built its side (`main`, PRs #11-#12; see
+> `TownShape/docs/sim-integration-for-social-sim.md`). The sim's side is
+> `town.py`:
+> - `create_town` (1.2), and `Town.save` / `load_town` (2.1, 2.4, the
+>   tables plus a pickled snapshot of the whole sim, so a resumed run is
+>   exact);
+> - new houses and workshops placed with `place_building` (3.1);
+> - new people named at save (2.2).
+>
+> The end-to-end check and what it found for TownShape:
+> `docs/townshape-notes-2026-10-11.md`. **Owner's rule (2026-10-11): the
+> sim's social rules come first; TownShape draws the town.** Where they
+> differ, the sim keeps its rule:
+> - a house's room is still who lived there at import;
+> - a house is built even when the map has no room for it;
+> - someone living alone still has no household in the sim and gets one only
+>   in TownShape.
+
 ## 0. The picture (user, 2026-10-09)
 
 1. **Starting a town creates everything it needs:** the physical town (map,

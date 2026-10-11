@@ -10,13 +10,21 @@ from phenomena import Event, Phenomenon
 class SimulationResult:
     daily_summaries: List[Dict[str, int]] = field(default_factory=list)
     events: List[Event] = field(default_factory=list)
+    # what run_simulation(resume=...) needs to carry on where this run stopped
+    resume: Optional[Dict] = None
 
 
 def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
-                   on_day_end: Optional[Callable[[int, object, Dict], None]] = None) -> SimulationResult:
+                   on_day_end: Optional[Callable[[int, object, Dict], None]] = None,
+                   resume: Optional[Dict] = None) -> SimulationResult:
     # on_day_end(day, graph, states): read-only hook for diagnostics (drift_check.py)
-    rng = random.Random(seed)
-    states = {phenomenon.name: phenomenon.init_state(graph) for phenomenon in phenomena}
+    # resume: a previous result's .resume (with the same phenomena), to carry on
+    # from its last day as if the run had never stopped (town.py)
+    if resume is None:
+        rng, start = random.Random(seed), 0
+        states = {phenomenon.name: phenomenon.init_state(graph) for phenomenon in phenomena}
+    else:
+        rng, start, states = resume["rng"], resume["day"], resume["states"]
     result = SimulationResult()
     # every live tie's place in the order ties were added: new ties go at the
     # end, retired ones leave a gap (speed-up 2026-09-30: renumbering all ~80k
@@ -25,7 +33,7 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
     edge_order = list(graph.edges)
     position = {key: index for index, key in enumerate(edge_order)}
 
-    for day in range(1, days + 1):
+    for day in range(start + 1, start + days + 1):
         for phenomenon in phenomena:
             state = states[phenomenon.name]
             candidates = phenomenon.candidate_edges(graph, state) if hasattr(phenomenon, "candidate_edges") else None
@@ -84,6 +92,7 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
         if on_day_end is not None:
             on_day_end(day, graph, states)
 
+    result.resume = {"rng": rng, "day": start + days, "states": states}
     return result
 
 

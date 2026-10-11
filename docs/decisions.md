@@ -8,6 +8,46 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-11 — A town kept in TownShape's database (`town.py`)
+
+TownShape built its side; this is the sim's (integration doc steps 1-5).
+**The user's rule: the sim's social rules come first; TownShape is the tool
+that draws the town.** Nothing in the dynamics changed for TownShape; a
+75-day Riverport run is bit-for-bit what it was.
+
+- **Create:** `create_town` runs TownShape's generator, then
+  `derive_relationships`, then the sim's import, and saves with `sim_state`
+  written last (TownShape's enforced order).
+- **Save:** writes the tables TownShape reads:
+  - residents: the new ones named with `name_new_resident`; birth dates moved
+    on by the year TownShape's generation lived, keeping the sim's ages;
+  - households, with `wealth` as cash plus property;
+  - deaths, plus departures for moving away, banishment and soldiering;
+  - every live or paused tie, with its feelings;
+  - traits, household economy and house tenure;
+  - the clock.
+- **Snapshot:** the whole sim is also pickled into `sim_state["snapshot"]`,
+  so a resumed run is exactly the run that never stopped (tested: 35 + 35
+  days equals 70). Rejected: rebuilding every phenomenon from the tables,
+  which is far more code, needed for every phenomenon now and every one to
+  come. Cost: hand edits to the tables between runs are not seen.
+- **Building:** a new house or workshop asks TownShape for a plot near the
+  payer's or master's district (`economy.new_building`). The first family in
+  takes TownShape's neighbours: the 4 nearest lived-in buildings. With no
+  room on the map it's built all the same, unplaced (an id below zero), and
+  new farms likewise (no farmsteads yet).
+- **Ids:** new ids start above TownShape's highest, the dead included.
+- **Kept as the sim's own, where TownShape differs:**
+  - a house's room is still who lived there at import, not
+    `buildings.capacity`;
+  - someone arriving alone still has no household in the sim; TownShape,
+    which needs one, gets household minus their id.
+- **Python:** `place_building` needs shapely, so a stored town runs under
+  CPython (about 10 s a year at 2,000 people). Long calibration runs stay on
+  PyPy and Riverport.
+- Lambdas that the pickle couldn't take were replaced by module functions
+  (crafts); the tie filters are left out and rebuilt.
+
 ## 2026-10-11 — Ages, soldiers and veterans; children at work
 
 Started from the seed-1 coup trace (a noble of 3 plotted a coup and hired a

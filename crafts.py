@@ -43,6 +43,14 @@ PRICE_ELASTICITY = 0.3  # C: as grain's (food.py): price ~ (normal cover / cover
 EXPORT_PRICE = 0.85  # C: merchants pay this share of the local price for goods to export
 
 
+def _owed_table():  # module-level, not lambdas: a saved town pickles these (town.py)
+    return defaultdict(float)
+
+
+def _normal_price():
+    return 1.0
+
+
 class CraftMarket:
     def __init__(self, wage: float, import_margin: float):
         self.wage = wage  # a worker's yearly wage (economy.UNSKILLED_WAGE)
@@ -53,9 +61,9 @@ class CraftMarket:
         self._shops = None  # this month's workshops, set by start_month
         self.output: Dict[str, float] = {}  # good -> times the wage-based output a worker makes, set at import
         self.wanted: Dict[str, float] = defaultdict(float)  # fl households asked for this month, by good
-        self.owed: Dict[Any, Dict[Any, float]] = defaultdict(lambda: defaultdict(float))  # workshop -> creditor -> fl
+        self.owed: Dict[Any, Dict[Any, float]] = defaultdict(_owed_table)  # workshop -> creditor -> fl
         self._masters: Dict[Any, Any] = {}  # workshop -> its master's household, this month
-        self.price: Dict[str, float] = defaultdict(lambda: 1.0)  # good -> times its normal price (slice 3)
+        self.price: Dict[str, float] = defaultdict(_normal_price)  # good -> times its normal price (slice 3)
         self.asked_year: Dict[str, float] = defaultdict(float)  # fl households asked for since `shortfall`, by good
         self.months_asked = 0
 

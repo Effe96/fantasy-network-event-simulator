@@ -235,6 +235,15 @@ class SocialGraph:
         # fed TownShape-shaped rows. These keep what that needs after import:
         self.reference_year: Optional[int] = None  # for a newcomer's age
         self.building_districts: Dict[int, Tuple[int, str]] = {}  # building -> (district, zone)
+        self.building_xy: Dict[int, Tuple[float, float]] = {}  # building -> its centre on TownShape's map
+        # the town's own highest resident and household ids, the dead included,
+        # so an id made here is never one TownShape already used
+        self.max_stored_resident_id = 0
+        self.max_stored_household_id = 0
+        # place_building(building_type, capacity, district) -> new building id or
+        # None: set while the town is stored in a database (town.py), so what the
+        # sim builds gets a plot on TownShape's map; None: ids are made up here
+        self.place_building = None
         self.family_root: Dict[int, int] = {}  # resident -> family root (parent/sibling ties)
         self.family_baselines: Dict[int, Dict[str, float]] = {}  # family root -> shared trait centres
         # added but not yet registered with the phenomena; the engine drains it
@@ -276,7 +285,7 @@ class SocialGraph:
         residents table assigns max(id) + 1 on insert, so ids created here line
         up with what a later write-back would get (a write-back should still
         map them defensively, see docs/townshape-integration.md)."""
-        return max(self.nodes, default=0) + 1
+        return max(max(self.nodes, default=0), self.max_stored_resident_id) + 1
 
     def add_resident(self, row: Dict[str, Any], relationships: List[Tuple[int, str]],
                      rng: random.Random) -> int:
@@ -725,11 +734,12 @@ def _load_districts(conn: sqlite3.Connection, graph: SocialGraph) -> None:
     # adding it left every seed's import unchanged.
     try:
         buildings = conn.execute(
-            "SELECT b.id, d.id, d.zone_type FROM buildings b JOIN districts d ON d.id = b.district_id"
+            "SELECT b.id, d.id, d.zone_type, b.x, b.y FROM buildings b JOIN districts d ON d.id = b.district_id"
         ).fetchall()
     except sqlite3.OperationalError:
         return
-    graph.building_districts = {building_id: (district_id, zone) for building_id, district_id, zone in buildings}
+    graph.building_districts = {building_id: (district_id, zone) for building_id, district_id, zone, _, _ in buildings}
+    graph.building_xy = {building_id: (x, y) for building_id, _, _, x, y in buildings}
     for node in graph.nodes.values():
         location = graph.building_districts.get(node.home_building_id)
         if location is not None:
@@ -759,6 +769,11 @@ def _load_resident_identity(conn: sqlite3.Connection, graph: SocialGraph) -> Non
         ).fetchall()
     except sqlite3.OperationalError:
         return
+    graph.max_stored_resident_id = max((row[0] for row in rows), default=0)
+    try:
+        graph.max_stored_household_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM households").fetchone()[0]
+    except sqlite3.OperationalError:  # test fixtures without households
+        pass
     for resident_id, household_id, home_building_id, workplace_building_id, birth_date in rows:
         node = graph.nodes.get(resident_id)
         if node is not None:
@@ -1103,8 +1118,9 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
     by FriendshipPhenomenon, unless they become neighbours again. Covers every
     move (new houses, eviction, joining family, the homeless housed). Called
     at import and monthly (economy).
-    ponytail: the first household into a house that exists only in the sim
-    keeps its old street, until TownShape can place the house on the map.
+    The first household into a new house placed on TownShape's map gets
+    TownShape's street (neighbouring_buildings); into one that exists only in
+    the sim (no database), it keeps its old street.
     Returns how many ties were added."""
     seen = getattr(graph, "home_seen", {})
     now = {n.resident_id: n.home_building_id for n in graph.nodes.values()
@@ -1125,6 +1141,8 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
                     sets = sorted(({o for o, e in graph.ties_of(r).items() if _was(e, "neighbor") and graph.nodes[o].alive}
                                    for r in stayers), key=len)
                     street = set(stayers) | sets[len(sets) // 2]
+                elif building in graph.building_xy:
+                    street = {r for b in neighbouring_buildings(graph, building, living) for r in living[b]}
                 streets[building] = street
             street = streets[building]
             if street is None:
@@ -1147,6 +1165,20 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
     seen.update(now)  # the homeless keep their last home: they're still about the old street
     graph.home_seen = seen
     return added
+
+
+K_NEAREST_BUILDINGS = 4  # TownShape's town_relationships.neighbors
+
+
+def neighbouring_buildings(graph: SocialGraph, building: int, living: Dict[int, List[int]]) -> List[int]:
+    """TownShape's neighbour rule for one building: the K_NEAREST_BUILDINGS
+    nearest lived-in buildings on the map.
+    ponytail: one way only; TownShape also counts a building that has this
+    one among its own nearest."""
+    x, y = graph.building_xy[building]
+    near = sorted((((bx - x) ** 2 + (by - y) ** 2, b) for b, (bx, by) in graph.building_xy.items()
+                   if b != building and living.get(b)))
+    return [b for _, b in near[:K_NEAREST_BUILDINGS]]
 
 
 SCHOOL_AGES = (7, 14)  # C: reading, then the abacus school

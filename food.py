@@ -214,7 +214,8 @@ class FoodMarket:
         grain at import, the household with the most land outside takes some
         in hand as a podere, worked by a poor couple who leave day labour or
         idleness for it (mezzadria: Florentine citizens' land in the contado).
-        The podere exists only in the sim until TownShape can place it."""
+        The podere exists only in the sim until TownShape can place it
+        (farmsteads, integration doc 3.3)."""
         normal = self.yield_per_farm * farms + self.podere_yield * len(self.poderi)
         value = self._podere_value()
         while normal + self.podere_yield / 2 < self.local_share * demand:
@@ -222,7 +223,10 @@ class FoodMarket:
             workers = self._sharecroppers(graph, members, owner, rng) if owner is not None else []
             if not workers:
                 break
-            building = max(graph.building_types, default=0) + 1
+            if getattr(graph, "place_building", None) is None:
+                building = max(graph.building_types, default=0) + 1
+            else:  # on TownShape's map: ids below zero, theirs to come (no farmsteads yet)
+                building = min(min(graph.building_types, default=0), 0) - 1
             graph.building_types[building] = "podere"
             self.poderi[building] = {"owner": owner, "value": value}
             for node in workers:
