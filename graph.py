@@ -1118,9 +1118,10 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
     by FriendshipPhenomenon, unless they become neighbours again. Covers every
     move (new houses, eviction, joining family, the homeless housed). Called
     at import and monthly (economy).
-    The first household into a new house placed on TownShape's map gets
-    TownShape's street (neighbouring_buildings); into one that exists only in
-    the sim (no database), it keeps its old street.
+    In a town stored in TownShape's database, the first household into an
+    empty house, old or new, gets TownShape's street (neighbouring_buildings);
+    otherwise it keeps its old street (user, 2026-10-12: the reference runs
+    stay as calibrated; using the map there is its own change).
     Returns how many ties were added."""
     seen = getattr(graph, "home_seen", {})
     now = {n.resident_id: n.home_building_id for n in graph.nodes.values()
@@ -1141,7 +1142,7 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
                     sets = sorted(({o for o, e in graph.ties_of(r).items() if _was(e, "neighbor") and graph.nodes[o].alive}
                                    for r in stayers), key=len)
                     street = set(stayers) | sets[len(sets) // 2]
-                elif building in graph.building_xy:
+                elif graph.place_building is not None and building in graph.building_xy:
                     street = {r for b in neighbouring_buildings(graph, building, living) for r in living[b]}
                 streets[building] = street
             street = streets[building]

@@ -109,6 +109,20 @@ def test_moving_brings_the_new_street_and_old_neighbours_become_friends_who_drif
     assert graph.get_edge(1, 3) is None
 
 
+def test_into_an_empty_house_the_map_s_street_only_in_a_stored_town():
+    for stored in (False, True):
+        graph = _street()
+        graph.nodes[1].home_building_id = 20
+        graph.add_node(Node(resident_id=11, ses="poor", gender="male", age=40, home_building_id=30))
+        graph.building_xy = {30: (0.0, 0.0), 40: (1.0, 0.0)}  # 40 stands empty next to 11's house
+        graph.place_building = (lambda *a: None) if stored else None
+        rng = random.Random(0)
+        sync_neighbours(graph, rng)
+        graph.nodes[1].home_building_id = 40
+        sync_neighbours(graph, rng)
+        assert (graph.get_edge(1, 11) is not None) == stored
+
+
 def _kin(graph, a, b, kind):
     graph.add_edge(Edge(a, b, kind, "Communal Sharing", 0.7, 0.7, 0.7, 0.5, 0.5))
 
