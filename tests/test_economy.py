@@ -401,6 +401,10 @@ def test_a_household_buys_from_the_shop_it_knows():
     for _ in range(20):
         economy._buy(graph, 3, 0.1, [baker, potter], random.Random(_), income, shops)
     assert graph.household_money[21] == 0.0 and graph.household_money[20] > 1.9  # a shop now: all to the one they know
+    # shop ties with time 0 (some imported ones): buys as if untied, doesn't crash
+    graph.get_edge(4, 20).time = graph.get_edge(1, 21).time = 0.0
+    shops = economy._tied_shops(graph, members, [baker, potter])
+    economy._buy(graph, 3, 0.1, [baker, potter], random.Random(0), income, shops)
 
 
 def test_an_estate_pays_its_debts_before_the_heirs():

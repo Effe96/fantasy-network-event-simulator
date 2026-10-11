@@ -1528,7 +1528,9 @@ class EconomyPhenomenon:
                     for seller_key in shop_of[place]:
                         if seller_key != key:
                             weight[seller_key] += edge.time / len(shop_of[place])
-            if weight:
+            # imported shop ties can have time 0 (~14% at Riverport; children copy
+            # them): a household with only those buys from any seller, as untied
+            if any(weight.values()):
                 shops[key] = (list(weight), list(weight.values()))
         return shops, {seller for keys, _ in shops.values() for seller in keys}
 
