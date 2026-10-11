@@ -50,6 +50,33 @@ people leaving to soldier, 33 homeless and one new house placed by
      taken. Regenerating Riverport instead would change the sim's reference
      town and its calibration, so the sim's side recommends against it.
 
+### Later the same day: a freshly generated town
+
+Items 1–3 are fixed on TownShape `main` (b16ffcf, dfae602). A new town
+(seed 7, a coastal river port with a citadel, about 1,500 people) ran five
+years, and the sim built 7 houses and 1 workshop. Nothing overlapped, but
+two things look wrong on the map:
+
+10. **Every placed building adds a field.**
+    - What happens: the walled town has no free gap, so all 8
+      `place_building` calls fell back to `add_buildings`. Each call carves
+      a small new district on a road at the edge and adds a new field
+      district (`new_field_district_ids` in `construction_edits`). The map
+      ends with 8 new fields in three clumps.
+    - Why it matters: they look like new farms, but the sim founded none (no
+      poderi this run). The fields are scenery: no owner, no grain.
+    - Suggested fix: for one building from the sim, grow without new
+      fields. Fields would then come only from the sim's farms (item 6).
+11. **Where the river meets the sea it's drawn as a land-coloured band that
+    looks like a road.**
+    - What happens: the `#water` fill path holds the sea and the river as
+      subpaths with `fill-rule="evenodd"`. The river runs on into the sea
+      (they overlap over about 261 square units), and evenodd turns the
+      overlap into a hole.
+    - It's there at generation (year 0); the sim doesn't cause it.
+    - Suggested fix: clip the river at the coastline, or merge the water
+      polygons before drawing them (or use `nonzero`).
+
 ## Missing, or worth knowing
 
 4. **`place_building` needs shapely, so it doesn't run under PyPy.**
