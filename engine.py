@@ -47,7 +47,7 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                     for current in ordered:
                         _roll_edge(graph, phenomenon, state, edges[edge_order[current]], day, rng, result)
                     result.events.extend(phenomenon.end_of_day(graph, state, day, rng))
-                    if graph.newcomers or len(graph.edges) > len(position):
+                    if graph.newcomers or graph.role_changes or len(graph.edges) > len(position):
                         _register_newcomers(graph, phenomena, states, edge_order, position)
                     continue
                 heap = ordered
@@ -64,7 +64,7 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                                 queued.add(later)
                                 heapq.heappush(heap, later)
             result.events.extend(phenomenon.end_of_day(graph, state, day, rng))
-            if graph.newcomers or len(graph.edges) > len(position):
+            if graph.newcomers or graph.role_changes or len(graph.edges) > len(position):
                 _register_newcomers(graph, phenomena, states, edge_order, position)
 
         # everyone has now read yesterday's deaths: their ties go to the archive
@@ -99,6 +99,11 @@ def _register_newcomers(graph, phenomena, states, edge_order, position) -> None:
             if not hasattr(phenomenon, "add_resident"):
                 raise TypeError(f"{type(phenomenon).__name__} can't take a resident added mid-run")
             phenomenon.add_resident(graph, states[phenomenon.name], resident_id)
+    while graph.role_changes:  # after newcomers: a newcomer can't change role before registering
+        resident_id = graph.role_changes.pop(0)
+        for phenomenon in phenomena:
+            if hasattr(phenomenon, "role_changed"):
+                phenomenon.role_changed(graph, states[phenomenon.name], resident_id)
     # new ties are only ever appended to graph.edges (a re-made tie too: its old
     # place was dropped when it was retired), so they are the ones after the
     # last known tie; walk back from the end to find them

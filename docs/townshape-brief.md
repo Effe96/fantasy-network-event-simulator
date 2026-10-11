@@ -54,13 +54,15 @@ fills them; TownShape's own code doesn't need to read them.
   while a house is still being built.
 - `departures(id INTEGER PRIMARY KEY AUTOINCREMENT, resident_id INTEGER NOT
   NULL UNIQUE REFERENCES residents(id), departure_date TEXT NOT NULL, reason
-  TEXT NOT NULL)`, for people who left town alive (`moved away`, `banished`).
-  Their `death_date` stays `NULL`. A resident is living in town when they
+  TEXT NOT NULL)`, for people who left town alive (`moved away`, `banished`,
+  and since 2026-10-11 `soldiering`: away 1-4 years, and the row is deleted
+  if they come back). Their `death_date` stays `NULL`. A resident is living in town when they
   have neither a `deaths` row nor a `departures` row; please make TownShape's
   queries for living residents respect that.
 - `sim_state(key TEXT PRIMARY KEY, value TEXT NOT NULL)`, JSON values, for the
   sim's town-level state (the commune's and Church's money, class lines,
   granary, workshop stocks, merchants' cargoes, debts, open feuds, who is
+  away soldiering with their paused ties and return date, who is
   immune to which disease and since when, the outbreak under way, its
   clock). Opaque to TownShape.
 - New nullable columns on `town_state`: `loyalty REAL, religiosity REAL,
@@ -75,7 +77,8 @@ show an unknown value as it is rather than reject or drop it.
 
 - **Causes of death** (the owner's decision: accept them as they are, no
   mapping): `old age`, `plague`, `flu`, `diarrhea`, `famine`, `hardship`,
-  `violence`, `riot`, `execution`, `coup`, and since 2026-10-10 one per epidemic
+  `violence`, `riot`, `execution`, `coup`, `war` (since 2026-10-11: died away
+  soldiering), and since 2026-10-10 one per epidemic
   disease: `influenza`, `measles`, `typhus`, `dysentery`, `plague`,
   `pneumonic plague` (`flu` and `diarrhea` are everyday ailments, separate
   from them). `deaths.reported_by_building_id` may be `NULL`.

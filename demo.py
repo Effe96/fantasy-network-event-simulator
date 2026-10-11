@@ -20,6 +20,7 @@ from phenomena import (
     ReligionPhenomenon,
     RiotPhenomenon,
     RomancePhenomenon,
+    SoldieringPhenomenon,
     StressPhenomenon,
     TheftPhenomenon,
     ViolencePhenomenon,
@@ -99,8 +100,9 @@ def build_phenomena(graph, epidemic_tier: Optional[int] = None,
     stress = StressPhenomenon()  # before theft, which reads it
     friendship = FriendshipPhenomenon()  # people meeting, befriending, drifting apart
     economy = EconomyPhenomenon()  # monthly wages, spending, trade; class follows wealth
+    soldiering = SoldieringPhenomenon()  # young people away at war for a few years
     phenomena = [contagion, quarantine, violence, romance, riot, guards, stress, theft, ailments, religion, everyday,
-                 friendship, economy, population]
+                 friendship, economy, soldiering, population]
     return phenomena
 
 

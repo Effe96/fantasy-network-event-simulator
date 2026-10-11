@@ -251,6 +251,9 @@ class SocialGraph:
         self._archived_by_dead: Dict[int, List[Dict[str, Any]]] = {}
         self._deaths_retired = 0  # cursor into self.deaths
         self._ties_to_retire: List[Tuple[int, int, int, str]] = []  # (a, b, day, reason), see retire_tie
+        # residents whose role changed mid-run (an heir ennobled, a veteran made
+        # a guard): the engine tells every phenomenon that keeps roles (role_changed)
+        self.role_changes: List[int] = []
 
     def record_recovery(self, resident_id: int, day: int, cause: str) -> None:
         # the counterpart of record_death, for anything that reacts to
@@ -525,6 +528,10 @@ def _trait_means(params: TownParameters) -> Dict[str, float]:
 # ex-soldier neighbors to hire from, not zero and not dozens -- tune if
 # mercenary hiring reads as too easy or too starved of candidates.
 EX_SOLDIER_BASE_RATE = 0.08
+# who can have served already: soldiers leave at 16 for at least a year (user,
+# 2026-10-11; SoldieringPhenomenon makes the veterans of a run). 18, not 17:
+# the settled-town reshape re-draws the ages of under-18s, keeping them children
+VETERAN_MIN_AGE = 18
 _NON_CIVILIAN_OCCUPATIONS = {"guard", "priest", "acolyte"}
 
 
@@ -646,10 +653,13 @@ def node_from_resident_row(graph: "SocialGraph", row: Dict[str, Any], rng: rando
         }
     occupation, is_noble = row.get("occupation"), bool(row.get("is_noble"))
     is_civilian = not is_noble and occupation not in _NON_CIVILIAN_OCCUPATIONS
-    is_ex_soldier = is_civilian and rng.random() < EX_SOLDIER_BASE_RATE
+    age = _age_from_birth_date(row.get("birth_date"), graph.reference_year)
+    # same draws as before ages counted (2026-10-11: a newborn could be an
+    # ex-soldier, and so a hired mercenary)
+    is_ex_soldier = is_civilian and rng.random() < EX_SOLDIER_BASE_RATE and (age is None or age >= VETERAN_MIN_AGE)
     return Node(
         resident_id=resident_id, ses=row.get("ses"), alive=True, gender=row.get("gender"),
-        age=_age_from_birth_date(row.get("birth_date"), graph.reference_year),
+        age=age,
         occupation=occupation, is_noble=is_noble, is_ex_soldier=is_ex_soldier,
         household_id=row.get("household_id"), home_building_id=row.get("home_building_id"),
         workplace_building_id=row.get("workplace_building_id"), birth_date=row.get("birth_date"),

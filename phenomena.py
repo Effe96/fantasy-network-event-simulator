@@ -5,9 +5,9 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from economy import (BASKET_PER_PERSON, follow_if_emptied, form_household, household_key, mark_new_household,
-                     new_household_id)
-from graph import (FAMILY, FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
+from economy import (BASKET_PER_PERSON, MERCHANT_KEEPS_JOB, PRECARIOUS, follow_if_emptied, form_household,
+                     household_key, job_kind, mark_new_household, new_household_id)
+from graph import (CLOSE_FAMILY, FAMILY, FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
                    edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
 
@@ -231,7 +231,9 @@ class ContagionPhenomenon:
             # no longer sick either (2026-10-10: left "infected", they kept the
             # outbreak open for years and no other could start)
             if not graph.nodes[resident_id].alive:
-                resident_state["status"] = "deceased"
+                # away soldiering, they take it with them; they can catch it again
+                away = resident_id in getattr(graph, "soldiers_away", ())
+                resident_state["status"] = "susceptible" if away else "deceased"
                 continue
             resident_state["days_left"] -= 1
             if resident_state["days_left"] <= 0:
@@ -346,6 +348,21 @@ class ContagionPhenomenon:
 # ponytail: placeholder vulnerability rule (skews toward lower socioeconomic status);
 # swap for a real vulnerability model if "good enough" stops being good enough
 SES_VULNERABILITY = {"very_poor": 3.0, "poor": 2.0, "middling": 1.0, "rich": 0.5, "very_rich": 0.4}
+
+# from 16 people fight, riot, plot, hire protection and soldier (user,
+# 2026-10-11: a noble girl of 3 plotted a coup with a baby as her mercenary)
+FIGHTING_AGE = 16
+# a veteran has the training and the arms (user, 2026-10-11): this many times
+# likelier to kill when they strike, and less likely to be killed
+VETERAN_EDGE = 1.5  # C
+
+
+def of_fighting_age(node) -> bool:
+    return node.age is None or node.age >= FIGHTING_AGE
+
+
+def _veteran(node) -> float:
+    return VETERAN_EDGE if node.is_ex_soldier else 1.0
 
 
 def child_fatality_factor(age: Optional[int]) -> float:
@@ -846,16 +863,19 @@ class ViolencePhenomenon:
         hostility_b_to_a = max(0.0, -edge.valence_from(b))
         vulnerability_a = SES_VULNERABILITY.get(graph.nodes[a].ses, 1.0)
         vulnerability_b = SES_VULNERABILITY.get(graph.nodes[b].ses, 1.0)
-        weight_a_attacks = hostility_a_to_b * vulnerability_b * (1.0 - graph.nodes[a].loyalty)
-        weight_b_attacks = hostility_b_to_a * vulnerability_a * (1.0 - graph.nodes[b].loyalty)
+        # children don't strike (FIGHTING_AGE); they can still be struck
+        weight_a_attacks = hostility_a_to_b * vulnerability_b * (1.0 - graph.nodes[a].loyalty) * of_fighting_age(graph.nodes[a])
+        weight_b_attacks = hostility_b_to_a * vulnerability_a * (1.0 - graph.nodes[b].loyalty) * of_fighting_age(graph.nodes[b])
         total = weight_a_attacks + weight_b_attacks
         if total <= 0:
-            return a  # edge_probability already requires hostility > 0 somewhere; a fallback only
+            return None  # nobody who'd strike can: children, or the wholly loyal
         return a if rng.random() < weight_a_attacks / total else b
 
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
         edge = graph.get_edge(a, b)
         culprit = self._pick_aggressor(graph, edge, a, b, rng)
+        if culprit is None:
+            return []
         victim = b if culprit == a else a
         hired = graph.nodes[culprit].is_noble
         # the hand that strikes: a noble pays an ex-soldier they can reach
@@ -867,7 +887,9 @@ class ViolencePhenomenon:
 
         victim_vulnerability = SES_VULNERABILITY.get(graph.nodes[victim].ses, 1.0)
         attacker_vulnerability = SES_VULNERABILITY.get(graph.nodes[culprit].ses, 1.0)
-        success_chance = min(1.0, self.success_base_rate * victim_vulnerability / attacker_vulnerability)
+        striker = graph.nodes[killer if killer is not None else culprit]
+        success_chance = min(1.0, self.success_base_rate * victim_vulnerability / attacker_vulnerability
+                             * _veteran(striker) / _veteran(graph.nodes[victim]))
         living_mercenaries = sum(1 for m in state[victim]["mercenaries"] if graph.nodes[m].alive)
         success_chance *= self.mercenary_protection_factor ** living_mercenaries
 
@@ -923,7 +945,7 @@ class ViolencePhenomenon:
     def _ensure_governor(self, graph, rng: random.Random) -> None:
         if graph.governor_id is not None and graph.nodes[graph.governor_id].alive:
             return
-        living_nobles = [n for n in graph.nodes.values() if n.alive and n.is_noble]
+        living_nobles = [n for n in graph.nodes.values() if n.alive and n.is_noble and of_fighting_age(n)]
         if not living_nobles:
             graph.governor_id = None
             return
@@ -945,7 +967,7 @@ class ViolencePhenomenon:
         worst_animosity = 0.0
         plotter_id = None
         for resident_id, node in graph.nodes.items():
-            if not node.alive or not node.is_noble or resident_id == governor_id:
+            if not node.alive or not node.is_noble or resident_id == governor_id or not of_fighting_age(node):
                 continue
             edge = graph.get_edge(resident_id, governor_id)
             if edge is None:
@@ -1022,8 +1044,8 @@ class ViolencePhenomenon:
     def _check_mercenary_hiring(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         events: List[Event] = []
         for resident_id, node in graph.nodes.items():
-            if not node.alive or node.role not in ("noble", "priest"):
-                continue
+            if not node.alive or node.role not in ("noble", "priest") or not of_fighting_age(node):
+                continue  # a child noble is a ward: no one hires in their name
             hired = state[resident_id]["mercenaries"]
             living_hired = [m for m in hired if graph.nodes[m].alive]
             if len(living_hired) >= self.mercenary_cap:
@@ -1059,7 +1081,8 @@ class ViolencePhenomenon:
         direct is available."""
 
         def available(candidate_id: int) -> bool:
-            if not (graph.nodes[candidate_id].alive and graph.nodes[candidate_id].is_ex_soldier):
+            node = graph.nodes[candidate_id]
+            if not (node.alive and node.is_ex_soldier and of_fighting_age(node)):
                 return False
             hired_by = state[candidate_id]["hired_by"]
             return hired_by is None or not graph.nodes[hired_by].alive
@@ -1093,9 +1116,9 @@ class ViolencePhenomenon:
             a, b = edge.resident_a, edge.resident_b
             # direct attribute reads, not valence_from(): same values, ~1/3 the
             # cost on a scan of every tie every day
-            if -edge.valence_a_to_b >= threshold and nodes[a].alive and nodes[b].alive:
+            if -edge.valence_a_to_b >= threshold and nodes[a].alive and nodes[b].alive and of_fighting_age(nodes[a]):
                 hostile_toward.setdefault(b, []).append(a)
-            if -edge.valence_b_to_a >= threshold and nodes[a].alive and nodes[b].alive:
+            if -edge.valence_b_to_a >= threshold and nodes[a].alive and nodes[b].alive and of_fighting_age(nodes[b]):
                 hostile_toward.setdefault(a, []).append(b)
 
         candidates = sorted(
@@ -1191,7 +1214,8 @@ class ViolencePhenomenon:
         avg_attacker_vulnerability = sum(SES_VULNERABILITY.get(graph.nodes[h].ses, 1.0) for h in band) / len(band)
         success_chance = min(
             1.0,
-            self.success_base_rate * victim_vulnerability / avg_attacker_vulnerability * math.sqrt(len(band)),
+            self.success_base_rate * victim_vulnerability / avg_attacker_vulnerability * math.sqrt(len(band))
+            * max(_veteran(graph.nodes[h]) for h in band) / _veteran(graph.nodes[victim]),
         )
 
         if rng.random() >= success_chance:
@@ -1571,6 +1595,10 @@ class RiotPhenomenon:
         # values are never read, only its keys need to exist
         return {resident_id: None for resident_id in graph.nodes}
 
+    def role_changed(self, graph, state, resident_id: int) -> None:
+        self._adjacency = [pair for pair in self._adjacency if resident_id not in pair]
+        self.add_resident(graph, state, resident_id)
+
     def add_resident(self, graph, state, resident_id: int) -> None:
         state[resident_id] = None
         role = graph.nodes[resident_id].role
@@ -1633,6 +1661,8 @@ class RiotPhenomenon:
         # what might drag them into the streets
         worst_grievance: Dict[int, float] = {}
         for civ, member in hostile_links:
+            if not of_fighting_age(graph.nodes[civ]):
+                continue
             hostility = hostility_of[(civ, member)]
             worst_grievance[civ] = max(worst_grievance.get(civ, 0.0), hostility)
 
@@ -1862,6 +1892,12 @@ class GuardPhenomenon:
         state[resident_id] = {"role": node.role, "cunning": node.cunning, "ses": node.ses, "loyalty": node.loyalty}
         self._guard_ties = None  # rebuilt with the newcomer's ties on the next pass
 
+    def role_changed(self, graph, state, resident_id: int) -> None:
+        state[resident_id]["role"] = graph.nodes[resident_id].role
+        if getattr(self, "_guard_filter", None) is not None:  # their ties are judged again on the next read
+            self._guard_filter._log.extend(graph.ties_of(resident_id).values())
+        self._guard_ties = None
+
     def candidate_edges(self, graph, state):
         # civilian-guard ties, rebuilt when a newcomer arrives; the list is kept
         # current from tie change reports and only read at those moments, so it
@@ -1990,6 +2026,7 @@ class StressPhenomenon:
 
 
 THIEF_MIN_AGE = 12  # a child pickpocket is plausible; a toddler thief (hanged!) was not
+THIEF_MIN_AGE_NEEDY = 7  # user, 2026-10-11: younger when the family needs it (very poor or hungry)
 # only someone under real strain turns to theft (user, 2026-09-27): poverty
 # alone (0.4) never reaches it; a recent loss or illness on top does
 THIEF_STRESS_THRESHOLD = 0.6
@@ -2202,6 +2239,13 @@ class TheftPhenomenon:
             loyalties = [n.loyalty for n in graph.nodes.values() if n.role == "guard" and n.alive]
             self._avg_guard_loyalty = sum(loyalties) / len(loyalties)
 
+    def role_changed(self, graph, state, resident_id: int) -> None:
+        state[resident_id]["role"] = graph.nodes[resident_id].role
+        state[resident_id]["is_thief"] = state[resident_id]["is_thief"] and state[resident_id]["role"] == "civilian"
+        if state[resident_id]["role"] == "guard":
+            loyalties = [n.loyalty for n in graph.nodes.values() if n.role == "guard" and n.alive]
+            self._avg_guard_loyalty = sum(loyalties) / len(loyalties)
+
     def candidate_edges(self, graph, state):
         # ties touching a thief; thieves are only made in end_of_day, and an
         # arrest mid-pass only removes one
@@ -2275,7 +2319,8 @@ class TheftPhenomenon:
                 continue
             if resident_state["role"] == "noble":
                 continue
-            if not node.alive or (node.age is not None and node.age < THIEF_MIN_AGE):
+            needy = node.ses == "very_poor" or node.hungry_months > 0
+            if not node.alive or (node.age is not None and node.age < (THIEF_MIN_AGE_NEEDY if needy else THIEF_MIN_AGE)):
                 continue
             strain = (node.stress - THIEF_STRESS_THRESHOLD) / (1.0 - THIEF_STRESS_THRESHOLD)
             if strain <= 0.0:
@@ -2443,6 +2488,11 @@ class ReligionPhenomenon:
             "cunning": node.cunning,
             "loyalty": node.loyalty,
         }
+
+    def role_changed(self, graph, state, resident_id: int) -> None:
+        # roles only ever change away from civilian (an heir, a veteran made a guard)
+        state[resident_id]["role"] = graph.nodes[resident_id].role
+        self._priest_ties.pop(resident_id, None)
 
     def add_resident(self, graph, state, resident_id: int) -> None:
         node = graph.nodes[resident_id]
@@ -2845,6 +2895,7 @@ class PopulationPhenomenon:
         self._arrivals = 0
         self._inheritances = 0
         self._shop_ties = 0
+        self._veterans_posted = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         self._start_size = sum(1 for node in graph.nodes.values() if node.alive)
@@ -2901,6 +2952,17 @@ class PopulationPhenomenon:
             # every customer's tie (2026-09-29: shop ties per adult fell 52 -> 35
             # in 10 years). The jobless are replaced only below the target.
             old = graph.nodes[dead]
+            if old.role == "guard":
+                veteran = self._veteran_for_post(graph, rng)
+                if veteran is not None:
+                    self._vacancies.remove(dead)
+                    veteran.occupation, veteran.workplace_building_id = "guard", old.workplace_building_id
+                    getattr(graph, "employer", {}).pop(veteran.resident_id, None)
+                    graph.role_changes.append(veteran.resident_id)
+                    self._veterans_posted += 1
+                    events.append(Event(day, self.name, "veteran_took_post", veteran.resident_id, dead,
+                                        "took the guard post of"))
+                    continue
             if old.role == "civilian" and old.workplace_building_id is None:
                 # nobody comes for a place without work (slice 4): arrivals
                 # come for the town's unmet work, below (was: refilled while
@@ -3031,11 +3093,23 @@ class PopulationPhenomenon:
         left = household_key(heir)
         heir.household_id = old.household_id
         follow_if_emptied(graph, left, old.household_id)
-        # ponytail: phenomena that copied role at init (guards, theft, religion)
-        # still see the heir as a civilian; add a role-change hook if heirs'
-        # behaviour starts to matter
         heir.is_noble = True
+        graph.role_changes.append(heir.resident_id)  # phenomena that keep roles see a noble now
         return heir.resident_id
+
+    @staticmethod
+    def _veteran_for_post(graph, rng: random.Random) -> Optional[Any]:
+        """A veteran to take a guard's post (user, 2026-10-11: first in line):
+        one without work first, then one in precarious work, then any who
+        doesn't run a business."""
+        veterans = [n for n in graph.nodes.values() if n.alive and n.is_ex_soldier and n.role == "civilian"
+                    and of_fighting_age(n) and (n.age or 0) <= VETERAN_GUARD_MAX_AGE
+                    and job_kind(n.occupation) not in KEEPS_THEM_HOME]
+        for tier in (lambda n: n.occupation is None, lambda n: n.occupation in PRECARIOUS, lambda n: True):
+            chosen = [n for n in veterans if tier(n)]
+            if chosen:
+                return rng.choice(chosen)
+        return None
 
     def _arrive(self, graph, dead: int, day: int, rng: random.Random, family: int = 0) -> int:
         """A newcomer takes the dead person's place (job, home, the place's
@@ -3121,8 +3195,184 @@ class PopulationPhenomenon:
     def summarize(self, state) -> Dict[str, int]:
         return {"arrivals": self._arrivals, "arrived_as_families": self._families, "arrived_to_lodge": self._lodgers,
                 "came_for_work": self._came_for_work, "moved_away": self._moved_out,
-                "inheritances": self._inheritances,
+                "inheritances": self._inheritances, "veterans_made_guards": self._veterans_posted,
                 "open_vacancies": len(self._vacancies), "shop_ties_on_coming_of_age": self._shop_ties}
+
+
+# Soldiering (user, 2026-10-11): who goes, how long, what it costs and pays
+SOLDIERS_PER_1000 = 3.0  # C: leave a year, ~6 from Riverport's 1,889
+SOLDIER_MAX_AGE = 30
+SOLDIER_YEARS = (1, 4)  # user
+SOLDIER_DEATH_PER_YEAR = 0.08  # user: campaigns killed more by disease than battle
+SOLDIER_SAVINGS_PER_YEAR = 26.0  # C: half a master mason's wage (economy.SKILLED_WAGE), pay and plunder saved
+VETERAN_GUARD_MAX_AGE = 50  # C
+# who keeps a business or a house going stays (and a veteran running one isn't made a guard)
+KEEPS_THEM_HOME = (*MERCHANT_KEEPS_JOB, "merchant", "rentier")
+
+
+class SoldieringPhenomenon:
+    """Young people leave to soldier for a few years (user, 2026-10-11).
+
+    - **Who goes:** each month about SOLDIERS_PER_1000 a year of the town,
+      drawn from unmarried men and women FIGHTING_AGE-SOLDIER_MAX_AGE who don't
+      run a business and whose household keeps another adult.
+    - **While away** (SOLDIER_YEARS): they count for nothing in town. They're
+      out of the living (no work, no spending, no part in anything) and their
+      ties are paused, out of the graph and untouched, until they come back.
+      They die at SOLDIER_DEATH_PER_YEAR: the town learns of it (their ties come
+      back for the mourning, then go as any dead person's do).
+    - **Coming back:** their ties resume where they left them; they're a
+      veteran (Node.is_ex_soldier: harder to kill, better at it, the pool
+      bodyguards and mercenaries are hired from, first in line for a guard's
+      post), bring SOLDIER_SAVINGS_PER_YEAR home and look for work. Someone
+      they loved who was killed while they were away: they learn of it now
+      and turn on the killer as the others did then (violence's grief), and
+      close kin join the family's open feud."""
+    name = "soldiering"
+
+    def __init__(self, per_1000: float = SOLDIERS_PER_1000, grief_shock: float = 0.15):
+        self.per_1000 = per_1000
+        self.grief_shock = grief_shock  # violence's, for a killing learned of late
+        self.away: Dict[int, Dict[str, Any]] = {}
+        self._left = self._died = self._back = self._avenging = 0
+
+    def init_state(self, graph) -> Dict[int, Any]:
+        graph.soldiers_away = self.away  # who's away (not dead) for anyone who needs to know
+        return {resident_id: {} for resident_id in graph.nodes}
+
+    def add_resident(self, graph, state, resident_id: int) -> None:
+        state[resident_id] = {}
+
+    def candidate_edges(self, graph, state):
+        return []
+
+    def edge_probability(self, edge, state_a, state_b, day: int) -> float:
+        return 0.0
+
+    def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
+        return []
+
+    def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
+        events: List[Event] = []
+        monthly_death = 1.0 - (1.0 - SOLDIER_DEATH_PER_YEAR) ** (1.0 / 12.0)
+        for resident_id in list(self.away):
+            if day >= self.away[resident_id]["until"]:
+                events += self._come_back(graph, resident_id, day, rng)
+            elif day % 30 == 0 and rng.random() < monthly_death:
+                events += self._die_away(graph, resident_id, day)
+        if day % 30 == 0:
+            events += self._enlist(graph, day, rng)
+        return events
+
+    def _enlist(self, graph, day: int, rng: random.Random) -> List[Event]:
+        expected = self.per_1000 * graph.alive_count / 1000 / 12
+        count = int(expected) + (1 if rng.random() < expected % 1 else 0)
+        if not count:
+            return []
+        adults = defaultdict(int)
+        for node in graph.nodes.values():
+            if node.alive and (node.age or 0) >= ADULT_MIN_AGE:
+                adults[household_key(node)] += 1
+        eligible = [n for n in graph.nodes.values()
+                    if n.alive and n.role == "civilian" and n.age is not None
+                    and FIGHTING_AGE <= n.age <= SOLDIER_MAX_AGE and job_kind(n.occupation) not in KEEPS_THEM_HOME
+                    and adults[household_key(n)] - (n.age >= ADULT_MIN_AGE) >= 1
+                    and not any(edge.source_type == "spouse" for edge in graph.ties_of(n.resident_id).values())]
+        events = []
+        for node in rng.sample(eligible, min(count, len(eligible))):
+            resident_id = node.resident_id
+            ties = dict(graph.ties_of(resident_id))
+            for other in ties:  # paused: out of the graph at the day's end, kept here
+                graph.retire_tie(resident_id, other, day, "away soldiering")
+            node.alive = False
+            graph.alive_count -= 1
+            node.occupation, node.workplace_building_id = None, None
+            getattr(graph, "employer", {}).pop(resident_id, None)
+            until = day + rng.randint(365 * SOLDIER_YEARS[0], 365 * SOLDIER_YEARS[1])
+            self.away[resident_id] = {"left": day, "until": until, "ties": ties}
+            self._left += 1
+            events.append(Event(day, self.name, "left_to_soldier", resident_id, resident_id,
+                                f"for {(until - day) / 365:.1f} years"))
+        return events
+
+    def _rejoin(self, graph, resident_id: int, day: int) -> List[Tuple[int, Any]]:
+        """Back among the living, a year older for each year away, with their
+        ties back. Returns the ties to people who died meanwhile."""
+        record = self.away.pop(resident_id)
+        node = graph.nodes[resident_id]
+        node.alive = True
+        graph.alive_count += 1
+        node.age = (node.age or 0) + round((day - record["left"]) / 365)
+        lost = []
+        for other, edge in record["ties"].items():
+            if other in self.away:  # away too: theirs to bring back
+                self.away[other]["ties"][resident_id] = edge
+            elif graph.nodes[other].alive:
+                graph.add_edge(edge)
+            else:
+                lost.append((other, edge))
+        return lost
+
+    def _die_away(self, graph, resident_id: int, day: int) -> List[Event]:
+        self._rejoin(graph, resident_id, day)  # the town hears: the ties come back for the mourning
+        graph.record_death(resident_id, day, "war")
+        self._died += 1
+        return [Event(day, self.name, "died_soldiering", resident_id, resident_id, "died away at war")]
+
+    def _come_back(self, graph, resident_id: int, day: int, rng: random.Random) -> List[Event]:
+        left = self.away[resident_id]["left"]
+        lost = self._rejoin(graph, resident_id, day)
+        node = graph.nodes[resident_id]
+        node.is_ex_soldier = True
+        home = [n for n in graph.nodes.values() if n.alive and n.household_id == node.household_id and n is not node]
+        if node.household_id is None or not home:  # their household is gone: on their own, without a roof
+            node.household_id, node.home_building_id = new_household_id(graph), None
+        else:
+            node.home_building_id = home[0].home_building_id
+        node.district_id, node.district_zone = graph.building_districts.get(node.home_building_id, (None, None))
+        saved = SOLDIER_SAVINGS_PER_YEAR * (day - left) / 365
+        if hasattr(graph, "household_money"):
+            key = household_key(node)
+            graph.household_money[key] = graph.household_money.get(key, 0.0) + saved
+        self._back += 1
+        events = [Event(day, self.name, "came_back", resident_id, resident_id,
+                        f"after {(day - left) / 365:.1f} years, with {saved:.0f} florins")]
+        return events + self._learn_of_killings(graph, resident_id, lost, left, day, rng)
+
+    def _learn_of_killings(self, graph, resident_id: int, lost, left: int, day: int,
+                           rng: random.Random) -> List[Event]:
+        killed = {d["resident_id"]: d["killed_by"] for d in graph.deaths
+                  if d["day"] >= left and d["killed_by"] is not None}
+        events = []
+        for other, edge in lost:
+            killer = killed.get(other)
+            if killer is None or killer == resident_id or not graph.nodes[killer].alive:
+                continue
+            tie = graph.get_edge(resident_id, killer)
+            feud = next((f for f in getattr(graph, "feuds", ()) if killer in f["killers"]), None)
+            kin = edge.source_type in CLOSE_FAMILY
+            if tie is None:
+                if not (kin and feud):
+                    continue  # a stranger they've no way to reach
+                tie = edge_from_relationship(graph, resident_id, killer, "feud", rng)
+                graph.add_edge(tie)
+            shock = self.grief_shock * edge.tie_strength
+            felt = tie.valence_from(resident_id) - shock
+            if kin and feud:  # they take up the family's feud
+                felt = min(felt, -FEUD_AVENGER_HOSTILITY)
+                key = graph._key(resident_id, killer)
+                feud["keys"].append(key)
+                graph.feud_ties[key] = ((-FEUD_AVENGER_HOSTILITY, -FEUD_DEFENDER_HOSTILITY) if resident_id < killer
+                                        else (-FEUD_DEFENDER_HOSTILITY, -FEUD_AVENGER_HOSTILITY))
+            tie.set_valence_from(resident_id, max(-1.0, felt))
+            self._avenging += 1
+            events.append(Event(day, self.name, "learned_of_killing", resident_id, killer,
+                                f"{other} was killed while they were away"))
+        return events
+
+    def summarize(self, state) -> Dict[str, int]:
+        return {"soldiers_left": self._left, "soldiers_away": len(self.away), "soldiers_died_away": self._died,
+                "soldiers_back": self._back, "veterans_learned_of_killings": self._avenging}
 
 
 class EverydayPhenomenon:

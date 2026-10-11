@@ -142,6 +142,12 @@ PRECARIOUS = ("outworker", "day_labourer")
 # a merchant, putting-out work largely done by women and children, at a share of the wage
 WORKING_AGE = 12  # C
 TEEN_WAGE_SHARE = 1 / 3  # C: of the adult wage, until 18
+# user, 2026-10-11: from 8 children work in shops, taverns and workshops (staff,
+# apprentices), one to a workplace; never in charge of one before 18
+CHILD_WORK_AGE = 8
+CHILD_PLACE_SHARE = 0.5  # C: of the 12-17s finding work while a place is free, those who take it rather than spin
+# the employer's job -> what a child does there ("_hand": the master's trade's hand)
+CHILD_PLACES = {"shopkeep": "shop_staff", "barkeep": "tavern_staff", "blacksmith": "smith_apprentice", "master": "_hand"}
 FARMHANDS_ADDED = 4  # decided: more farm work outside the walls
 # C: the crafts of a small Tuscan town, for TownShape's empty workshops
 WORKSHOP_TRADES = [("weaver", 3), ("dyer", 1), ("fuller", 1), ("tanner", 1), ("shoemaker", 2), ("tailor", 2),
@@ -408,12 +414,35 @@ def _assign_jobs(graph, townshape_wealth, rng) -> None:
                     and rng.random() >= UNEMPLOYED_AT_START):
                 node.occupation = "outworker"
                 graph.employer[node.resident_id] = rng.choice(merchants)
+    places = _free_child_places([n for n in graph.nodes.values() if n.alive])
+    for node in sorted(graph.nodes.values(), key=lambda n: n.resident_id):  # younger children placed too
+        if (places and _working_child(node) and node.occupation is None and household_key(node) not in wealthy
+                and rng.random() < CHILD_PLACE_SHARE):
+            node.occupation, node.workplace_building_id = places.pop(rng.randrange(len(places)))
 
 
 def _working_teen(node) -> bool:
     """A young person of a household that isn't rich, old enough to work."""
     return (node.alive and not node.is_noble and node.age is not None and WORKING_AGE <= node.age < 18
             and node.ses not in RENTIER_CLASSES)
+
+
+def _working_child(node) -> bool:
+    """A child of a household that isn't rich, old enough for a place in a shop, tavern or workshop."""
+    return (node.alive and not node.is_noble and node.age is not None and CHILD_WORK_AGE <= node.age < 18
+            and node.ses not in RENTIER_CLASSES)
+
+
+def _free_child_places(alive) -> List[Tuple[str, Any]]:
+    """(occupation, workplace) for each shop, tavern, smithy and workshop
+    with no one under 18 working there yet."""
+    taken = {n.workplace_building_id for n in alive if (n.age or 0) < 18 and n.occupation}
+    places = {}
+    for node in alive:
+        kind = job_kind(node.occupation)
+        if kind in CHILD_PLACES and node.workplace_building_id is not None and node.workplace_building_id not in taken:
+            places[node.workplace_building_id] = f"{node.occupation}_hand" if kind == "master" else CHILD_PLACES[kind]
+    return [(places[workplace], workplace) for workplace in sorted(places)]
 
 
 FARM_UNSTAFFED_MONTHS = 6  # C: a dead farmer's place is taken by a newcomer in ~2 months; after this, nobody is coming
@@ -1430,16 +1459,23 @@ class EconomyPhenomenon:
         merchants = [n.resident_id for n in alive if n.occupation == "merchant"]
         self._unemployed = 0
         seekers = 0  # adults who could look for work: the base of the unemployment rate
+        places = None  # free places for children, found when first needed
         for node in alive:
             if not node.is_noble and (node.age or 0) >= 18 and node.ses not in RENTIER_CLASSES:
                 seekers += 1
             if node.occupation in PRECARIOUS and rng.random() < JOB_LOSS_PER_MONTH:
                 node.occupation = None
                 graph.employer.pop(node.resident_id, None)
-            if node.occupation is None and merchants and _working_teen(node):
+            if node.occupation is None and _working_child(node):
                 if rng.random() < JOB_FIND_PER_MONTH:
-                    node.occupation = "outworker"
-                    graph.employer[node.resident_id] = rng.choice(merchants)
+                    if places is None:
+                        places = _free_child_places(alive)
+                    teen = node.age >= WORKING_AGE  # spins for a merchant, or takes a free place
+                    if places and (not teen or not merchants or rng.random() < CHILD_PLACE_SHARE):
+                        node.occupation, node.workplace_building_id = places.pop(rng.randrange(len(places)))
+                    elif teen and merchants:
+                        node.occupation = "outworker"
+                        graph.employer[node.resident_id] = rng.choice(merchants)
                 continue
             if node.occupation is None and not node.is_noble and node.age is not None and node.age >= 18:
                 if node.ses in RENTIER_CLASSES:

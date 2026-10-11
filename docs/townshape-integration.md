@@ -3,7 +3,7 @@
 > Rewritten 2026-10-09 around the user's picture of the two tools (first
 > version 2026-09-23). Grouped by priority; each item says what exists today,
 > what is needed, and on which side. Checked against TownShape at `7e1d02a`
-> and `demo_riverport_town.db`. Updated 2026-10-10 for epidemics and ties.
+> and `demo_riverport_town.db`. Updated 2026-10-10 for epidemics and ties, 2026-10-11 for soldiers.
 
 ## 0. The picture (user, 2026-10-09)
 
@@ -78,13 +78,19 @@ name out, from TownShape's name lists and `rng_for`. `first_name`,
 
 **2.3 Deaths and departures (TownShape schema).**
 - The sim's causes: `old age`, `flu`, `diarrhea`, `famine`, `hardship`,
-  `violence`, `riot`, `execution`, `coup`, and one per epidemic disease
+  `violence`, `riot`, `execution`, `coup`, `war` (died away soldiering,
+  since 2026-10-11), and one per epidemic disease
   (`influenza`, `measles`, `typhus`, `dysentery`, `plague`, `pneumonic
   plague`, since 2026-10-10). TownShape's today: `illness`, `accident`,
   `childbirth`, `old age`, `plague`, skirmishes. **Decided (user,
   2026-10-09):** `deaths.cause` accepts the sim's causes as they are.
 - `moved away` and `banished` are recorded by the sim as deaths, but the
   person left alive: a `departures` table (resident, date, reason).
+- Since 2026-10-11 some leave to soldier for 1-4 years (reason
+  `soldiering`) and most come back as veterans (`is_ex_soldier`): their
+  `departures` row is removed on return, and their paused ties wait in
+  `sim_state` meanwhile. Children (8-17) also work as shop and tavern staff
+  and apprentices, TownShape's own occupations.
 - `deaths.reported_by_building_id`: the sim has no reporter; TownShape picks
   the temple, or the column stays empty.
 

@@ -70,7 +70,8 @@ class CraftMarket:
             if trade not in CRAFTS or node.workplace_building_id is None:
                 continue
             shop = shops.setdefault(node.workplace_building_id, {"trade": trade, "master": None, "staff": 0})
-            shop["staff"] += 1
+            # a child does a third of a hand's work, as they earn a third (economy.TEEN_WAGE_SHARE)
+            shop["staff"] += 1 if (node.age or 18) >= 18 else 1 / 3
             if node.occupation == trade:
                 shop["master"] = node
         return {b: s for b, s in shops.items() if s["master"] is not None}

@@ -8,6 +8,37 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-11 — Ages, soldiers and veterans; children at work
+
+Started from the seed-1 coup trace (a noble of 3 plotted a coup and hired a
+baby). Rules from the user, `Project_Vision/06`:
+- **16 for fighting and politics:** striking, banding together, rioting,
+  plotting, hiring or being hired for protection, governing. Children can
+  still be victims. No one under 18 at import is an ex-soldier
+  (`VETERAN_MIN_AGE`, 18 not 16: the settled-town reshape re-draws
+  under-18 ages).
+- **Soldiering** (`SoldieringPhenomenon`): ~3 in 1,000 a year leave, unmarried
+  men and women 16-30 who don't run a business and leave another adult at
+  home, for 1-4 years. Away they're out of the living (`alive` False, no
+  death record) with their ties paused outside the graph; 8% a year die
+  (`war`). Back, they're veterans (1.5x likelier to kill, 1.5x harder to
+  kill), bring 26 florins a year home, look for work, and are first in line
+  for a dead guard's post. A loved one killed while they were away: they
+  learn of it on return, and close kin join the open feud.
+- **Children's work:** from 8, one child to a workplace (shop, tavern,
+  smithy, craft hand), a third of the wage and of the work; nobody runs one
+  before 18. **Child thieves:** from 7 if the family is very poor or hungry,
+  else 12.
+- **Role changes** (`graph.role_changes`): an heir, or a veteran made guard,
+  is now seen in the new role by every phenomenon (heirs weren't before).
+- **Measured** (6 seeds x 25 years, vs 64b0f82): killings 136 -> 101 (children
+  had been a fifth or more of attackers), feuds 119 -> 90, executions 40 ->
+  30, coups unchanged (1.5), thefts +11%, homeless per 1,000 29.0 -> 21.6.
+  Per run ~164 leave, 25 die away, 123 come back, 24 made guards.
+- **Open:** very poor (years 19-25) 15.7% -> 17.0%, almost all seed 3 (22.3%;
+  the other five 15.9%), late in the run. Not yet known whether a famine or
+  the new rules.
+
 ## 2026-10-10 — Epidemics come from causes, each with its own disease
 
 Plan `Project_Vision/05` A; the user took every default.
