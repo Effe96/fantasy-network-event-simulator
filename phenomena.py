@@ -5,8 +5,8 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from economy import (BASKET_PER_PERSON, MERCHANT_KEEPS_JOB, PRECARIOUS, follow_if_emptied, form_household,
-                     household_key, job_kind, mark_new_household, new_household_id)
+from economy import (BASKET_PER_PERSON, MERCHANT_KEEPS_JOB, PRECARIOUS, form_household, household_key, job_kind,
+                     mark_new_household, new_household_id, person_key)
 from graph import (CLOSE_FAMILY, FAMILY, FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
                    edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
@@ -1996,7 +1996,7 @@ class StressPhenomenon:
     @staticmethod
     def _pressure(graph, node, resident_state, day: int) -> float:
         illness = STRESS_ILLNESS if day < resident_state["ill_until"] else 0.0
-        hunger = STRESS_HUNGER * graph.hunger.get(household_key(node), 0.0) if getattr(graph, "hunger", None) else 0.0
+        hunger = STRESS_HUNGER * graph.hunger.get(node.resident_id, 0.0) if getattr(graph, "hunger", None) else 0.0
         return min(1.0, STRESS_POVERTY.get(node.ses, 0.2) + hunger + resident_state["grief"] + illness)
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
@@ -3043,7 +3043,7 @@ class PopulationPhenomenon:
             if node.alive:
                 households.setdefault(household_key(node), []).append(node)
         events = []
-        money = getattr(graph, "household_money", {})
+        money, land = getattr(graph, "money", {}), getattr(graph, "land", {})
         strained = {}
         for key, people in households.items():
             if any(n.is_noble for n in people) or sum(n.stress for n in people) / len(people) < MOVE_OUT_STRESS:
@@ -3051,13 +3051,13 @@ class PopulationPhenomenon:
             strained[key] = self._strained_months.get(key, 0) + 1
             if strained[key] < MOVE_OUT_AFTER_MONTHS:
                 continue
-            held = money.get(key, 0.0) + getattr(graph, "household_property", {}).get(key, 0.0)
+            held = sum(money.get(person_key(n.resident_id), 0.0) + land.get(person_key(n.resident_id), 0.0)
+                       for n in people)
             if held < BASKET_PER_PERSON * len(people) or rng.random() >= MOVE_OUT_PER_MONTH:
                 continue
-            money[key] = 0.0
-            if key in getattr(graph, "household_property", {}):
-                graph.household_property[key] = 0.0
-            for node in people:
+            for node in people:  # their money and land go with them
+                for store in (money, land):
+                    store.pop(person_key(node.resident_id), None)
                 graph.record_death(node.resident_id, day, "moved away")
             self._moved_out += len(people)
             events.append(Event(day, self.name, "moved_away", people[0].resident_id, people[0].resident_id,
@@ -3090,9 +3090,7 @@ class PopulationPhenomenon:
                 break
         else:
             return None
-        left = household_key(heir)
         heir.household_id = old.household_id
-        follow_if_emptied(graph, left, old.household_id)
         heir.is_noble = True
         graph.role_changes.append(heir.resident_id)  # phenomena that keep roles see a noble now
         return heir.resident_id
@@ -3331,9 +3329,9 @@ class SoldieringPhenomenon:
             node.home_building_id = home[0].home_building_id
         node.district_id, node.district_zone = graph.building_districts.get(node.home_building_id, (None, None))
         saved = SOLDIER_SAVINGS_PER_YEAR * (day - left) / 365
-        if hasattr(graph, "household_money"):
-            key = household_key(node)
-            graph.household_money[key] = graph.household_money.get(key, 0.0) + saved
+        if hasattr(graph, "money"):
+            key = person_key(resident_id)
+            graph.money[key] = graph.money.get(key, 0.0) + saved
         self._back += 1
         events = [Event(day, self.name, "came_back", resident_id, resident_id,
                         f"after {(day - left) / 365:.1f} years, with {saved:.0f} florins")]

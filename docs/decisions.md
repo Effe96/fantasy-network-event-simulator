@@ -8,6 +8,91 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-12 — Personal money and belongings, step 1 (Project_Vision/09)
+
+The user's decisions are in 09's "Decided" section: everyone holds their
+own cash, land, houses, debts and belongings; a household only pools for
+shared costs. Step 1 changes who holds what, and nothing else is switched
+on (crime still goes by class). Money lives in `graph.money` and
+`graph.land` under person keys `("p", id)`, plus COMMUNE, CHURCH and
+BUILDERS. Paying from a household key draws from its members' purses
+(`EconomyPhenomenon._draw`), and paying to one pays its head.
+
+- **A household is split into families** (`family_groups`): family ties
+  among its members, plus anyone the family took in after an eviction
+  (`graph.guests`). Each family pays its share of the household's costs
+  by mouths to feed. Within a family, earners pay in proportion to their
+  usual income, then the head, then the other adults. Lodgers pay their
+  own share and nobody covers them (the user's rule). Roommates and
+  newcomers who come to lodge are marked in `graph.lodgers`, so the host is
+  the head among the others (`host_of`).
+  - **Rejected:** treating friends who take in an evicted person as
+    lodgers. The evicted had just failed to pay rent, so they couldn't pay
+    their hosts either and were put out again. 2 quiet years: evictions
+    80 → 205.
+- **Hunger is recorded per person** (`graph.hunger[resident]`). Only the
+  family that couldn't pay its share goes hungry. With hunger per
+  household, a lodger's shortfall made the hosts hungry too: 63% of
+  hungry household-months were shared houses, which are 6% of households.
+- **Rent is paid per family** (`_pay_rent`). A lodger family behind on its
+  share is put out on its own after the usual 3 to 6 months, and doesn't
+  go back to the household that put it out. Putting lodgers out at once
+  doubled evictions, because they moved from house to house.
+- **A family spends together** (`_spending`). It spends what it earns
+  beyond what it pays in, plus some of the cash beyond its cushion, as a
+  household did before. Each member spends from their own purse. What one
+  can't cover, the others with cash spend.
+  - **Rejected:** each person deciding alone. Earners had already been
+    drained by the household's costs, wives' and grown children's cash sat
+    unspent, and town cash rose 10–14% in 2 years.
+- **Class** is the family's resources per head (`resources_per_person`).
+  A merchant's wife and children are rich, and a lodger has their own class.
+- **The split at import** (`_split_purses`): a wife gets 10% of the cash
+  and land as her dowry; the head gets the rest of the land and the houses;
+  cash is split among those 16 and over; children get nothing. The town
+  holds exactly what it did (tested).
+- **Children:** their wages go to the eldest parent at home until 16
+  (`earner_key`). Noble and rich children from 12 get 0.25 fl a month from
+  that parent.
+- **Inheritance** (`settle_estate`) passes the dead person's own estate:
+  debts paid first, then the children, else the spouse, else the parents
+  (added: a dead child's things went to the commune), else the siblings,
+  then the nephews and nieces, else the commune.
+  - **Judgment call:** the widow or widower keeps the house they live in,
+    a widow's right to stay in her husband's house. Without it, a widow
+    paid rent to her own children.
+- **Dowry:** the bride's father (else her mother) gives DOWRY_SHARE of his
+  own cash and land, and it stays hers.
+- **A household's food debt is owed by its head**, purse to purse. With
+  the debt on whichever member knew the lender, a 16-year-old with nothing
+  owed it and never paid.
+- **Belongings** (`graph.belongings`): clothing, shoes, housewares and a
+  weapon, one value each.
+  - **At import:** everyone gets an ordinary person's, on top of the
+    town's wealth (the 1427 catasto left clothing and furnishings out).
+  - **Wear:** clothing wears out over 2 years, shoes over 1, housewares
+    over 10.
+  - **The basket** buys back an ordinary person's monthly wear. Anything
+    missing or finer comes out of spending beyond the basket.
+  - **Rejected:** having the basket buy back everything missing. A bad
+    month made the next month's needs bigger, and hungry households rose
+    7 → 22 in 2 years. Having it buy back only what's below the ordinary
+    level was rejected too: the rich, above it, bought no clothes there,
+    the unsold goods were exported, and town cash rose.
+  - Weapons don't wear out and don't change fights yet.
+- **The check (the user's 4.6):** Riverport, PyPy, 2 quiet years (no
+  epidemic, no famine), seeds 1 and 2, before against after.
+  - **The same as before:** total money, cash, Gini and top-10% share
+    within 5%; class shares within about 8% (the very rich are under 25
+    people); hunger the same or lower; homelessness and begging lower.
+  - **Different:** evictions are 22–42% higher, partly lodgers put out on
+    their own. The very poor moved both ways: +8% in one seed, −5% in the
+    other. Part of the class shift comes from inheritance now going to the
+    children (tested: with the spouse first, the rich gap went from
+    −6/−11% to −1/−4%).
+  - **To watch over a longer run:** merchant capital now splits among the
+    heirs, instead of staying with the firm.
+
 ## 2026-10-11 — A town kept in TownShape's database (`town.py`)
 
 TownShape built its side; this is the sim's (integration doc steps 1-5).

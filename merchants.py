@@ -76,26 +76,27 @@ class MerchantTrade:
         """`buyer` spends up to `amount` fl on `line` at `price` a unit, from
         merchants who have it. Returns the fl spent. Before the warehouses
         are stocked (the first month) it's bought straight from outside."""
-        from economy import COMMUNE, household_key
-        amount = min(amount, max(0.0, graph.household_money.get(buyer, 0.0)))
+        from economy import COMMUNE, household_key, person_key
+        amount = min(amount, max(0.0, econ.cash(graph, buyer)))
         if amount <= 1e-12:
             return 0.0
         if not self.trading or not merchants:
-            before = graph.household_money.get(buyer, 0.0)
+            before = econ.cash(graph, buyer)
             econ._import(graph, buyer, amount, merchants, rng, income)
-            spent = before - graph.household_money.get(buyer, 0.0)
+            spent = before - econ.cash(graph, buyer)
             self.till[line] += spent / price
             if business:
                 income[buyer] -= spent
             return spent
+        home = econ.household_of(graph, buyer)
         sellers = [m for m, l in self.line.items() if l == line and self.stock[m] > 1e-9
-                   and household_key(graph.nodes[m]) != buyer]
+                   and household_key(graph.nodes[m]) != home]
         rng.shuffle(sellers)
         spent = 0.0
         for merchant in sellers:
             if spent >= amount - 1e-9:
                 break
-            key = household_key(graph.nodes[merchant])
+            key = person_key(merchant)
             want = min(self.stock[merchant] * price, amount - spent)
             tax = econ._pay(graph, buyer, COMMUNE, want * self.gabelle)  # at the gates
             econ._year["commune: gabelle"] += tax
@@ -136,10 +137,10 @@ class MerchantTrade:
     def collect(self, econ, graph, payer, merchant: int, amount: float, income) -> float:
         """A workshop pays a merchant for materials taken on account (the
         gabelle at the gates, as on any import). Returns what it paid."""
-        from economy import COMMUNE, household_key
+        from economy import COMMUNE, person_key
         if not graph.nodes[merchant].alive:
             return 0.0  # ponytail: a dead merchant's accounts aren't passed to the heir
-        key = household_key(graph.nodes[merchant])
+        key = person_key(merchant)
         tax = econ._pay(graph, payer, COMMUNE, amount * self.gabelle)
         econ._year["commune: gabelle"] += tax
         got = econ._pay(graph, payer, key, amount - tax)
@@ -153,10 +154,10 @@ class MerchantTrade:
         price) of a workshop's surplus at `export_price`, with cash they have;
         it sells outside EXPORT_MONTHS later. Returns the fl worth bought."""
         from crafts import EXPORT_PRICE
-        from economy import household_key
+        from economy import person_key
         line = GOOD_LINE[good]
         if not self.trading:
-            merchant = household_key(merchants[rng.randrange(len(merchants))])
+            merchant = person_key(merchants[rng.randrange(len(merchants))].resident_id)
             paid = econ._pay(graph, merchant, master, value * EXPORT_PRICE)
             income[master] += paid
             sale = econ._pay(graph, None, merchant, paid / EXPORT_PRICE)
@@ -170,8 +171,8 @@ class MerchantTrade:
         for merchant in buyers:
             if bought >= value - 1e-9:
                 break
-            key = household_key(graph.nodes[merchant])
-            cash = graph.household_money.get(key, 0.0) - self.committed[key] - self.reserve[key]
+            key = person_key(merchant)
+            cash = graph.money.get(key, 0.0) - self.committed[key] - self.reserve[key]
             paid = econ._pay(graph, key, master, min((value - bought) * EXPORT_PRICE, max(0.0, cash)))
             if paid <= 1e-9:
                 continue
@@ -189,7 +190,7 @@ class MerchantTrade:
         if not self.trading:
             return
         self._successions(graph, alive)
-        from economy import household_key
+        from economy import person_key
         losers = set()
         for cargo in [c for c in self.afloat if c[0] <= self.month]:
             self.afloat.remove(cargo)
@@ -211,7 +212,7 @@ class MerchantTrade:
                 self.year["cargoes lost fl"] += paid
                 losers.add(merchant)
                 continue
-            key = household_key(graph.nodes[merchant])
+            key = person_key(merchant)
             sale = econ._pay(graph, None, key, worth)
             income[key] += sale - paid
             econ._year["in: craft exports"] += sale
@@ -235,19 +236,19 @@ class MerchantTrade:
         selling (grain: what the town will need beyond the farmers' stocks),
         paid up front from the month's takings, keeping RESERVE_MONTHS of the
         household's needs. The first month stocks the warehouses instead."""
-        from economy import household_key
+        from economy import person_key
         if not self.trading:
             self._open(graph, alive, food, members)
             return
         for merchant, line in sorted(self.line.items()):
-            key = household_key(graph.nodes[merchant])
+            key = person_key(merchant)
             self.expected[merchant] = ((1 - SALES_MEMORY) * self.expected.get(merchant, 0.0)
                                        + SALES_MEMORY * self.sold[merchant])
             self.sold[merchant] = 0.0
-            self.reserve[key] = RESERVE_MONTHS * needs.get(key, 0.0)
+            self.reserve[key] = RESERVE_MONTHS * needs.get(econ.household_of(graph, key), 0.0)
             want = self._target(merchant, food, members) - self._position(merchant)
             cost = self.unit_cost(line, food)
-            cash = graph.household_money.get(key, 0.0) - self.reserve[key]
+            cash = graph.money.get(key, 0.0) - self.reserve[key]
             units = min(max(0.0, want), max(0.0, cash) / cost)
             self.committed[key] = 0.0
             if units <= 1e-9:
@@ -277,13 +278,13 @@ class MerchantTrade:
     def _can_absorb(self, graph, merchant: int, food) -> bool:
         """After a loss: does the house still hold RUIN_SHARE of what it trades
         (stock, cargo afloat, cash beyond its reserve)?"""
-        from economy import household_key
+        from economy import person_key
         line = self.line[merchant]
-        key = household_key(graph.nodes[merchant])
+        key = person_key(merchant)
         cost = self.unit_cost(line, food)
         target = (LEAD_MONTHS[line] + COVER_MONTHS) * self.expected.get(merchant, 0.0) * cost
         held = (self._position(merchant) * cost
-                + max(0.0, graph.household_money.get(key, 0.0) - self.reserve[key]))
+                + max(0.0, graph.money.get(key, 0.0) - self.reserve[key]))
         return target <= 1e-9 or held >= RUIN_SHARE * target
 
     def _ruin(self, graph, merchant: int, alive) -> None:
@@ -304,11 +305,12 @@ class MerchantTrade:
     def _appoint(self, graph, alive, line: str, exclude=None):
         """The head of the richest house that could trade takes up `line`
         (the same people as at import: economy._assign_jobs)."""
-        from economy import (MERCHANT_KEEPS_JOB, MERCHANT_MIN_AGE, PAY, household_key, job_kind, wealth)
+        from economy import (MERCHANT_KEEPS_JOB, MERCHANT_MIN_AGE, PAY, household_key, job_kind, person_wealth)
         ruined = household_key(graph.nodes[exclude]) if exclude is not None else None
-        heads = {}
+        heads, held = {}, defaultdict(float)
         for node in alive:
             key = household_key(node)
+            held[key] += person_wealth(graph, node.resident_id)
             if (node.alive and not node.is_noble and (node.age or 0) >= MERCHANT_MIN_AGE and key != ruined
                     and node.occupation != "merchant" and job_kind(node.occupation) not in MERCHANT_KEEPS_JOB
                     and PAY.get(job_kind(node.occupation), (0.0, None))[1] != "public"):
@@ -316,7 +318,7 @@ class MerchantTrade:
                     heads[key] = node
         if not heads:
             return None
-        key = max(sorted(heads, key=str), key=lambda k: wealth(graph, k))
+        key = max(sorted(heads, key=str), key=lambda k: held[k])
         head = heads[key]
         head.occupation, head.workplace_building_id = "merchant", None
         graph.employer.pop(head.resident_id, None)

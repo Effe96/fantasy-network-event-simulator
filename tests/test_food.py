@@ -12,15 +12,18 @@ from graph import Edge, Node, SocialGraph
 
 
 def _town():
-    """Household 1: a farmer. 2: a baker. 3: a poor couple. 4: a rich couple."""
+    """Household 1: a farmer. 2: a baker. 3: a poor couple. 4: a rich couple.
+    Money is each person's own (personal money): the couples' is the first's."""
     graph = SocialGraph()
     rows = [(1, "farmer", "middling", 1), (2, "baker", "middling", 2), (3, None, "poor", 3), (4, None, "poor", 3),
             (5, "merchant", "rich", 4), (6, None, "rich", 4)]
     for resident_id, occupation, ses, household in rows:
         graph.add_node(Node(resident_id=resident_id, ses=ses, alive=True, gender="male", age=40,
                             household_id=household, occupation=occupation))
-    graph.household_money = {1: 0.0, 2: 0.0, 3: 10.0, 4: 100.0, COMMUNE: 0.0}
-    graph.household_property = {}
+    for a, b in ((3, 4), (5, 6)):  # couples: one family, paying for their food together
+        graph.add_edge(Edge(a, b, "spouse", "Communal Sharing", 0.9, 0.9, 0.9, 0.8, 0.8))
+    graph.money = {("p", 1): 0.0, ("p", 2): 0.0, ("p", 3): 10.0, ("p", 5): 100.0, COMMUNE: 0.0}
+    graph.land = {}
     economy = EconomyPhenomenon()
     economy.init_state(graph)
     members = defaultdict(list)
@@ -67,15 +70,15 @@ def test_bread_money_reaches_the_baker_and_the_farmer_and_none_is_lost():
     economy.food.famine_chance = 0.0
     _harvest(graph, economy, members)
     economy.food.farm_stock[1] = stock = 100.0  # grain left at the farm (the rich bought this tiny town's harvest)
-    total = sum(graph.household_money.values())
+    total = sum(graph.money.values())
     cost = economy.food.grain_cost(3, members[3])
     nodes = graph.nodes
     eaten = economy.food.feed(economy, graph, 3, members[3], cost, [nodes[2]], [nodes[1]], [nodes[5]],
                               random.Random(0), defaultdict(float))
     assert abs(eaten - 1.0) < 1e-9
-    assert graph.household_money[2] > 0  # the baker kept the margin
+    assert graph.money[("p", 2)] > 0  # the baker kept the margin
     assert economy.food.farm_stock[1] < stock  # and bought the grain from the farmer
-    assert abs(sum(graph.household_money.values()) - total) < 1e-9
+    assert abs(sum(graph.money.values()) - total) < 1e-9
 
 
 def test_in_a_famine_the_granary_sells_below_the_market():
@@ -97,7 +100,7 @@ def test_a_hoarder_selling_dear_is_resented_by_the_hungry_who_know_them():
     food.start_month(members)
     nodes = graph.nodes
     food.feed(economy, graph, 3, members[3], 5.0, [nodes[2]], [], [], random.Random(0), defaultdict(float))
-    assert food.hoards[4] < 50.0 and graph.household_money[4] > 100.0  # sold to the baker, at a dear price
+    assert food.hoards[4] < 50.0 and graph.money[("p", 5)] > 100.0  # sold to the baker, at a dear price
     assert abs(graph.get_edge(3, 5).valence_a_to_b - (0.2 - HOARD_RESENTMENT)) < 1e-9
 
 
@@ -122,17 +125,17 @@ def test_a_growing_town_gets_a_podere_whose_harvest_is_split_and_whose_land_stop
     food.famine_chance = 0.0
     for resident_id in (3, 4):
         graph.nodes[resident_id].ses, graph.nodes[resident_id].occupation = "very_poor", "day_labourer"
-    graph.household_property = {4: 10_000.0}
+    graph.land = {("p", 5): 10_000.0}
     food.yield_per_farm, food.podere_yield = 1.0, 20.0  # the farm grows far less than the town's share
     _harvest(graph, economy, members)
     (building, podere), = food.poderi.items()  # one couple to work it, so one podere
-    assert podere["owner"] == 4 and graph.building_types[building] == "podere"
+    assert podere["owner"] == ("p", 5) and graph.building_types[building] == "podere"
     assert all(graph.nodes[r].occupation == "sharecropper" and graph.nodes[r].workplace_building_id == building
                for r in (3, 4))
-    assert food.land_in_hand(4) == podere["value"]
+    assert food.land_in_hand(("p", 5)) == podere["value"]
     food.farm_stock.clear()
     food._crop(graph, building, podere, 1.0, members)
-    assert food.farm_stock[3] == food.farm_stock[4] == 10.0  # mezzadria: half each
+    assert food.farm_stock[("p", 3)] == food.farm_stock[("p", 5)] == 10.0  # mezzadria: half each
     # the owner's half of a normal harvest, at the normal price, replaces the rent on that land
     assert abs(10.0 * food.staio_fl / (1 + BAKER_MARGIN) - podere["value"] * 0.07) < 1e-9
 

@@ -26,7 +26,7 @@ def _family():
     graph.add_node(Node(resident_id=4, ses="poor", gender="male", age=40, household_id=9))
     graph.add_edge(Edge(1, 2, "parent", "Communal Sharing", 0.7, 0.7, 0.7, 0.6, 0.6))
     graph.add_edge(Edge(1, 3, "sibling", "Communal Sharing", 0.7, 0.7, 0.7, 0.5, 0.5))
-    graph.household_money = {7: 10.0}
+    graph.money = {("p", 1): 10.0}  # her own purse (personal money)
     return graph
 
 
@@ -49,7 +49,7 @@ def test_a_soldier_is_away_with_ties_paused_and_comes_back_a_veteran_with_saving
     node = graph.nodes[1]
     assert node.alive and node.is_ex_soldier and node.age == 20 and node.home_building_id == 70
     assert graph.get_edge(1, 2).valence_from(1) == 0.6  # the ties as she left them
-    assert abs(graph.household_money[7] - 10.0 - 2 * 26.0) < 1e-9
+    assert abs(graph.money[("p", 1)] - 10.0 - 2 * 26.0) < 1e-9  # her savings are her own
 
 
 def test_a_soldier_who_dies_away_is_mourned_through_their_ties():

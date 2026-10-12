@@ -228,7 +228,7 @@ def test_a_desperate_household_that_can_afford_it_moves_out():
     for resident_id in (1, 2, 3):
         graph.nodes[resident_id].household_id = 5
         graph.nodes[resident_id].stress = 0.9
-    graph.household_money = {5: 100.0}
+    graph.money = {("p", 1): 100.0}
     population = PopulationPhenomenon()
     state = population.init_state(graph)
     for month in range(1, 200):
@@ -236,7 +236,7 @@ def test_a_desperate_household_that_can_afford_it_moves_out():
         if not graph.nodes[1].alive:
             break
     assert all(d["cause"] == "moved away" for d in graph.deaths) and len(graph.deaths) == 3
-    assert graph.household_money[5] == 0.0
+    assert ("p", 1) not in graph.money  # they took their money with them
 
 
 def test_a_job_is_refilled_even_when_the_town_is_at_full_size():

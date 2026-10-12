@@ -57,7 +57,7 @@ def test_a_very_poor_household_going_hungry_crosses_the_thief_threshold():
     stress = StressPhenomenon()
     state = stress.init_state(graph)
     assert graph.nodes[3].stress < THIEF_STRESS_THRESHOLD
-    graph.hunger = {7: 0.5}  # bought only half its basket this month
+    graph.hunger = {3: 0.5}  # their family bought only half its basket this month (per person)
     for day in range(1, 61):
         stress.end_of_day(graph, state, day, random.Random(day))
     assert graph.nodes[3].stress > THIEF_STRESS_THRESHOLD

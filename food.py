@@ -91,7 +91,7 @@ class FoodMarket:
         by_farm = {}
         for node in sorted(farmers, key=lambda n: (-(n.age or 0), n.resident_id)):
             by_farm.setdefault(node.workplace_building_id, node)
-        farms = [econ_key(n) for n in by_farm.values()]
+        farms = [person_of(n) for n in by_farm.values()]
         if farms:
             if self.yield_per_farm is None:
                 self.yield_per_farm = self.local_share * demand / len(farms)
@@ -116,7 +116,7 @@ class FoodMarket:
             want = self.staia_needed(people) * 12 - self.stores[key]
             if want > 0:
                 self.stores[key] += self._buy_grain(econ, graph, key, want, price, farmers, merchants, rng, income)
-            cash = max(0.0, graph.household_money.get(key, 0.0))
+            cash = econ.cash(graph, key)
             room = HOARD_YEARS * self.staia_needed(people) * 12 - self.hoards[key]
             if self.price <= HOARD_BUY_BELOW and room > 0 and cash > 0:
                 bought = self._buy_grain(econ, graph, key, min(room, HOARD_CASH_SHARE * cash / price), price,
@@ -129,9 +129,9 @@ class FoodMarket:
             from economy import COMMUNE
             # paid with forced loans when the commune is short, as Florence funded its grain
             cost = (target - self.granary) * price
-            econ._commune_borrow(graph, cost - graph.household_money.get(COMMUNE, 0.0),
+            econ._commune_borrow(graph, cost - graph.money.get(COMMUNE, 0.0),
                                  [n for people in members.values() for n in people])
-            affordable = max(0.0, graph.household_money.get(COMMUNE, 0.0)) / price
+            affordable = max(0.0, graph.money.get(COMMUNE, 0.0)) / price
             self.granary += self._buy_grain(econ, graph, COMMUNE, min(target - self.granary, affordable), price,
                                             farmers, merchants, rng, income)
         self.update_price(members)
@@ -180,10 +180,11 @@ class FoodMarket:
         return (1 - SHARECROPPER_SHARE) * self.podere_yield * self.staio_fl / (1 + BAKER_MARGIN) / PROPERTY_RETURN
 
     def _landowner(self, graph, members, value: float):
-        """The household with the most land not yet in hand, if it covers `value`."""
+        """The person with the most land not yet in hand, if it covers `value`."""
         def free(key):
-            return graph.household_property.get(key, 0.0) - self.land_in_hand(key)
-        owner = max(members, key=free, default=None)
+            return graph.land.get(key, 0.0) - self.land_in_hand(key)
+        owners = [k for k in graph.land if isinstance(k, tuple) and graph.nodes[k[1]].alive]
+        owner = max(sorted(owners), key=free, default=None)
         return owner if owner is not None and free(owner) >= value else None
 
     def _crop(self, graph, building, podere, factor, members) -> None:
@@ -198,12 +199,13 @@ class FoodMarket:
             self.year["poderi fallow"] += 1
             return
         owner = podere["owner"]
-        if owner not in members or graph.household_property.get(owner, 0.0) < self.land_in_hand(owner):
+        if (not isinstance(owner, tuple) or not graph.nodes[owner[1]].alive
+                or graph.land.get(owner, 0.0) < self.land_in_hand(owner)):
             podere["owner"] = None  # out of the count while a new holder is found
             podere["owner"] = owner = self._landowner(graph, members, podere["value"])
         grain = self.podere_yield * factor
         kept = grain if owner is None else grain * SHARECROPPER_SHARE
-        self.farm_stock[econ_key(workers[0])] += kept
+        self.farm_stock[person_of(workers[0])] += kept
         if owner is not None:
             self.farm_stock[owner] += grain - kept
         self.year["harvested"] += grain
@@ -243,8 +245,9 @@ class FoodMarket:
             return (n.alive and not n.is_noble and n.occupation in SHARECROPPER_FROM and n.age is not None
                     and SHARECROPPER_AGES[0] <= n.age <= SHARECROPPER_AGES[1])
         for ses in ("very_poor", "poor"):
+            home = household_key_of(graph, owner)
             households = sorted((k for k, people in members.items()
-                                 if k != owner and any(able(n) and n.ses == ses for n in people)), key=str)
+                                 if k != home and any(able(n) and n.ses == ses for n in people)), key=str)
             if households:
                 adults = [n for n in members[rng.choice(households)] if able(n)]
                 return sorted(adults, key=lambda n: (-n.age, n.resident_id))[:PODERE_WORKERS]
@@ -374,11 +377,11 @@ class FoodMarket:
         if not bakers or amount <= 0:
             self._last_baker = None
             return 0.0
-        before = graph.household_money.get(key, 0.0)
+        before = econ.cash(graph, key)
         baker = bakers[rng.randrange(len(bakers))]
         econ._buy(graph, key, amount, [baker], rng, income)
-        self._last_baker = econ_key(baker)
-        return before - graph.household_money.get(key, 0.0)
+        self._last_baker = person_of(baker)
+        return before - econ.cash(graph, key)
 
     def _resent(self, graph, hoarder) -> None:
         """The hungry who know a hoarder selling dear think less of them."""
@@ -387,7 +390,7 @@ class FoodMarket:
             if not node.alive or econ_key(node) != hoarder:
                 continue
             for other, edge in graph.ties_of(node.resident_id).items():
-                if econ_key(graph.nodes[other]) in hungry and other not in self._resented:
+                if other in hungry and other not in self._resented:
                     self._resented.add(other)
                     if edge.resident_a == other:
                         edge.valence_a_to_b = max(-1.0, edge.valence_a_to_b - HOARD_RESENTMENT)
@@ -409,6 +412,18 @@ class FoodMarket:
 def econ_key(node):
     from economy import household_key
     return household_key(node)
+
+
+def person_of(node):
+    """A farmer's or baker's own purse (personal money, Project_Vision/09)."""
+    from economy import person_key
+    return person_key(node.resident_id)
+
+
+def household_key_of(graph, key):
+    """The household of a person key (a podere's owner); None for anything else."""
+    from economy import household_key, is_person
+    return household_key(graph.nodes[key[1]]) if is_person(key) else None
 
 
 def _stores(people) -> bool:

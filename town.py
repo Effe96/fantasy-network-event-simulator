@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from demo import build_phenomena
-from economy import CHURCH, COMMUNE, household_key, wealth
+from economy import CHURCH, COMMUNE, household_key, person_key
 from engine import run_simulation
 from graph import TieFilter, import_snapshot
 
@@ -190,19 +190,31 @@ class Town:
                 [(e.resident_a, e.resident_b, e.source_type, e.time, e.intimacy, e.services,
                   e.valence_a_to_b, e.valence_b_to_a, e.former_type) for e in ties])
 
-            if hasattr(graph, "household_money"):
+            if hasattr(graph, "money"):
                 economy = next((p for p in self.phenomena if p.name == "economy"), None)
                 income = getattr(economy, "_income", {}) or {}
+                # money is personal in the sim (Project_Vision/09): TownShape keeps
+                # it per household, so each household gets its members' together
+                total = {hid: [0.0, 0.0, 0.0, None] for hid in households}
+                for node in nodes:
+                    if node.alive:
+                        k, row = person_key(node.resident_id), total[household_of[node.resident_id]]
+                        row[0] += graph.money.get(k, 0.0)
+                        row[1] += graph.land.get(k, 0.0)
+                        row[2] += graph.house_wealth.get(k, 0.0)
+                        if k in income:
+                            row[3] = (row[3] or 0.0) + income[k]
                 keys = [(hid, _sim_household(hid)) for hid in sorted(households)]
                 conn.execute("DELETE FROM household_economy")
                 conn.executemany("INSERT INTO household_economy VALUES (?, ?, ?, ?, ?)",
-                                 [(hid, graph.household_money.get(k, 0.0), graph.household_property.get(k, 0.0),
-                                   getattr(graph, "rent_behind", {}).get(k, 0.0), income.get(k)) for hid, k in keys])
+                                 [(hid, total[hid][0], total[hid][1], getattr(graph, "rent_behind", {}).get(k, 0.0),
+                                   total[hid][3]) for hid, k in keys])
                 conn.executemany("UPDATE households SET wealth = ? WHERE id = ?",
-                                 [(wealth(graph, k), hid) for hid, k in keys])
+                                 [(sum(total[hid][:3]), hid) for hid, k in keys])
                 conn.execute("DELETE FROM house_tenure")
                 conn.executemany("INSERT INTO house_tenure VALUES (?, ?, ?, ?, ?, ?)",
-                                 [(b, None if h["owner"] in (COMMUNE, CHURCH) else _household(h["owner"]),
+                                 [(b, None if h["owner"] in (COMMUNE, CHURCH)
+                                   else household_of.get(h["owner"][1], _household(household_key(graph.nodes[h["owner"][1]]))),
                                    {COMMUNE: "commune", CHURCH: "church"}.get(h["owner"], "household"),
                                    h["value"], h["room"], h.get("left"))
                                   for b, h in sorted(graph.houses.items()) if _placed(b)])

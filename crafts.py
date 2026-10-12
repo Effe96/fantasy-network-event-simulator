@@ -140,14 +140,14 @@ class CraftMarket:
         surplus beyond a month's stock goes to the merchants for export.
         2026-10-01: paying for materials up front from the master's household
         purse left the workshops short (shoes made 92 fl of 870 in a year)."""
-        from economy import household_key
+        from economy import person_key
         self.calibrate(alive, self.wanted)
         asked, self.wanted = self.wanted, defaultdict(float)
         for good, value in asked.items():
             self.asked_year[good] += value
         self.months_asked += 1
         shops = self.workshops(alive)
-        self._masters = {b: household_key(s["master"]) for b, s in shops.items()}
+        self._masters = {b: person_key(s["master"].resident_id) for b, s in shops.items()}
         uses_town_goods = lambda b: CRAFTS[shops[b]["trade"]][3] in ("cloth", "leather")
         for building in sorted(shops, key=lambda b: (uses_town_goods(b), str(b))):
             shop = shops[building]
@@ -188,7 +188,7 @@ class CraftMarket:
         town's workshops, hides from a farmer, the rest from the merchants'
         warehouses (at their margin; goods slice 4), as far as they have it.
         Returns what was taken."""
-        from economy import household_key
+        from economy import person_key
         from merchants import GOOD_LINE
         line = GOOD_LINE[CRAFTS[shops[building]["trade"]][1]]
         got = 0.0
@@ -203,7 +203,7 @@ class CraftMarket:
                 if got >= value - 1e-9:
                     break
         elif source == "farmers" and farmers:
-            farmer = household_key(farmers[rng.randrange(len(farmers))])
+            farmer = person_key(farmers[rng.randrange(len(farmers))].resident_id)
             self.owed[building][farmer] += value
             got = value
         if got < value - 1e-9:  # wool, timber, iron, or what the town lacks
@@ -226,7 +226,7 @@ class CraftMarket:
             if master is None:
                 continue  # ponytail: a closed workshop's account is left unpaid
             for creditor in list(debts):
-                cash = max(0.0, graph.household_money.get(master, 0.0))
+                cash = max(0.0, graph.money.get(master, 0.0))
                 amount = min(debts[creditor], cash)
                 if amount <= 1e-9:
                     continue
@@ -236,9 +236,9 @@ class CraftMarket:
                         debts[creditor] = 0.0  # a dead merchant's account
                 elif isinstance(creditor, tuple) and creditor[0] == "import":
                     if econ.trade.trading:  # left over from the first month
-                        before = graph.household_money.get(master, 0.0)
+                        before = econ.cash(graph, master)
                         econ._import(graph, master, amount, merchants, rng, income)
-                        paid = before - graph.household_money.get(master, 0.0)
+                        paid = before - econ.cash(graph, master)
                     else:
                         paid = econ.trade.sell(econ, graph, master, creditor[1], amount, merchants, rng, income)
                 else:
@@ -251,8 +251,9 @@ class CraftMarket:
         """Spend up to `value` fl on `good` at its price, from the workshops
         that have it, taxed like anything bought in town. Returns the fl spent."""
         from economy import household_key
+        home = econ.household_of(graph, buyer)
         makers = [b for b, s in shops.items() if CRAFTS[s["trade"]][0] == good and self.stock[b] > 1e-9
-                  and household_key(s["master"]) != buyer]
+                  and household_key(s["master"]) != home]
         rng.shuffle(makers)
         got = 0.0
         for building in makers:
@@ -260,9 +261,9 @@ class CraftMarket:
                 break
             price = self.price[good]
             want = min(self.stock[building] * price, value - got)
-            before = graph.household_money.get(buyer, 0.0)
+            before = econ.cash(graph, buyer)
             econ._buy(graph, buyer, want, [shops[building]["master"]], rng, income)
-            paid = before - graph.household_money.get(buyer, 0.0)
+            paid = before - econ.cash(graph, buyer)
             if business:
                 income[buyer] -= paid
             self.stock[building] -= paid / price
@@ -280,23 +281,24 @@ class CraftMarket:
 
     # -- households -------------------------------------------------------------
 
-    def buy(self, econ, graph, key, amount: float, alive, merchants, rng: random.Random, income) -> float:
-        """A household spends `amount` on clothing, shoes and housewares in the
-        basket's proportions: from the workshops that have them, else imported,
-        dearer. Returns what it spent."""
+    def buy(self, econ, graph, key, wants: Dict[str, float], alive, merchants, rng: random.Random,
+            income) -> Dict[str, float]:
+        """A household or person spends up to `wants` fl on each of clothing,
+        shoes and housewares: from the workshops that have them, else
+        imported, dearer. Returns what it spent on each."""
         shops = self._shops if self._shops is not None else self.workshops(alive)
-        total = sum(BASKET_SHARES.values())
-        spent = 0.0
-        for good, share in BASKET_SHARES.items():
-            want = amount * share / total
+        spent = {}
+        for good, want in wants.items():
+            if want <= 1e-12:
+                continue
             self.wanted[good] += want / self.price[good]  # in goods, at the normal price
             got = self._from_workshops(econ, graph, key, good, want, shops, rng, income)
-            spent += got
             if got < want - 1e-9 and merchants:  # none in town: imported, dearer, if a merchant has it
                 from merchants import GOOD_LINE
                 bought = econ.trade.sell(econ, graph, key, GOOD_LINE[good], want - got, merchants, rng, income)
-                spent += bought
+                got += bought
                 self.year[f"imported {good}"] += bought
+            spent[good] = got
         return spent
 
     def start_month(self, alive) -> None:
