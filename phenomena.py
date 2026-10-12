@@ -5,8 +5,8 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from economy import (BASKET_PER_PERSON, MERCHANT_KEEPS_JOB, PRECARIOUS, form_household, household_key, job_kind,
-                     mark_new_household, new_household_id, person_key)
+from economy import (BASKET_PER_PERSON, MERCHANT_KEEPS_JOB, MONEY_AGE, PRECARIOUS, form_household, has_purse,
+                     household_key, job_kind, mark_new_household, new_household_id, person_key, steal, transfer)
 from graph import (CLOSE_FAMILY, FAMILY, FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
                    edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
@@ -884,6 +884,8 @@ class ViolencePhenomenon:
         assassins = [c for c in self._mercenary_candidates(graph, state, culprit) if c != victim] if hired else []
         killer = rng.choice(assassins) if assassins else (None if hired else culprit)
         shock_factor = self.noble_hired_assassin_shock_factor if hired else 1.0
+        if hired and killer is not None and hasattr(graph, "money"):
+            transfer(graph, "assassin's fee", culprit, killer, ASSASSIN_FEE)
 
         victim_vulnerability = SES_VULNERABILITY.get(graph.nodes[victim].ses, 1.0)
         attacker_vulnerability = SES_VULNERABILITY.get(graph.nodes[culprit].ses, 1.0)
@@ -936,6 +938,8 @@ class ViolencePhenomenon:
         if day % 365 == 0:
             self._feuds_ended += settle_feuds(graph, rng)
             self._feuds_open = len(getattr(graph, "feuds", ()))
+        if day % 30 == 0 and hasattr(graph, "money"):
+            self._pay_mercenaries(graph, state)
         return (
             self._check_group_violence(graph, state, day, rng)
             + self._check_mercenary_hiring(graph, state, day, rng)
@@ -995,8 +999,8 @@ class ViolencePhenomenon:
         events: List[Event] = []
         if rng.random() < self.coup_hire_rate:
             candidates = self._mercenary_candidates(graph, state, plotter_id)
-            if candidates:
-                mercenary_id = rng.choice(candidates)
+            mercenary_id = rng.choice(candidates) if candidates else None
+            if mercenary_id is not None and self._first_wage(graph, plotter_id, mercenary_id):
                 coup["mercenaries"].append(mercenary_id)
                 coup["suspicion"] += self.coup_suspicion_per_mercenary
                 state[mercenary_id]["hired_by"] = plotter_id
@@ -1041,6 +1045,30 @@ class ViolencePhenomenon:
                                  f"attempt with {len(living_mercenaries)} mercenaries repelled"))
         return events
 
+    @staticmethod
+    def _first_wage(graph, hirer: int, mercenary_id: int) -> bool:
+        """A month's wage paid on hiring: someone who can't pay it hires no one
+        (2026-10-12: unpaid mercenaries left at the month's end and were hired
+        again the next day, 132 hires in a year by one who couldn't pay)."""
+        return not hasattr(graph, "money") or transfer(graph, "mercenary wage", hirer, mercenary_id,
+                                                       MERCENARY_WAGE, whole=True) > 0
+
+    def _pay_mercenaries(self, graph, state) -> None:
+        """Monthly: whoever hired protection or coup mercenaries pays each a
+        wage (07 4.1). One left unpaid walks away, free to be hired again, as
+        does one whose coup is over."""
+        coup = (self._active_coup or {}).get("mercenaries", [])
+        for mercenary_id, resident_state in state.items():
+            hirer = resident_state.get("hired_by")
+            if hirer is None or not graph.nodes[hirer].alive or not graph.nodes[mercenary_id].alive:
+                continue
+            employed = [h for h in (state[hirer]["mercenaries"], coup) if mercenary_id in h]
+            if employed and transfer(graph, "mercenary wage", hirer, mercenary_id, MERCENARY_WAGE, whole=True):
+                continue
+            resident_state["hired_by"] = None
+            for hired in employed:
+                hired.remove(mercenary_id)
+
     def _check_mercenary_hiring(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         events: List[Event] = []
         for resident_id, node in graph.nodes.items():
@@ -1064,6 +1092,8 @@ class ViolencePhenomenon:
             if not candidates:
                 continue
             mercenary_id = rng.choice(candidates)
+            if not self._first_wage(graph, resident_id, mercenary_id):
+                continue
             hired.append(mercenary_id)
             state[mercenary_id]["hired_by"] = resident_id
             events.append(Event(day, self.name, "mercenary_hired", resident_id, mercenary_id,
@@ -1845,6 +1875,25 @@ class RiotPhenomenon:
 # wealth aggregate yet (see the "Wealth inequality" candidate town parameter);
 # swap for that once it exists
 BRIBE_WEALTH_FACTOR = {"very_poor": 0.25, "poor": 0.5, "middling": 1.0, "rich": 2.0, "very_rich": 3.0}
+# money in crime (07 4.1, 09 §6 step 3, user 2026-10-12), fl, times
+# BRIBE_WEALTH_FACTOR of the payer's (or victim's) class: a guard's or priest's
+# bribe is a few days' wages; a theft is what's in a purse
+BRIBE_FL = 0.5  # C
+THEFT_FL = 1.0  # C
+MERCENARY_WAGE = 3.0  # C: fl a month, a foot soldier's pay in the condotte
+ASSASSIN_FEE = 10.0  # C
+
+
+def pays_bribe(graph, payer: int, payee: int, kind: str) -> bool:
+    """A bribe or a priest's payoff, from the payer's own purse: no one under
+    MONEY_AGE pays one (07 1.1), nor anyone who can't afford it. Towns without
+    money (tests) only check the age."""
+    node = graph.nodes[payer]
+    if (node.age or 0) < MONEY_AGE:
+        return False
+    if not hasattr(graph, "money"):
+        return True
+    return transfer(graph, kind, payer, payee, BRIBE_FL * BRIBE_WEALTH_FACTOR.get(node.ses, 1.0), whole=True) > 0
 # graph.deaths causes that count as "disease" for priests' curer blame
 SICKNESS_CAUSES = {"flu", "diarrhea", *EPIDEMIC_DISEASES}
 # how much surviving each sickness moves a resident toward faith and the
@@ -1928,6 +1977,8 @@ class GuardPhenomenon:
         edge = graph.get_edge(a, b)
         guard_id = a if state[a]["role"] == "guard" else b
         briber_id = b if guard_id == a else a
+        if not pays_bribe(graph, briber_id, guard_id, "bribe"):
+            return []
         new_valence = min(1.0, edge.valence_from(guard_id) + self.bribe_affinity_gain)
         edge.set_valence_from(guard_id, new_valence)
         self._bribes += 1
@@ -2209,6 +2260,7 @@ class TheftPhenomenon:
         self.deterrence_decay = deterrence_decay
         self.deterrence_weight = deterrence_weight
         self._thefts = 0
+        self._stolen = 0.0
         self._caught = 0
         self._arrests = 0
         self._executions = 0
@@ -2260,8 +2312,14 @@ class TheftPhenomenon:
 
     def apply_effect(self, graph, state, a: int, b: int, day: int, rng: random.Random) -> List[Event]:
         thief_id, victim_id = (a, b) if state[a]["is_thief"] else (b, a)
+        victim = graph.nodes[victim_id]
+        # never from their own household, nor from a child with nothing of their own (07 1.4)
+        if household_key(victim) == household_key(graph.nodes[thief_id]) or not has_purse(victim):
+            return []
+        taken = steal(graph, thief_id, victim_id, THEFT_FL * BRIBE_WEALTH_FACTOR.get(victim.ses, 1.0), rng)             if hasattr(graph, "money") else 0.0
         self._thefts += 1
-        events = [Event(day, self.name, "theft", thief_id, victim_id, "stole from")]
+        self._stolen += taken
+        events = [Event(day, self.name, "theft", thief_id, victim_id, f"stole {taken:.2f} fl")]
 
         if rng.random() >= self.discovery_chance:
             return events
@@ -2335,6 +2393,7 @@ class TheftPhenomenon:
         return {
             "thieves": sum(1 for s in state.values() if s["is_thief"]),
             "thefts": self._thefts,
+            "thefts_fl": round(self._stolen, 1),
             "thefts_caught": self._caught,
             "thefts_arrested": self._arrests,
             "thefts_executed": self._executions,
@@ -2544,6 +2603,8 @@ class ReligionPhenomenon:
         # total > 0 always holds here: edge_probability already required a
         # positive roll against this same total for apply_effect to be called
         if rng.random() < corruption_p / total:
+            if not pays_bribe(graph, civilian_id, priest_id, "priest payoff"):
+                return []
             new_valence = min(1.0, edge.valence_from(priest_id) + self.corruption_affinity_gain)
             edge.set_valence_from(priest_id, new_valence)
             self._corruptions += 1

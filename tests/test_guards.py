@@ -8,9 +8,9 @@ from graph import Edge, Node, SocialGraph
 from phenomena import GuardPhenomenon
 
 
-def _civilian_guard_graph(cunning=0.8, ses="rich", guard_valence_from_guard=0.0):
+def _civilian_guard_graph(cunning=0.8, ses="rich", guard_valence_from_guard=0.0, age=30):
     graph = SocialGraph()
-    graph.add_node(Node(resident_id=1, ses=ses, alive=True, cunning=cunning))
+    graph.add_node(Node(resident_id=1, ses=ses, alive=True, cunning=cunning, age=age))
     graph.add_node(Node(resident_id=2, ses="middling", alive=True, occupation="guard"))
     graph.add_edge(
         Edge(1, 2, "neighbor", "Equality Matching", time=0.5, intimacy=0.5, services=0.5,
@@ -70,6 +70,20 @@ def test_apply_effect_raises_only_the_guards_affinity_toward_the_briber():
     assert phenomenon.summarize(state)["bribes"] == 1
 
 
+def test_a_bribe_moves_money_and_children_never_bribe():
+    # 07 1.1 and 4.1 (user, 2026-10-12)
+    graph = _civilian_guard_graph(ses="rich")
+    graph.money = {("p", 1): 5.0}
+    phenomenon = GuardPhenomenon()
+    state = phenomenon.init_state(graph)
+    assert phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
+    assert graph.money == {("p", 1): 4.0, ("p", 2): 1.0} and graph.payments[0][1:] == ("bribe", ("p", 1), ("p", 2), 1.0)
+    graph.money[("p", 1)] = 0.5  # can't afford it: no bribe
+    assert phenomenon.apply_effect(graph, state, 1, 2, day=2, rng=random.Random(0)) == []
+    child = _civilian_guard_graph(age=9)
+    assert phenomenon.apply_effect(child, phenomenon.init_state(child), 1, 2, day=1, rng=random.Random(0)) == []
+
+
 def test_bribe_affinity_is_clamped_at_one():
     graph = _civilian_guard_graph(guard_valence_from_guard=0.95)
     phenomenon = GuardPhenomenon(bribe_affinity_gain=0.5)
@@ -83,6 +97,7 @@ def _run_all():
     test_more_cunning_civilians_bribe_more_readily()
     test_richer_civilians_bribe_more_readily()
     test_apply_effect_raises_only_the_guards_affinity_toward_the_briber()
+    test_a_bribe_moves_money_and_children_never_bribe()
     test_bribe_affinity_is_clamped_at_one()
     print("OK")
 

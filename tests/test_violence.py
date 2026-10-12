@@ -781,7 +781,24 @@ def test_a_killing_starts_a_feud_that_doesn_t_soften_until_peace():
     assert graph.get_edge(2, 4).source_type == "acquaintance" and not graph.feud_ties
 
 
+def test_mercenaries_are_paid_monthly_and_walk_when_unpaid():
+    # 07 4.1 (user, 2026-10-12)
+    graph = SocialGraph()
+    graph.add_node(Node(resident_id=1, ses="rich", alive=True, age=40, is_noble=True))
+    graph.add_node(Node(resident_id=2, ses="poor", alive=True, age=30, is_ex_soldier=True))
+    graph.money = {("p", 1): 4.0}
+    phenomenon = ViolencePhenomenon()
+    state = phenomenon.init_state(graph)
+    state[1]["mercenaries"], state[2]["hired_by"] = [2], 1
+    phenomenon._pay_mercenaries(graph, state)
+    assert graph.money == {("p", 1): 1.0, ("p", 2): 3.0} and state[2]["hired_by"] == 1
+    phenomenon._pay_mercenaries(graph, state)  # can't pay a second month
+    assert state[2]["hired_by"] is None and state[1]["mercenaries"] == []
+    assert not phenomenon._first_wage(graph, 1, 2)  # can't pay a month up front: no hire
+
+
 def _run_all():
+    test_mercenaries_are_paid_monthly_and_walk_when_unpaid()
     test_positive_valence_edges_never_fire()
     test_edge_probability_formula()
     test_probability_driven_by_the_more_hostile_direction()

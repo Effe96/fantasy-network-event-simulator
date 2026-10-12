@@ -34,6 +34,7 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
     position = {key: index for index, key in enumerate(edge_order)}
 
     for day in range(start + 1, start + days + 1):
+        graph.day = day  # read by the payment log (economy.log_payment)
         for phenomenon in phenomena:
             state = states[phenomenon.name]
             candidates = phenomenon.candidate_edges(graph, state) if hasattr(phenomenon, "candidate_edges") else None
@@ -58,10 +59,15 @@ def run_simulation(graph, phenomena: List[Phenomenon], days: int, seed: int,
                     if graph.newcomers or graph.role_changes or len(graph.edges) > len(position):
                         _register_newcomers(graph, phenomena, states, edge_order, position)
                     continue
-                heap = ordered
-                queued = set(heap)
-                while heap:
-                    current = heapq.heappop(heap)
+                # walked in order; only ties joining mid-pass go on a heap
+                # (speed-up 2026-10-12: popping ~6,000 ties a day off one heap)
+                heap, queued, i, n = [], set(ordered), 0, len(ordered)
+                while i < n or heap:
+                    if heap and (i == n or heap[0] < ordered[i]):
+                        current = heapq.heappop(heap)
+                    else:
+                        current = ordered[i]
+                        i += 1
                     fired = _roll_edge(graph, phenomenon, state, graph.edges[edge_order[current]], day, rng, result)
                     if fired and drain is not None:
                         for key in drain():

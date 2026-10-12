@@ -8,6 +8,81 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-12 — Speed pass: small, results identical
+
+Measured under PyPy (CPython's profile pointed at the wrong things: its
+top cost, re-sorting tie lists, was cheap under PyPy). In a 2-year run
+the time is spread out: the economy's month 23%, violence 26% (its list
+of ~6,000 hostile ties, rolled daily), daily summaries 7%, the rest a few
+percent each. Four changes, each giving the same town to the hash (every
+event and daily summary of a 2-year run with epidemics on):
+- `TieFilter.keys` re-sorts only when a tie joins or leaves the set or is
+  replaced under the same key.
+- The engine walks a phenomenon's ordered ties and keeps a heap only for
+  ties that join mid-pass (violence's grief).
+- `CraftMarket._from_workshops` works out the workshops making each good
+  once per set of shops.
+- The economy summary counts classes in one pass over the living.
+
+Gain: about 2.5% (60.6 s to 59.1 s for 2 years). **Rejected for now:**
+bigger gains need changing what's drawn from the random numbers (for
+example skipping straight to the next hostile tie that fires instead of
+drawing for each), which keeps the statistics but not the exact runs
+the reports are compared against.
+
+## 2026-10-12 — Money in crime and the payment log, step 3 (Project_Vision/09)
+
+07 4.1 and 09 §6 step 3: bribes, priest payoffs, theft, mercenaries and
+hired assassins now move money between purses, and children are out of it
+(07 1.1, 1.4).
+
+- **Bribes and priest payoffs** (`pays_bribe`): from the payer's own purse,
+  `BRIBE_FL` (0.5 fl) times `BRIBE_WEALTH_FACTOR` of their class, a few
+  days' wages. Nobody under 16 pays one, and someone who can't afford the
+  whole sum doesn't bribe: the roll is spent with no event. That is why
+  bribes fell 43% and payoffs 30% in the check (the poorest have almost no
+  cash). Allowance children (12-15) can't bribe either: the user said
+  children shouldn't, and their allowance is for spending.
+- **Theft** (`economy.steal`): never inside the thief's household, and
+  never from someone without a purse (under 16, except allowance
+  children, whose allowance the user said can be stolen). Half the time,
+  and always when the victim has no cash, the thief carries off a quarter
+  of one kind of the victim's belongings and keeps it; otherwise up to
+  `THEFT_FL` (1 fl) times the class factor. Stolen goods aren't returned
+  when the thief is caught. ponytail: no restitution; add it if theft
+  turns out to move much.
+- **Mercenaries** are paid `MERCENARY_WAGE` (3 fl a month, a foot
+  soldier's pay) by whoever hired them, protection or coup. One left
+  unpaid walks away and can be hired again; so does one whose coup is
+  over (before, they stayed tied to the plotter for good). A hired
+  assassin gets `ASSASSIN_FEE` (10 fl) up front.
+- **The payment log** (`economy.log_payment`, `graph.payments`): every
+  payment that isn't buying, selling or wages, as (day, kind, payer, payee,
+  amount): the crimes above, rent, alms, loans and repayments, dowries,
+  house sales, forced loans, allowances. Totals by kind are in the
+  summary as `paid_*`. About 6,800 entries a year at Riverport. Buying,
+  selling and wages are left out: they'd be most of the volume and the
+  user's list didn't name them. `graph.day` is set by the engine so the
+  log knows when.
+
+**A month's wage is paid on hiring** (`_first_wage`). The first 25-year
+run lost 9% of the town's wealth, which looked like a mercenary drain.
+It was two things: an heirless estate going to the commune (not counted
+in the town's wealth), and a hiring loop, where someone who couldn't pay
+hired, the mercenaries left unpaid at the month's end and were hired
+again the next day (132 hires in a year). With pay on hiring, 25 years
+over seeds 1 and 2: wealth within 1% of step 1 in seed 2 (seed 1 again
+gave an estate to the commune), rich and very rich 10.6% and 10.8%
+against 12.7% and 10.3%, mercenaries hired 40 and 43 against 105 and 84.
+
+**The check** (2 years, no epidemic or famine, seeds 1 and 2, step 1
+against step 3): town money and cash within 2%, Gini and top 10% within
+1%, classes within 8% (very rich 21 → 17 in one seed, 18 → 19 in the
+other). Evictions 15-17% lower, homeless 15-18% higher, and 5 hungry
+households in one seed against 0. Mercenary wages are the biggest crime
+flow (850-975 fl in 2 years), then theft (175-340 fl), bribes and payoffs
+(140 fl).
+
 ## 2026-10-12 — Personal money and belongings, step 1 (Project_Vision/09)
 
 The user's decisions are in 09's "Decided" section: everyone holds their

@@ -252,8 +252,15 @@ class CraftMarket:
         that have it, taxed like anything bought in town. Returns the fl spent."""
         from economy import household_key
         home = econ.household_of(graph, buyer)
-        makers = [b for b, s in shops.items() if CRAFTS[s["trade"]][0] == good and self.stock[b] > 1e-9
-                  and household_key(s["master"]) != home]
+        # the workshops making each good, worked out once for these shops (speed-up 2026-10-12)
+        cached = getattr(self, "_makers_of", None)
+        if cached is None or cached[0] is not shops or cached[1] != len(shops):
+            makers_of = defaultdict(list)
+            for b, s in shops.items():
+                makers_of[CRAFTS[s["trade"]][0]].append(b)
+            self._makers_of = (shops, len(shops), makers_of)
+        makers = [b for b in self._makers_of[2][good] if self.stock[b] > 1e-9
+                  and household_key(shops[b]["master"]) != home]
         rng.shuffle(makers)
         got = 0.0
         for building in makers:

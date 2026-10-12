@@ -90,11 +90,15 @@ class TieFilter:
         self._graph = None
 
     def keys(self, graph) -> List[Tuple[int, int]]:
+        """Callers only read the list: it's sorted again only when a tie
+        joined or left the set, or a tie under one of its keys was replaced
+        (speed-up 2026-10-12: re-sorting violence's ~6,000 ties every day)."""
         edges, predicate = graph.edges, self.predicate
         if self._keys is None or self._graph is not graph:
             self._graph = graph
             graph._tie_listeners.append(self._log)
             self._keys = {key for key, edge in edges.items() if predicate(edge)}
+            self._sorted = None
         else:
             keys = self._keys
             for edge in self._log:
@@ -102,13 +106,21 @@ class TieFilter:
                 key = (a, b) if a < b else (b, a)
                 current = edges.get(key)  # the live tie there now, if any (it may be another graph's edge)
                 if current is not None and predicate(current):
-                    keys.add(key)
-                else:
+                    if key not in keys or current is not self._edge_of.get(key):
+                        keys.add(key)
+                        self._sorted = None
+                elif key in keys:
                     keys.discard(key)
-            for key in [key for key in keys if key not in edges]:  # retired since
-                keys.discard(key)
+                    self._sorted = None
+            for key in [key for key in keys if edges.get(key) is not self._edge_of.get(key)]:  # retired or replaced since
+                self._sorted = None
+                if key not in edges:
+                    keys.discard(key)
         self._log.clear()
-        return sorted(self._keys, key=lambda key: edges[key]._serial)
+        if self._sorted is None:
+            self._sorted = sorted(self._keys, key=lambda key: edges[key]._serial)
+            self._edge_of = {key: edges[key] for key in self._sorted}
+        return self._sorted
 
 
 @dataclass

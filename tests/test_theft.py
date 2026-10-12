@@ -11,7 +11,7 @@ from phenomena import TheftPhenomenon
 def _thief_victim_graph(thief_ses="poor", victim_ses="rich", cunning=0.8, victim_valence_from_victim=0.0):
     graph = SocialGraph()
     graph.add_node(Node(resident_id=1, ses=thief_ses, alive=True, cunning=cunning))
-    graph.add_node(Node(resident_id=2, ses=victim_ses, alive=True))
+    graph.add_node(Node(resident_id=2, ses=victim_ses, alive=True, age=30))
     graph.add_edge(
         Edge(1, 2, "neighbor", "Equality Matching", time=0.5, intimacy=0.5, services=0.5,
              valence_a_to_b=0.0, valence_b_to_a=victim_valence_from_victim)
@@ -230,7 +230,36 @@ def test_a_thief_under_less_strain_goes_straight_sooner():
     assert quits(0.3) > 50 and quits(0.9) == 0
 
 
+def test_a_theft_takes_money_or_belongings_never_from_home_or_a_child():
+    # 07 1.4 and 4.1, 09 §6 step 3 (user, 2026-10-12)
+    taken = set()
+    for seed in range(10):
+        graph = _thief_victim_graph(victim_ses="middling")
+        graph.money, graph.belongings = {("p", 2): 5.0}, {2: {"clothing": 4.0}}
+        phenomenon = TheftPhenomenon(discovery_chance=0.0)
+        state = phenomenon.init_state(graph)
+        state[1]["is_thief"] = True
+        phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(seed))
+        kind = graph.payments[0][1]
+        taken.add(kind)
+        if kind == "theft":
+            assert graph.money == {("p", 2): 4.0, ("p", 1): 1.0}
+        else:
+            assert kind == "theft: clothing" and graph.belongings == {2: {"clothing": 3.0}, 1: {"clothing": 1.0}}
+    assert taken == {"theft", "theft: clothing"}
+    for household, age in ((7, 30), (None, 9)):  # same household; a child
+        graph = _thief_victim_graph()
+        graph.nodes[1].household_id = graph.nodes[2].household_id = household
+        graph.nodes[2].age = age
+        graph.money, graph.belongings = {("p", 2): 5.0}, {}
+        phenomenon = TheftPhenomenon()
+        state = phenomenon.init_state(graph)
+        state[1]["is_thief"] = True
+        assert phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0)) == []
+
+
 def _run_all():
+    test_a_theft_takes_money_or_belongings_never_from_home_or_a_child()
     test_no_theft_edge_when_neither_side_is_a_thief()
     test_no_theft_edge_when_both_sides_are_thieves()
     test_richer_victims_are_more_attractive_targets()

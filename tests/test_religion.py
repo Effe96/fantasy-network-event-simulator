@@ -13,7 +13,7 @@ def _civilian_priest_graph(
     civilian_ses="middling", cunning=0.5, priest_loyalty=0.5, priest_valence_from_priest=0.0,
 ):
     graph = SocialGraph()
-    graph.add_node(Node(resident_id=1, ses=civilian_ses, alive=True, religiousness=religiousness,
+    graph.add_node(Node(resident_id=1, ses=civilian_ses, alive=True, age=30, religiousness=religiousness,
                          skepticism=skepticism, cunning=cunning))
     graph.add_node(Node(resident_id=2, ses="middling", alive=True, occupation="priest", loyalty=priest_loyalty))
     graph.add_edge(

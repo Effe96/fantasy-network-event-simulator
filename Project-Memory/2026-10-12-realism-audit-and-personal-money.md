@@ -45,8 +45,19 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
 
 ## Open
 - **09 §7 choices:** the user agreed with all of them.
-- **Step 3:** money in crime, with a payment log.
+- **Step 3 built** (uncommitted): bribes, payoffs, theft, mercenaries and
+  assassins move money; children are out of it; a payment log. The check
+  (step 1 against step 3, 2 years, 2 seeds) held. 09 §8 lists the choices
+  for the user.
 - **Merchant capital** is now split among the heirs: watch it over a long
   run.
-- **The dashboard** has not been refreshed for this change.
-- **Nothing is committed.**
+- **Step 1 committed** (d7c798d). The 25-year report was refreshed for it.
+- **Step 3's 25-year drift** was a mercenary hiring loop (fixed: a month's
+  wage paid on hiring) and an heirless estate going to the commune. Holds
+  over seeds 1 and 2 now.
+- **Run times:** not slower since the TownShape integration (one run alone
+  12 min after, 10 before). It depends on how many run at once, and one
+  batch froze 12 minutes, likely the computer idling.
+- **Speed pass** (uncommitted): four changes, identical results, about
+  2.5% faster. Bigger gains would change the exact runs (see
+  docs/decisions.md).
