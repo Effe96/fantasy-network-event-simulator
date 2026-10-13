@@ -630,6 +630,16 @@ TYPICAL_WITNESSES = 8
 WITNESS_SHOCK = 0.5  # C
 
 
+def turns_on(rng, who: int, to_victim, to_killer) -> bool:
+    """Whether `who`, mourning or seeing a killing, turns on the killer: with
+    chance (1 - hatred for the victim) * (1 - love for the killer) (user,
+    2026-10-13, for witnesses and grief alike)."""
+    hatred = max(0.0, -to_victim.valence_from(who)) if to_victim is not None else 0.0
+    love = max(0.0, to_killer.valence_from(who)) if to_killer is not None else 0.0
+    chance = (1.0 - hatred) * (1.0 - love)
+    return chance >= 1.0 or rng.random() < chance
+
+
 def crime_place(graph, edge, victim: int) -> Optional[int]:
     """Where a crime between the two happens: where their tie meets, else the victim's home."""
     place = tie_place(graph, edge)
@@ -958,22 +968,21 @@ class ViolencePhenomenon:
             if edge_to_culprit is None:
                 continue
             edge_to_victim = graph.get_edge(neighbor_id, victim)
+            if not turns_on(rng, neighbor_id, edge_to_victim, edge_to_culprit):
+                continue
             shock = self.grief_shock * edge_to_victim.tie_strength * shock_factor
             new_valence = max(-1.0, edge_to_culprit.valence_from(neighbor_id) - shock)
             edge_to_culprit.set_valence_from(neighbor_id, new_valence)
             self._new_candidates.append(graph._key(neighbor_id, culprit))
             events.append(Event(day, self.name, "grief_shock", neighbor_id, culprit, f"valence -{shock:.3f}"))
-        # those who saw it and know the killer turn on them (unless already
-        # grieving above), less likely the more they hated the victim or love
-        # the killer (user, 2026-10-13): (1 - hatred) * (1 - love)
+        # those who saw it and know the killer may turn on them too (unless
+        # they mourned above)
         for witness in seen:
             tie = graph.get_edge(witness, killer) if killer is not None else None
             knew = graph.get_edge(witness, victim)
             if tie is None or (knew is not None and killer == culprit):
                 continue
-            hatred = max(0.0, -knew.valence_from(witness)) if knew is not None else 0.0
-            turns = (1.0 - hatred) * (1.0 - max(0.0, tie.valence_from(witness)))
-            if turns < 1.0 and rng.random() >= turns:
+            if not turns_on(rng, witness, knew, tie):
                 continue
             shock = self.grief_shock * WITNESS_SHOCK * shock_factor
             tie.set_valence_from(witness, max(-1.0, tie.valence_from(witness) - shock))
@@ -1241,7 +1250,10 @@ class ViolencePhenomenon:
                 edge_to_patron = graph.get_edge(neighbor_id, patron)
                 if neighbor_id == patron or edge_to_patron is None:
                     continue
-                shock = self.grief_shock * graph.get_edge(neighbor_id, victim).tie_strength
+                edge_to_victim = graph.get_edge(neighbor_id, victim)
+                if not turns_on(rng, neighbor_id, edge_to_victim, edge_to_patron):
+                    continue
+                shock = self.grief_shock * edge_to_victim.tie_strength
                 edge_to_patron.set_valence_from(neighbor_id, max(-1.0, edge_to_patron.valence_from(neighbor_id) - shock))
         return events
 
@@ -1323,6 +1335,8 @@ class ViolencePhenomenon:
             if edge_to_ringleader is None:
                 continue
             edge_to_victim = graph.get_edge(neighbor_id, victim)
+            if not turns_on(rng, neighbor_id, edge_to_victim, edge_to_ringleader):
+                continue
             shock = self.grief_shock * edge_to_victim.tie_strength
             new_valence = max(-1.0, edge_to_ringleader.valence_from(neighbor_id) - shock)
             edge_to_ringleader.set_valence_from(neighbor_id, new_valence)
@@ -3494,6 +3508,8 @@ class SoldieringPhenomenon:
             tie = graph.get_edge(resident_id, killer)
             feud = next((f for f in getattr(graph, "feuds", ()) if killer in f["killers"]), None)
             kin = edge.source_type in CLOSE_FAMILY
+            if not turns_on(rng, resident_id, edge, tie):
+                continue  # they hated the one killed, or love the killer
             if tie is None:
                 if not (kin and feud):
                     continue  # a stranger they've no way to reach

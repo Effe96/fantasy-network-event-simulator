@@ -93,7 +93,9 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
   (catching calibrated to 8 typical witnesses; witnesses who know the
   killer may turn on them, by the user's (1 - hatred)(1 - love) rule);
   riots start where most rioters live and go for the nearest nobles.
-  Raised with the user: the old grief rule makes those who hated the
-  victim grieve more. Killers' catch rate a few points up in 3 seeds:
-  watch.
+  Killers' catch rate a few points up in 3 seeds: watch.
+- **Step 7 committed (9e71844).** The user then asked that grief follow
+  the witnesses' rule: mourners turn on the killer with chance
+  (1 - hatred for the victim)(1 - love for the killer). Uncommitted.
+  Grief shocks fell in 2 of 3 seeds; killings average 111 against 107.
 - **Next:** 08 3.4, a TownShape brief for events with a place.

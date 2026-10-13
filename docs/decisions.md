@@ -28,9 +28,14 @@ floods come with 07 6.2.
 - **A witness who knows the killer may turn on them**, by half of
   `grief_shock`, with chance (1 - hatred for the victim) x (1 - love for
   the killer) (user's correction, 2026-10-13). Those who knew the victim
-  and the killer already get the old grief instead. That grief is still
-  scaled by tie strength, not warmth, so someone who hated the victim
-  grieves more: left as it was, raised with the user.
+  and the killer get grief instead.
+- **Grief follows the same rule** (user, 2026-10-13): everyone who mourns
+  a killing (the victim's ties, a band's victim, a patron named, a soldier
+  coming home to it) turns on the killer with chance (1 - hatred for the
+  victim) x (1 - love for the killer), by tie strength as before
+  (`turns_on`). Before, someone who hated the victim was shocked as much
+  as a friend. A soldier who won't turn doesn't take up the family feud
+  either.
 - **A riot starts** in the district where most rioters live. Once the
   guards break it goes for the nobles' houses nearest that district's
   middle (1 / distance in place of hatred, so the expected deaths are
@@ -45,6 +50,13 @@ it; 3 seeds can't tell it from chance). Thefts caught about the same.
 nobles killed either way, so the nearest-noble rule hasn't been seen at
 work. Wealth, Gini and classes within the usual spread. Mercenaries hired
 42, 40 and 33 against 23, 25 and 27 (this session's runs gave 17-43).
+
+**With grief by the same rule, 25 years, seeds 1-3, against 9e71844:**
+grief shocks 6597, 6065 and 3110 against 8760, 4916 and 6438. Killings
+117, 129 and 87 against 106, 100 and 116 (average 111 against 107);
+killers caught 57%, 53% and 49% of killings. Wealth, Gini and classes
+within the usual spread. Runs took 1712-1758 s against 879-916 s, but
+c9d6677's took 1460-1481 s, so it's the machine, not the code.
 
 ## 2026-10-13 — Parishes (Project_Vision/08 2.7)
 

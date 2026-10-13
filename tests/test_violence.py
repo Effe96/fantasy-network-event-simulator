@@ -117,6 +117,23 @@ def test_grief_shock_increases_neighbors_animosity_toward_culprit():
     assert any(event.kind == "grief_shock" and event.resident_a == 3 for event in events)
 
 
+def test_grief_spares_the_killer_when_the_mourner_hated_the_victim_or_loves_the_killer():
+    # (1 - hatred) * (1 - love): full hatred or full love means never
+    for to_victim, to_killer in [(-1.0, 0.0), (0.5, 1.0)]:
+        graph = SocialGraph()
+        for resident_id in (1, 2, 3):
+            graph.add_node(Node(resident_id=resident_id, ses="middling", alive=True))
+        graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
+        graph.add_edge(Edge(1, 3, "friend", "Communal Sharing", 0.8, 0.8, 0.8, to_victim, to_victim))
+        graph.add_edge(Edge(2, 3, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, to_killer, to_killer))
+        phenomenon = ViolencePhenomenon(base_rate=1.0, grief_shock=0.15)
+        state = phenomenon.init_state(graph)
+        phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 2
+        events = phenomenon.apply_effect(graph, state, 1, 2, day=200, rng=random.Random(0))
+        assert graph.get_edge(2, 3).valence_from(3) == to_killer
+        assert not any(event.kind == "grief_shock" for event in events)
+
+
 def test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse():
     trials = 300
 
@@ -857,6 +874,7 @@ def _run_all():
     test_aggressor_is_the_more_hostile_side_when_vulnerability_is_equal()
     test_loyalty_dampens_own_odds_of_being_the_aggressor()
     test_grief_shock_increases_neighbors_animosity_toward_culprit()
+    test_grief_spares_the_killer_when_the_mourner_hated_the_victim_or_loves_the_killer()
     test_a_killing_starts_a_feud_that_doesn_t_soften_until_peace()
     test_poor_attacker_vs_rich_victim_succeeds_less_often_than_the_reverse()
     test_failed_attempt_leaves_victim_alive_and_drops_their_valence_toward_culprit()
