@@ -80,6 +80,25 @@ def test_when_caught_the_victims_valence_toward_the_thief_drops():
     assert phenomenon.summarize(state)["thefts_caught"] == 1
 
 
+def test_a_caught_thief_loses_the_work_and_the_tie_but_not_family():
+    graph = _thief_victim_graph()
+    graph.get_edge(1, 2).source_type = "coworker"  # an outworker robbing the merchant they spin for
+    graph.nodes[1].occupation, graph.employer = "outworker", {1: 2}
+    phenomenon = TheftPhenomenon(discovery_chance=1.0, arrest_chance=0.0)
+    state = phenomenon.init_state(graph)
+    state[1]["is_thief"] = True
+    phenomenon.apply_effect(graph, state, 1, 2, day=5, rng=random.Random(0))
+    assert graph.nodes[1].occupation is None and 1 not in graph.employer
+    assert graph.open_jobs == [{"was": 1, "occupation": "outworker", "workplace": None, "ses": "poor"}]  # for a newcomer
+    assert (1, 2, 5, "theft") in graph._ties_to_retire
+    sister = _thief_victim_graph()
+    sister.get_edge(1, 2).source_type = "sibling"  # family stays family
+    state = phenomenon.init_state(sister)
+    state[1]["is_thief"] = True
+    phenomenon.apply_effect(sister, state, 1, 2, day=5, rng=random.Random(0))
+    assert not sister._ties_to_retire
+
+
 def test_when_caught_a_nearby_guards_valence_toward_the_thief_also_drops():
     graph = _thief_victim_graph()
     graph.add_node(Node(resident_id=3, ses="middling", alive=True, occupation="guard"))
@@ -111,6 +130,7 @@ def test_nobles_never_become_thieves():
 
 def test_arrested_thief_loses_thief_status_but_stays_alive():
     graph = _thief_victim_graph()
+    graph.money, graph.belongings = {("p", 1): 100.0, ("p", 2): 100.0}, {}  # a first offender who can pay
     graph.add_node(Node(resident_id=3, ses="middling", alive=True, occupation="guard", loyalty=1.0))
     graph.add_edge(
         Edge(1, 3, "neighbor", "Equality Matching", time=0.5, intimacy=0.5, services=0.5,
@@ -126,6 +146,10 @@ def test_arrested_thief_loses_thief_status_but_stays_alive():
     assert graph.nodes[1].alive is True
     assert any(event.kind == "arrested" for event in events)
     assert phenomenon.summarize(state)["thefts_arrested"] == 1
+    # pays back what was taken, and twice that to the commune
+    # (the thief ends 2x the theft down, which is what the commune gets)
+    assert any(e.kind == "fined" for e in events) and abs(graph.money[("p", 2)] - 100.0) < 1e-9
+    assert graph.money[("p", 1)] < 100.0 and abs(graph.money["commune"] - (100.0 - graph.money[("p", 1)])) < 1e-9
 
 
 def test_thief_can_be_arrested_with_no_guard_neighbor_at_all():
@@ -171,7 +195,36 @@ def test_a_first_conviction_never_hangs():
     state = phenomenon.init_state(graph)
     state[1]["is_thief"] = True
     phenomenon.apply_effect(graph, state, 1, 2, day=5, rng=random.Random(0))
-    assert graph.nodes[1].alive and not state[1]["is_thief"] and state[1]["convictions"] == 1
+    assert not graph.deaths and not state[1]["is_thief"] and state[1]["convictions"] == 1
+
+
+def test_prison_holds_them_with_family_ties_live_and_lets_them_out_cooled():
+    graph = _thief_victim_graph()
+    graph.add_node(Node(resident_id=3, ses="poor", alive=True, household_id=7))
+    graph.nodes[1].household_id, graph.nodes[1].occupation = 7, "day_labourer"
+    graph.add_edge(Edge(1, 3, "sibling", "Communal Sharing", 0.8, 0.8, 0.8, 0.5, 0.5))
+    graph.add_node(Node(resident_id=4, ses="poor", alive=True))
+    graph.add_edge(Edge(1, 4, "friend", "Communal Sharing", 0.6, 0.6, 0.6, 0.5, 0.5))
+    graph.money, graph.belongings = {("p", 2): 100.0, ("p", 3): 50.0}, {}  # the thief can't pay
+    phenomenon = TheftPhenomenon(discovery_chance=1.0, arrest_chance=1.0, execution_weight=0.0)
+    state = phenomenon.init_state(graph)
+    state[1]["is_thief"] = True
+    events = phenomenon.apply_effect(graph, state, 1, 2, day=5, rng=random.Random(0))
+    assert any(e.kind == "imprisoned" for e in events) and graph.prisoners[1]["until"] == 5 + 182
+    assert not graph.nodes[1].alive and graph.nodes[1].occupation is None
+    graph.retire_ties_of_dead(6)
+    assert graph.get_edge(1, 3) is not None and graph.get_edge(1, 4) is None  # family visits; a friend waits
+    phenomenon._keep_prisoners(graph, 30, random.Random(5))
+    assert graph.money[("p", 3)] < 50.0 and graph.money["commune"] > 0  # the family pays their keep
+    phenomenon._keep_prisoners(graph, 5 + 182, random.Random(0))
+    assert graph.nodes[1].alive and 1 not in graph.prisoners
+    assert abs(graph.get_edge(1, 4).valence_from(4) - 0.4) < 1e-9  # back, a little cooler
+    # a second conviction goes to prison even for one who could pay, for a year
+    graph.money[("p", 1)] = 1000.0
+    state[1]["is_thief"] = True
+    graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, 0.0, 0.0))
+    events = phenomenon.apply_effect(graph, state, 1, 2, day=300, rng=random.Random(0))
+    assert not any(e.kind == "fined" for e in events) and graph.prisoners[1]["until"] == 300 + 365
 
 
 def test_recent_arrests_suppress_the_become_thief_probability():
@@ -265,11 +318,13 @@ def _run_all():
     test_richer_victims_are_more_attractive_targets()
     test_apply_effect_records_a_theft_event_regardless_of_discovery()
     test_when_caught_the_victims_valence_toward_the_thief_drops()
+    test_a_caught_thief_loses_the_work_and_the_tie_but_not_family()
     test_when_caught_a_nearby_guards_valence_toward_the_thief_also_drops()
     test_arrested_thief_loses_thief_status_but_stays_alive()
     test_thief_can_be_arrested_with_no_guard_neighbor_at_all()
     test_low_loyalty_guards_execute_instead_of_arresting()
     test_a_first_conviction_never_hangs()
+    test_prison_holds_them_with_family_ties_live_and_lets_them_out_cooled()
     test_recent_arrests_suppress_the_become_thief_probability()
     test_nobles_never_become_thieves()
     test_more_stressed_residents_become_thieves_more_readily()

@@ -164,6 +164,20 @@ def test_a_dead_guard_is_replaced_by_an_arrival_who_takes_over_the_post():
     assert graph.get_edge(newcomer.resident_id, 3).source_type == "neighbor"
 
 
+def test_a_newcomer_comes_for_work_a_thief_left():
+    graph = _guard_post()
+    for node in graph.nodes.values():
+        node.household_id = node.resident_id
+    graph.open_jobs = [{"was": 3, "occupation": "weaver_hand", "workplace": 20, "ses": "poor"}]
+    population = PopulationPhenomenon(arrival_daily_chance=1.0)
+    state = population.init_state(graph)
+    events = population.end_of_day(graph, state, day=1, rng=random.Random(0))
+    came = next(e for e in events if e.kind == "came_for_job")
+    newcomer = graph.nodes[came.resident_a]
+    assert came.resident_b == 3 and newcomer.occupation == "weaver_hand" and newcomer.workplace_building_id == 20
+    assert newcomer.household_id in (1, 2, 3) and not graph.open_jobs
+
+
 def test_a_place_without_work_is_not_refilled():
     graph = _guard_post()
     graph.nodes[3].workplace_building_id = None  # jobless: nobody comes for a place without work
@@ -341,6 +355,7 @@ def _run_all():
     test_a_newborn_can_catch_the_disease_from_a_parent()
     test_a_phenomenon_without_add_resident_fails_loudly()
     test_a_dead_guard_is_replaced_by_an_arrival_who_takes_over_the_post()
+    test_a_newcomer_comes_for_work_a_thief_left()
     test_a_place_without_work_is_not_refilled()
     test_work_easy_to_find_draws_people_who_lodge()
     test_no_arrivals_above_the_growth_path()

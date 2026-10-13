@@ -181,7 +181,9 @@ class Town:
             conn.executemany("INSERT INTO departures (resident_id, departure_date, reason) VALUES (?, ?, ?)",
                              [(d["resident_id"], on_day(d["day"]), d["cause"]) for d in graph.deaths
                               if d["cause"] in LEFT_ALIVE]
-                             + [(rid, on_day(record["left"]), "soldiering") for rid, record in sorted(away.items())])
+                             + [(rid, on_day(record["left"]), "soldiering") for rid, record in sorted(away.items())]
+                             + [(rid, on_day(record["left"]), "in prison")
+                                for rid, record in sorted(getattr(graph, "prisoners", {}).items())])
             conn.execute("DELETE FROM town_events")
             conn.executemany("INSERT INTO town_events (event_date, kind, building_id, district_id, actor_resident_id,"
                              " target_resident_id, detail) VALUES (?, ?, ?, ?, ?, ?, ?)",

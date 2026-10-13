@@ -5,10 +5,10 @@ from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from economy import (BASKET_PER_PERSON, BUILDING_GAP, MERCHANT_KEEPS_JOB, MONEY_AGE, PRECARIOUS, form_household, has_purse,
-                     household_key, job_kind, mark_new_household, new_household_id, person_key, steal, transfer)
+from economy import (BASKET_PER_PERSON, BUILDING_GAP, COMMUNE, log_payment, MERCHANT_KEEPS_JOB, MONEY_AGE, PRECARIOUS, form_household, has_purse,
+                     household_key, is_master, job_kind, mark_new_household, new_household_id, person_key, steal, transfer)
 from food import sharecropper_for
-from graph import (CLOSE_FAMILY, FAMILY, FISKE_TAGS, can_meet, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
+from graph import (_was, CLOSE_FAMILY, FAMILY, FISKE_TAGS, can_meet, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
                    edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, tie_place,
                    unfriend, where_lives)
 
@@ -238,7 +238,7 @@ class ContagionPhenomenon:
             # outbreak open for years and no other could start)
             if not graph.nodes[resident_id].alive:
                 # away soldiering, they take it with them; they can catch it again
-                away = resident_id in getattr(graph, "soldiers_away", ())
+                away = resident_id in getattr(graph, "soldiers_away", ()) or resident_id in getattr(graph, "prisoners", ())
                 resident_state["status"] = "susceptible" if away else "deceased"
                 continue
             resident_state["days_left"] -= 1
@@ -2259,6 +2259,29 @@ ASSASSIN_NAMES_PATRON = 0.5  # C: a caught hired assassin names the noble who pa
 # ~15-30 a year among 50-100k). Earlier convictions end in a fine or a
 # flogging: the thief goes straight for now. The common statute pattern.
 HANGED_FROM_CONVICTION = 3
+# punishment short of the gallows (user, 2026-10-13): a first conviction pays
+# back what was stolen and a fine of FINE_TIMES that to the commune; one who
+# can't, and every later conviction, goes to prison for PRISON_DAYS (by
+# conviction, the last for every one after). Communes held people for months.
+FINE_TIMES = 2
+PRISON_DAYS = (182, 365, 730)  # user: rising terms
+PRISON_DEATH_PER_YEAR = 0.10  # user: jail fever, a little worse than a campaign
+PRISON_STIGMA = 0.1  # C: how much those who knew them cool on their release
+
+
+def open_job(graph, node) -> None:
+    """Someone leaves their work for a reason other than death (a thief
+    dismissed or imprisoned): it's an open place, which a newcomer from outside
+    can come for, as for a dead worker's (user, 2026-10-13). Without this a
+    skilled place was gone for good: the jobless in town only find precarious
+    work, so workshops shrank and fewer came (Riverport, 25 years: about 130
+    fewer people)."""
+    if node.occupation is not None:
+        graph.__dict__.setdefault("open_jobs", []).append(
+            {"was": node.resident_id, "occupation": node.occupation,
+             "workplace": node.workplace_building_id, "ses": node.ses})
+    node.occupation, node.workplace_building_id = None, None
+    getattr(graph, "employer", {}).pop(node.resident_id, None)
 
 
 class TheftPhenomenon:
@@ -2348,6 +2371,9 @@ class TheftPhenomenon:
         self.deterrence_weight = deterrence_weight
         self._thefts = 0
         self._stolen = 0.0
+        self._lost_work = 0
+        self.held: Dict[int, Dict[str, Any]] = {}  # in prison: until when, and their paused ties
+        self._fined = self._imprisoned = self._died_in_prison = 0
         self._caught = 0
         self._arrests = 0
         self._executions = 0
@@ -2363,6 +2389,7 @@ class TheftPhenomenon:
 
     def init_state(self, graph) -> Dict[int, Any]:
         self._params = graph.params
+        graph.prisoners = self.held  # who's in prison (not dead), for anyone who needs to know
         guard_loyalties = [node.loyalty for node in graph.nodes.values() if node.role == "guard"]
         if guard_loyalties:
             self._avg_guard_loyalty = sum(guard_loyalties) / len(guard_loyalties)
@@ -2422,6 +2449,17 @@ class TheftPhenomenon:
         events.append(
             Event(day, self.name, "caught", victim_id, thief_id, f"victim's valence -{self.caught_animosity:.2f}")
         )
+        # the victim has no more to do with them (user, 2026-10-13): the tie is
+        # cut, family aside, and a thief working with or for the victim loses
+        # that work, unless it's their own business
+        thief = graph.nodes[thief_id]
+        if _was(edge, "coworker") and not (is_master(thief.occupation) or job_kind(thief.occupation) == "merchant"
+                                            or thief_id in getattr(graph, "employer", {}).values()):
+            open_job(graph, thief)
+            self._lost_work += 1
+            events.append(Event(day, self.name, "lost_work", thief_id, victim_id, "dismissed for stealing", place))
+        if edge.source_type not in FAMILY:
+            graph.retire_tie(thief_id, victim_id, day, "theft")
 
         for guard_id in graph.neighbors(thief_id):
             if graph.nodes[guard_id].role != "guard":
@@ -2449,13 +2487,89 @@ class TheftPhenomenon:
             state[thief_id]["is_thief"] = False
             self._arrests += 1
             events.append(Event(day, self.name, "arrested", thief_id, thief_id, "arrested and no longer a thief"))
+            due = taken * (1 + FINE_TIMES)
+            money = getattr(graph, "money", {})
+            if state[thief_id]["convictions"] == 1 and money and money.get(person_key(thief_id), 0.0) >= due:
+                transfer(graph, "restitution", thief_id, victim_id, taken)
+                money[person_key(thief_id)] -= due - taken
+                money[COMMUNE] = money.get(COMMUNE, 0.0) + due - taken
+                log_payment(graph, "theft fine", person_key(thief_id), COMMUNE, due - taken)
+                self._fined += 1
+                events.append(Event(day, self.name, "fined", thief_id, victim_id, f"paid back and fined {due:.2f} fl"))
+            else:
+                term = PRISON_DAYS[min(state[thief_id]["convictions"], len(PRISON_DAYS)) - 1]
+                events.append(self._imprison(graph, thief_id, day, term))
 
+        return events
+
+    def _imprison(self, graph, resident_id: int, day: int, term: int) -> Event:
+        """Out of town life for `term` days, as a soldier away is (user,
+        2026-10-13): no work, no part in anything; ties to close family stay
+        (they visit, and feed them at the household's cost), the rest pause."""
+        node = graph.nodes[resident_id]
+        paused = {other: edge for other, edge in graph.ties_of(resident_id).items()
+                  if edge.source_type not in CLOSE_FAMILY}
+        for other in paused:
+            graph.retire_tie(resident_id, other, day, "in prison")
+        node.alive = False
+        graph.alive_count -= 1
+        open_job(graph, node)
+        self.held[resident_id] = {"left": day, "until": day + term, "ties": paused}
+        self._imprisoned += 1
+        return Event(day, self.name, "imprisoned", resident_id, resident_id, f"for {term} days")
+
+    def _free(self, graph, resident_id: int, day: int) -> None:
+        """Back among the living, older, with their ties back and cooled.
+        ponytail: a tie to someone away soldiering meanwhile is lost."""
+        record = self.held.pop(resident_id)
+        node = graph.nodes[resident_id]
+        node.alive = True
+        graph.alive_count += 1
+        node.age = (node.age or 0) + round((day - record["left"]) / 365)
+        for other, edge in record["ties"].items():
+            if graph.nodes[other].alive and graph.get_edge(resident_id, other) is None:
+                edge.set_valence_from(other, max(-1.0, edge.valence_from(other) - PRISON_STIGMA))
+                graph.add_edge(edge)
+        home = [n for n in graph.nodes.values() if n.alive and n.household_id == node.household_id and n is not node]
+        if node.household_id is None or not home:  # their household is gone: on their own, without a roof
+            node.household_id, node.home_building_id = new_household_id(graph), None
+        else:
+            node.home_building_id = home[0].home_building_id
+        node.district_id, node.district_zone = graph.building_districts.get(node.home_building_id, (None, None))
+
+    def _keep_prisoners(self, graph, day: int, rng: random.Random) -> List[Event]:
+        events = []
+        monthly_death = 1.0 - (1.0 - PRISON_DEATH_PER_YEAR) ** (1.0 / 12.0)
+        money = getattr(graph, "money", None)
+        for resident_id in list(self.held):
+            if day >= self.held[resident_id]["until"]:
+                self._free(graph, resident_id, day)
+                events.append(Event(day, self.name, "released", resident_id, resident_id, "out of prison"))
+                continue
+            if day % 30:
+                continue
+            if rng.random() < monthly_death:
+                self._free(graph, resident_id, day)  # the town hears: the ties come back for the mourning
+                graph.record_death(resident_id, day, "prison")
+                self._died_in_prison += 1
+                events.append(Event(day, self.name, "died_in_prison", resident_id, resident_id, "jail fever"))
+                continue
+            # the family feeds them: whoever in the household has the most pays a month's keep
+            household = graph.nodes[resident_id].household_id
+            family = [n for n in graph.nodes.values() if n.alive and household is not None and n.household_id == household]
+            if money is None or not family:
+                continue
+            payer = person_key(max(family, key=lambda n: (money.get(person_key(n.resident_id), 0.0), -n.resident_id)).resident_id)
+            keep = min(BASKET_PER_PERSON / 12, max(0.0, money.get(payer, 0.0)))
+            money[payer] = money.get(payer, 0.0) - keep
+            money[COMMUNE] = money.get(COMMUNE, 0.0) + keep
+            log_payment(graph, "prison keep", payer, COMMUNE, keep)
         return events
 
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         refresh_classes(graph, state)
         self._deterrence *= self.deterrence_decay
-        events: List[Event] = []
+        events: List[Event] = self._keep_prisoners(graph, day, rng)
         for resident_id, resident_state in state.items():
             node = graph.nodes[resident_id]
             if resident_state["is_thief"]:
@@ -2488,6 +2602,11 @@ class TheftPhenomenon:
             "thefts_caught": self._caught,
             "thefts_arrested": self._arrests,
             "thefts_executed": self._executions,
+            "thefts_lost_work": self._lost_work,
+            "thefts_fined": self._fined,
+            "thefts_imprisoned": self._imprisoned,
+            "in_prison": len(self.held),
+            "died_in_prison": self._died_in_prison,
             "thieves_went_straight": self._quits,
         }
 
@@ -3057,6 +3176,7 @@ class PopulationPhenomenon:
         self._shop_ties = 0
         self._veterans_posted = 0
         self._poderi_taken_up = 0
+        self._came_for_open_jobs = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         self._start_size = sum(1 for node in graph.nodes.values() if node.alive)
@@ -3152,6 +3272,17 @@ class PopulationPhenomenon:
             alive += 1 + family
             self._arrivals += 1 + family
             events.append(Event(day, self.name, "arrived", newcomer, dead, "took over the place of"))
+        for job in list(getattr(graph, "open_jobs", ())):
+            if rng.random() >= self.arrival_daily_chance:
+                continue
+            newcomer = self._arrive_for(graph, job, day, rng)
+            if newcomer is None:
+                continue
+            graph.open_jobs.remove(job)
+            alive += 1
+            self._arrivals += 1
+            self._came_for_open_jobs += 1
+            events.append(Event(day, self.name, "came_for_job", newcomer, job["was"], "took the work left by"))
         if day % 30 == 0:
             events += self._come_for_work(graph, day, rng, alive, target)
             events += self._move_out(graph, day, rng)
@@ -3201,6 +3332,31 @@ class PopulationPhenomenon:
             self._lodgers += 1
             events.append(Event(day, self.name, "came_for_work", newcomer, host.resident_id, "came for work"))
         return events
+
+    def _arrive_for(self, graph, job, day: int, rng: random.Random) -> Optional[int]:
+        """A newcomer for an open job (open_job): they take the work and lodge
+        with a household of someone working there, else any household, as
+        those who come for work do."""
+        hosts = [n for n in graph.nodes.values()
+                 if n.alive and not n.is_noble and n.household_id is not None and n.role == "civilian"]
+        if not hosts:
+            return None
+        there = [n for n in hosts if job["workplace"] is not None and n.workplace_building_id == job["workplace"]]
+        host = rng.choice(there or hosts)
+        age = rng.randint(*self.arrival_ages)
+        year = graph.reference_year + (day - 1) // 365 if graph.reference_year is not None else None
+        neighbours = [(o, "neighbor") for o in graph.neighbors(host.resident_id)
+                      if graph.get_edge(host.resident_id, o).source_type == "neighbor"] + [(host.resident_id, "neighbor")]
+        newcomer = graph.add_resident({
+            "ses": job["ses"], "gender": rng.choice(("female", "male")),
+            "birth_date": f"{year - age:04d}-01-01" if year is not None else None,
+            "occupation": job["occupation"], "is_noble": 0, "household_id": host.household_id,
+            "home_building_id": host.home_building_id, "workplace_building_id": job["workplace"],
+        }, neighbours, rng)
+        graph.nodes[newcomer].age = age
+        self._shop_ties += household_shop_ties(graph, graph.nodes[newcomer], rng, model=host)
+        self._lodgers += 1
+        return newcomer
 
     def _move_out(self, graph, day: int, rng: random.Random) -> List[Event]:
         """A household under very high stress that can afford it may leave
@@ -3372,7 +3528,7 @@ class PopulationPhenomenon:
         return {"arrivals": self._arrivals, "arrived_as_families": self._families, "arrived_to_lodge": self._lodgers,
                 "came_for_work": self._came_for_work, "moved_away": self._moved_out,
                 "inheritances": self._inheritances, "veterans_made_guards": self._veterans_posted,
-                "poderi_taken_up": self._poderi_taken_up,
+                "poderi_taken_up": self._poderi_taken_up, "came_for_open_jobs": self._came_for_open_jobs,
                 "open_vacancies": len(self._vacancies), "shop_ties_on_coming_of_age": self._shop_ties}
 
 

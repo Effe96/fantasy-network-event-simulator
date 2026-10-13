@@ -8,6 +8,42 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — Consequences for thieves (Project_Vision/07 4.9)
+
+Found while checking the events save: a rich merchant house was robbed 10
+times in 2 years, mostly by its own outworkers, four times noticed. A theft
+fires on a tie each day, more on strong ties to the rich; catching a thief
+only cooled the victim, and an arrest only cleared the thief flag. The
+user's rules (2026-10-13):
+- **A noticed theft cuts the tie** (family ties stay, with the anger), and
+  a thief working with or for the victim (a `coworker` tie) loses that work,
+  unless it's their own business.
+- **First conviction:** pays back what was taken and FINE_TIMES (2) that to
+  the commune, if they can (their own purse). Otherwise prison.
+- **Later convictions:** prison, no paying out; the gallows from the third
+  conviction as before (HANGED_FROM_CONVICTION).
+- **Prison** (PRISON_DAYS 182, 365, 730, by conviction; the user took the
+  rising terms): out of town life as a soldier away is (`alive` false, no
+  work). Close family ties stay live (they can't be rolled with someone not
+  alive, so they simply don't fade); their household's richest pays a
+  month's keep (BASKET_PER_PERSON / 12) to the commune. Other ties pause
+  and come back on release, PRISON_STIGMA (0.1) cooler. Jail fever:
+  PRISON_DEATH_PER_YEAR 0.10. Saved to TownShape as a departure, "in
+  prison". ponytail: a tie to someone away soldiering meanwhile is lost.
+- **Work a thief loses is an open place** (`open_job`), which newcomers
+  come for at the pace of a dead worker's place and take, lodging with
+  someone working there (user, 2026-10-13). Without it, the first prison
+  runs ended 110-160 people smaller in every seed: the jobless in town only
+  find precarious work (`_give_work`), so a skilled place left by a thief
+  was gone for good, workshops shrank and fewer newcomers came (newcomers
+  taking a dead person's place: 25-63 fewer per run).
+
+**25 years, seeds 1-3, against b3ee156:** population 2,416, 2,424 and 2,392
+against 2,338, 2,363 and 2,406; newcomers for thieves' work 225-245 a run;
+fined 245-279; imprisoned 255-290, 6-15 held at a time; died in prison
+19-21; lost work 44-50; thefts about the same. Killings, Gini, homeless and
+unemployment within the usual spread.
+
 ## 2026-10-13 — Events on TownShape's map (Project_Vision/08 3.4)
 
 TownShape built `town_events` (its 6746474) from our brief and sent

@@ -119,4 +119,15 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
   and fixed: building and household 0 were saved as "not TownShape's"
   (residents of building 0 saved homeless). Checked end to end in
   TownShape's viewer queries.
+- **Committed (5e2f6d5).** The user asked why one house was robbed 10
+  times: its own outworkers, with nothing lasting after being caught.
+  Built (07 4.9, uncommitted): the tie is cut and the work lost, fines,
+  prison with rising terms, family ties live in prison, jail fever. The
+  first runs lost 110-160 people: a thief's skilled place vanished (the
+  jobless only find precarious work). Fixed by the user's rule, work a
+  thief loses is open to newcomers; population back to 2,392-2,424.
+- Also: the user asked for a plan to put the sim on their website (a
+  weekly-run town with a newspaper front page, dashboards, register,
+  charter). Published as an Artifact: https://claude.ai/artifact/6VcaoHProqPnHx35pHjwWE
+  (six questions for the user at its end).
 - **Next:** 08 3.4, a TownShape brief for events with a place.
