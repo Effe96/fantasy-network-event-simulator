@@ -61,3 +61,17 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
 - **Speed pass** (uncommitted): four changes, identical results, about
   2.5% faster. Bigger gains would change the exact runs (see
   docs/decisions.md).
+
+## 2026-10-13: the physical town (08), steps 1-3
+- **Steps 1-2 committed (99f734e):** neighbours from TownShape's map both
+  ways, every move to a real building (newlyweds together, people taken
+  in, heirs, the homeless at rough spots, sim-placed buildings), a mover's
+  district follows them. Couples apart: 15-18% to 2-3%. The user chose
+  faster fading: all old neighbours drift apart at 0.7 a year (17,000
+  acquaintances at 0.4, about 10,000-11,000 now). The dashboard was not
+  refreshed, at the user's request.
+- **Step 3 (08 2.1), uncommitted:** ties have a place, and ties across a
+  quarantine border pause. Fixed disease reading the districts people
+  started in, which raised first-year plague deaths (about 196 to 231 on
+  average over 4 seeds). Reasons and numbers in docs/decisions.md.
+- **Next:** 08 2.4, shops by distance.

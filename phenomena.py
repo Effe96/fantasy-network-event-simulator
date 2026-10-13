@@ -95,6 +95,7 @@ HOUSEHOLD_TIE_TYPES = {"spouse", "parent", "sibling", "unit_mate"}
 
 class ContagionPhenomenon:
     name = "contagion"
+    crosses_quarantine = True  # its own leak across a border, not the engine's pause (graph.can_meet)
 
     @classmethod
     def from_tier(cls, graph, tier: Optional[int] = DEFAULT_EPIDEMIC_TIER,
@@ -164,9 +165,10 @@ class ContagionPhenomenon:
         self.quarantine_leak_factor = quarantine_leak_factor
         self.quarantined_fatality_multiplier = quarantined_fatality_multiplier
         self.quarantine_indoor_factor = quarantine_indoor_factor
-        # set in init_state: each resident's district, and a reference to
-        # graph.quarantined_districts (edge_probability gets no graph)
-        self._district: Dict[int, Optional[int]] = {}
+        # set in init_state: references to graph.nodes (a resident's district
+        # follows them when they move) and graph.quarantined_districts
+        # (edge_probability gets no graph)
+        self._nodes: Dict[int, Any] = {}
         self._sealed: Dict[int, str] = {}
         # Transmissions rolled during a day are staged here and only become
         # "infected" in end_of_day, so every edge roll for a given day is made
@@ -175,7 +177,7 @@ class ContagionPhenomenon:
         self._pending_infections: List[int] = []
 
     def init_state(self, graph) -> Dict[int, Any]:
-        self._district = {resident_id: node.district_id for resident_id, node in graph.nodes.items()}
+        self._nodes = graph.nodes
         self._sealed = graph.quarantined_districts
         state = {resident_id: {"status": "susceptible", "days_left": 0} for resident_id in graph.nodes}
         if self.outbreak_yearly_chance is None or self.patient_zero is not None:
@@ -185,7 +187,6 @@ class ContagionPhenomenon:
         return state
 
     def add_resident(self, graph, state, resident_id: int) -> None:
-        self._district[resident_id] = graph.nodes[resident_id].district_id
         state[resident_id] = {"status": "susceptible", "days_left": 0}
         if (graph.nodes[resident_id].age or 0) >= 1:  # came from outside, not born here
             self._arrived.append(resident_id)
@@ -202,8 +203,8 @@ class ContagionPhenomenon:
         weight = CONTAGION_TYPE_WEIGHTS.get(edge.source_type, 0.2)
         probability = self.base_rate * edge.tie_strength * weight
         if self._sealed:
-            district_a = self._district.get(edge.resident_a)
-            district_b = self._district.get(edge.resident_b)
+            district_a = self._nodes[edge.resident_a].district_id
+            district_b = self._nodes[edge.resident_b].district_id
             if district_a != district_b and (district_a in self._sealed or district_b in self._sealed):
                 probability *= self.quarantine_leak_factor
             elif district_a == district_b and district_a in self._sealed and edge.source_type not in HOUSEHOLD_TIE_TYPES:

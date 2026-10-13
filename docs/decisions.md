@@ -8,6 +8,30 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — Every tie has a place; ties pause across a quarantine (Project_Vision/08 2.1)
+
+- **A tie's place** (`tie_place`): the workplace for coworkers and guards,
+  the shop for a customer (the staff member's workplace). Other ties have
+  no place: a household, a street, family and friends meet at home or
+  anywhere. Shops and parishes changing with distance come with 08 2.4 and
+  2.7; coworkers, neighbours and classmates already change with the place.
+- **Pausing** (`can_meet`, checked in `engine._roll_edge`): a tie is
+  paused while a quarantine border runs between the two people, or between
+  either of them and the tie's place (two people living outside a sealed
+  district who work inside it). Disease keeps its own leak across a border
+  (`crosses_quarantine`). Soldiers away were already paused. Phenomena
+  that walk ties in `end_of_day` (the economy, meeting people) don't pause
+  yet: the economy's side of a quarantine is 08 2.5.
+- **Disease now reads where people live today.** Contagion kept every
+  resident's district from the start, and since 99f734e districts follow
+  movers: a mover's household ties could count as crossing a border and
+  carry disease at 2%. Plague deaths in the first year, 4 seeds: 181, 208,
+  204, 190 before; 236, 241, 257, 191 with live districts alone; 224, 269,
+  155, 195 with pausing as well. The rise is the fix; pausing itself moves
+  deaths either way within noise.
+
+Without an epidemic nothing is ever sealed, so quiet runs are unchanged.
+
 ## 2026-10-13 — The physical town, steps 1 and 2 (Project_Vision/08 2.2, 2.3)
 
 - **Neighbours from the map, in every town** (`sync_neighbours`,
@@ -55,6 +79,10 @@ old neighbour as a "friend" fading at 0.7 a year; now only warm ones are,
 and the rest fade as acquaintances at 0.4 a year. Ties per resident 103.5
 and 109.8 against 101.9 and 105.3. Killings 107 and 130 against 100 and
 106, inside the 100-130 the same seeds gave across the day's variants.
+
+With old neighbours drifting apart at 0.7 (same seeds, year 25):
+acquaintances 10,146 and 11,210, friendships 4,110 and 3,969, ties per
+resident 97.1 and 100.0, killings 97 and 110, very poor 17.6% and 14.7%.
 
 ## 2026-10-12 — Speed pass: small, results identical
 

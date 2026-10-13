@@ -1120,6 +1120,34 @@ def _drop_to_acquaintance(edge: "Edge") -> None:
         edge.source_type, edge.fiske_type = "acquaintance", FISKE_TAGS["acquaintance"]
 
 
+WORKPLACE_TIES = ("coworker", "unit_mate", "shopkeeper_customer")
+
+
+def tie_place(graph: SocialGraph, edge: "Edge") -> Optional[int]:
+    """The building a tie meets at (Project_Vision/08 2.1, user 2026-10-12):
+    the workplace for coworkers and guards, the shop for a customer (b is
+    its staff). None for the rest: a household, a street, family, friends
+    meet at home or anywhere."""
+    if edge.source_type in WORKPLACE_TIES:
+        return graph.nodes[edge.resident_b].workplace_building_id
+    return None
+
+
+def can_meet(graph: SocialGraph, edge: "Edge") -> bool:
+    """False when a quarantine border runs between the two, or between one
+    of them and the place their tie meets at (08 2.1): the tie is paused."""
+    sealed = graph.quarantined_districts
+    if not sealed:
+        return True
+    a, b = graph.nodes[edge.resident_a].district_id, graph.nodes[edge.resident_b].district_id
+    sides = {a if a in sealed else None, b if b in sealed else None}
+    place = tie_place(graph, edge)
+    if place is not None:
+        district = graph.building_districts.get(place, (None, None))[0]
+        sides.add(district if district in sealed else None)
+    return len(sides) == 1
+
+
 def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
     """New neighbours when moving (Project_Vision/05 B2, user 2026-10-10).
     Whoever's home changed since the last call gets the new street: the

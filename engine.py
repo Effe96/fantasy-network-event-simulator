@@ -3,6 +3,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
+from graph import can_meet
 from phenomena import Event, Phenomenon
 
 
@@ -135,6 +136,10 @@ def _register_newcomers(graph, phenomena, states, edge_order, position) -> None:
 def _roll_edge(graph, phenomenon, state, edge, day, rng, result) -> bool:
     a, b = edge.resident_a, edge.resident_b
     if not (graph.nodes[a].alive and graph.nodes[b].alive):
+        return False
+    # a tie across a quarantine border is paused (Project_Vision/08 2.1); disease has its own leak.
+    # ponytail: only ties rolled here; phenomena walking ties in end_of_day (economy, meetings) don't pause yet (08 2.5)
+    if graph.quarantined_districts and not getattr(phenomenon, "crosses_quarantine", False) and not can_meet(graph, edge):
         return False
     probability = phenomenon.edge_probability(edge, state[a], state[b], day)
     if probability > 0 and rng.random() < probability:

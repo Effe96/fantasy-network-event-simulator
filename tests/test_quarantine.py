@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from graph import Edge, Node, SocialGraph
+from graph import Edge, Node, SocialGraph, can_meet
 from phenomena import ContagionPhenomenon, QuarantinePhenomenon
 
 
@@ -220,7 +220,24 @@ def test_epidemic_tiers_hit_their_r0_and_town_average_fatality():
         assert contagion.infectious_days == days
 
 
+def test_a_border_pauses_ties_across_it_and_ties_to_a_workplace_beyond_it():
+    # Project_Vision/08 2.1 (user, 2026-10-12)
+    graph = SocialGraph()
+    for resident_id, district in [(1, 1), (2, 1), (3, 2), (4, 2)]:
+        graph.add_node(_node(resident_id, district))
+    graph.nodes[3].workplace_building_id = graph.nodes[4].workplace_building_id = 50
+    graph.building_districts[50] = (1, "merchant")  # 3 and 4 live in 2, work in 1
+    friends, inside, colleagues = _edge(1, 3, "friend"), _edge(1, 2, "friend"), _edge(3, 4)
+    assert can_meet(graph, friends) and can_meet(graph, colleagues)
+    graph.quarantined_districts[1] = "priest"
+    assert not can_meet(graph, friends)  # across the border
+    assert can_meet(graph, inside)
+    assert not can_meet(graph, colleagues)  # both outside, their workshop inside
+    assert can_meet(graph, _edge(3, 4, "neighbor"))
+
+
 def _run_all():
+    test_a_border_pauses_ties_across_it_and_ties_to_a_workplace_beyond_it()
     test_sealed_boundary_leaks_at_a_tiny_rate_but_household_ties_inside_are_untouched()
     test_sick_residents_sealed_inside_die_more_often()
     test_priests_seal_after_three_deaths_but_poor_districts_need_six()
