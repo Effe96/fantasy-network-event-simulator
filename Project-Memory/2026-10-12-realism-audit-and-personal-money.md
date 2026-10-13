@@ -88,4 +88,12 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
   nearest church (Riverport: 1 temple, so one parish); each head of
   household is tied to the priest. The priests' influence and payoffs
   roughly tripled; faith ends slightly lower.
-- **Next:** 08 2.6, events happen somewhere.
+- **Step 6 committed (c9d6677).**
+- **Step 7 (08 2.6), uncommitted:** crimes at a place with witnesses
+  (catching calibrated to 8 typical witnesses; witnesses who know the
+  killer may turn on them, by the user's (1 - hatred)(1 - love) rule);
+  riots start where most rioters live and go for the nearest nobles.
+  Raised with the user: the old grief rule makes those who hated the
+  victim grieve more. Killers' catch rate a few points up in 3 seeds:
+  watch.
+- **Next:** 08 3.4, a TownShape brief for events with a place.

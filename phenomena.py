@@ -1,14 +1,15 @@
 import math
 import random
 from dataclasses import dataclass
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
-from economy import (BASKET_PER_PERSON, MERCHANT_KEEPS_JOB, MONEY_AGE, PRECARIOUS, form_household, has_purse,
+from economy import (BASKET_PER_PERSON, BUILDING_GAP, MERCHANT_KEEPS_JOB, MONEY_AGE, PRECARIOUS, form_household, has_purse,
                      household_key, job_kind, mark_new_household, new_household_id, person_key, steal, transfer)
 from graph import (CLOSE_FAMILY, FAMILY, FISKE_TAGS, can_meet, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
-                   edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
+                   edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, tie_place,
+                   unfriend, where_lives)
 
 
 @dataclass
@@ -19,6 +20,7 @@ class Event:
     resident_a: int
     resident_b: int
     detail: str
+    place: Optional[int] = None  # the building it happened at, if known (Project_Vision/08 2.6)
 
 
 class Phenomenon(Protocol):
@@ -617,6 +619,36 @@ class CommonAilmentsPhenomenon:
         }
 
 
+# where a crime happens and who sees it (Project_Vision/08 2.6, user
+# 2026-10-13): KILLER_CAUGHT and a theft's discovery chance hold with
+# TYPICAL_WITNESSES there on average over real crimes (10 years, 3 seeds:
+# killings median 7, mean 9.1, 10th-90th percentile 3-17; at 7 the catch
+# rate averaged 54%, at 8 it's 50% and thefts 39%), more are
+# caught with more, fewer with fewer; a witness who knows the killer may turn
+# on them by WITNESS_SHOCK of grief_shock
+TYPICAL_WITNESSES = 8
+WITNESS_SHOCK = 0.5  # C
+
+
+def crime_place(graph, edge, victim: int) -> Optional[int]:
+    """Where a crime between the two happens: where their tie meets, else the victim's home."""
+    place = tie_place(graph, edge)
+    return place if place is not None else where_lives(graph, victim)
+
+
+def witnesses(graph, place: Optional[int], exclude) -> List[int]:
+    """Who lives or works at `place`, besides `exclude`."""
+    if place is None:
+        return []
+    return [r for r, n in graph.nodes.items() if n.alive and r not in exclude
+            and (n.workplace_building_id == place or where_lives(graph, r) == place)]
+
+
+def seen_chance(base: float, seen: int) -> float:
+    """`base` with TYPICAL_WITNESSES watching, rising with more."""
+    return 1.0 - (1.0 - base) ** ((seen + 1) / (TYPICAL_WITNESSES + 1))
+
+
 class ViolencePhenomenon:
     """Assassination refinement (added 2026-09-21, per
     `Project_Vision/01-network-simulation.md`'s Criminals section): a
@@ -912,10 +944,12 @@ class ViolencePhenomenon:
             self._hired_assassinations += 1
 
         kind = "hired_assassination" if hired else "violence"
-        events = [Event(day, self.name, kind, culprit, victim, "escalated conflict")]
+        place = crime_place(graph, edge, victim)
+        seen = witnesses(graph, place, {victim, culprit, killer})
+        events = [Event(day, self.name, kind, culprit, victim, f"escalated conflict, {len(seen)} saw it", place)]
         if killer is not None:
             events.extend(self._pursue_killer(graph, state, killer, victim, day, rng,
-                                              patron=culprit if hired else None))
+                                              patron=culprit if hired else None, seen=len(seen)))
 
         for neighbor_id in graph.neighbors(victim):
             if neighbor_id == culprit:
@@ -929,6 +963,22 @@ class ViolencePhenomenon:
             edge_to_culprit.set_valence_from(neighbor_id, new_valence)
             self._new_candidates.append(graph._key(neighbor_id, culprit))
             events.append(Event(day, self.name, "grief_shock", neighbor_id, culprit, f"valence -{shock:.3f}"))
+        # those who saw it and know the killer turn on them (unless already
+        # grieving above), less likely the more they hated the victim or love
+        # the killer (user, 2026-10-13): (1 - hatred) * (1 - love)
+        for witness in seen:
+            tie = graph.get_edge(witness, killer) if killer is not None else None
+            knew = graph.get_edge(witness, victim)
+            if tie is None or (knew is not None and killer == culprit):
+                continue
+            hatred = max(0.0, -knew.valence_from(witness)) if knew is not None else 0.0
+            turns = (1.0 - hatred) * (1.0 - max(0.0, tie.valence_from(witness)))
+            if turns < 1.0 and rng.random() >= turns:
+                continue
+            shock = self.grief_shock * WITNESS_SHOCK * shock_factor
+            tie.set_valence_from(witness, max(-1.0, tie.valence_from(witness) - shock))
+            self._new_candidates.append(graph._key(witness, killer))
+            events.append(Event(day, self.name, "witness_shock", witness, killer, f"valence -{shock:.3f}", place))
 
         # after grief, so grief reaches only ties that were there before the killing
         if killer is not None:
@@ -1167,11 +1217,12 @@ class ViolencePhenomenon:
         return []
 
     def _pursue_killer(self, graph, state, killer: int, victim: int, day: int, rng: random.Random,
-                       patron: Optional[int] = None) -> List[Event]:
-        """The commune pursues a killing: caught, the killer hangs or is
-        banished. A caught hired assassin may name the noble who paid: the
-        victim's people then turn on the noble, whom rank keeps from the rope."""
-        if not graph.nodes[killer].alive or rng.random() >= KILLER_CAUGHT:
+                       patron: Optional[int] = None, seen: int = TYPICAL_WITNESSES) -> List[Event]:
+        """The commune pursues a killing: caught (more often the more saw it),
+        the killer hangs or is banished. A caught hired assassin may name the
+        noble who paid: the victim's people then turn on the noble, whom rank
+        keeps from the rope."""
+        if not graph.nodes[killer].alive or rng.random() >= seen_chance(KILLER_CAUGHT, seen):
             return []
         self._killers_caught += 1
         events = []
@@ -1736,7 +1787,14 @@ class RiotPhenomenon:
         effective_rioter_retreat_threshold = self.rioter_retreat_threshold * (0.5 + avg_participant_hostility)
 
         self._riots += 1
+        # it starts where most of its rioters live (Project_Vision/08 2.6, user 2026-10-13)
+        districts = Counter(graph.nodes[p].district_id for p in participants)
+        district = min(districts, key=lambda d: (-districts[d], d is None, d or 0))
+        spots = [xy for b, xy in graph.building_xy.items() if graph.building_districts.get(b, (None,))[0] == district]
+        centre = (sum(x for x, _ in spots) / len(spots), sum(y for _, y in spots) / len(spots)) if spots else None
         self._active_riot = {
+            "district": district,
+            "centre": centre,
             "participants": participants,
             "initial_participant_count": len(participants),
             "rioter_deaths": 0,
@@ -1748,7 +1806,8 @@ class RiotPhenomenon:
             "guard_retreat_threshold": effective_guard_retreat_threshold,
             "riot_bar": max(1, round(self.riot_bar_per_participant * len(participants))),
         }
-        return [Event(day, self.name, "riot", participants[0], participants[0], f"{len(participants)} rioters joined")]
+        return [Event(day, self.name, "riot", participants[0], participants[0],
+                      f"{len(participants)} rioters joined in district {district}")]
 
     def _advance_riot(self, graph, day: int, rng: random.Random) -> List[Event]:
         riot = self._active_riot
@@ -1823,18 +1882,22 @@ class RiotPhenomenon:
                 self._active_riot = None
 
         else:
-            # nobles are shielded until the guards break -- then personal hatred,
-            # not proximity to this riot, decides who among them gets targeted,
-            # most-hated first, until the mob's bloodlust (riot_bar) is spent
+            # nobles are shielded until the guards break -- then the mob goes
+            # for the noble houses nearest where it started (Project_Vision/08
+            # 2.6, user 2026-10-13), until its bloodlust (riot_bar) is spent;
+            # in a town off the map, the most hated first
             fled = riot.get("fled_nobles", set())
-            nobles = sorted(
-                (rid for rid, node in graph.nodes.items() if node.alive and node.role == "noble" and rid not in fled),
-                key=lambda rid: -self._hatred_toward(graph, rid),
-            )
+            nobles = [rid for rid, node in graph.nodes.items() if node.alive and node.role == "noble" and rid not in fled]
             if not nobles:
                 self._active_riot = None
                 return events
-            hatred = {noble_id: self._hatred_toward(graph, noble_id) for noble_id in nobles}
+            centre, xy = riot.get("centre"), graph.building_xy
+            if centre is not None and all(where_lives(graph, n) in xy for n in nobles):
+                # nearness in place of hatred: 1 / distance, past a building's width
+                hatred = {n: 1.0 / (BUILDING_GAP + math.dist(centre, xy[where_lives(graph, n)])) for n in nobles}
+            else:
+                hatred = {noble_id: self._hatred_toward(graph, noble_id) for noble_id in nobles}
+            nobles.sort(key=lambda n: -hatred[n])
             avg_hatred = sum(hatred.values()) / len(nobles)
             if avg_hatred > 0:
                 for noble_id in nobles:
@@ -2321,9 +2384,11 @@ class TheftPhenomenon:
         taken = steal(graph, thief_id, victim_id, THEFT_FL * BRIBE_WEALTH_FACTOR.get(victim.ses, 1.0), rng)             if hasattr(graph, "money") else 0.0
         self._thefts += 1
         self._stolen += taken
-        events = [Event(day, self.name, "theft", thief_id, victim_id, f"stole {taken:.2f} fl")]
+        place = crime_place(graph, graph.get_edge(thief_id, victim_id), victim_id)
+        seen = witnesses(graph, place, {thief_id, victim_id})
+        events = [Event(day, self.name, "theft", thief_id, victim_id, f"stole {taken:.2f} fl", place)]
 
-        if rng.random() >= self.discovery_chance:
+        if rng.random() >= seen_chance(self.discovery_chance, len(seen)):  # more often seen, the more are there
             return events
         self._caught += 1
 

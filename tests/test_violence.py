@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from graph import Edge, Node, SocialGraph
-from phenomena import RiotPhenomenon, ViolencePhenomenon
+from phenomena import KILLER_CAUGHT, RiotPhenomenon, TYPICAL_WITNESSES, ViolencePhenomenon, crime_place, seen_chance, witnesses
 
 
 def _graph_with_valence(valence_a_to_b: float, valence_b_to_a: float = None) -> SocialGraph:
@@ -797,7 +797,58 @@ def test_mercenaries_are_paid_monthly_and_walk_when_unpaid():
     assert not phenomenon._first_wage(graph, 1, 2)  # can't pay a month up front: no hire
 
 
+def test_a_crime_is_seen_by_who_lives_or_works_where_it_happens():
+    # Project_Vision/08 2.6 (user, 2026-10-13)
+    graph = SocialGraph()
+    for resident_id, home, work in [(1, 30, None), (2, 31, 50), (3, 30, None), (4, 32, 50), (5, 33, None)]:
+        graph.add_node(Node(resident_id=resident_id, ses="poor", gender="male", age=30, home_building_id=home,
+                            workplace_building_id=work))
+    at_work, at_home = Edge(2, 4, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, -0.5, -0.5),         Edge(5, 1, "neighbor", "Equality Matching", 0.4, 0.2, 0.3, -0.5, -0.5)
+    assert crime_place(graph, at_work, 4) == 50 and crime_place(graph, at_home, 1) == 30
+    assert witnesses(graph, 30, {5, 1}) == [3] and witnesses(graph, 50, {2, 4}) == []
+    assert abs(seen_chance(KILLER_CAUGHT, TYPICAL_WITNESSES) - KILLER_CAUGHT) < 1e-9
+    assert seen_chance(KILLER_CAUGHT, 0) < 0.1 < seen_chance(KILLER_CAUGHT, 15)
+
+
+def test_witnesses_turn_on_the_killer_unless_they_hated_the_victim_or_love_the_killer():
+    # Project_Vision/08 2.6 (user, 2026-10-13): noble 2 has assassin 6 kill 1 at 1's home
+    graph = SocialGraph()
+    for resident_id in range(1, 7):
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, age=30, home_building_id=30,
+                            is_noble=resident_id == 2, is_ex_soldier=resident_id == 6))
+    graph.nodes[2].home_building_id = graph.nodes[6].home_building_id = 31
+    graph.add_edge(Edge(1, 2, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, -0.9, -0.9))
+    graph.add_edge(Edge(2, 6, "neighbor", "Equality Matching", 0.5, 0.5, 0.5, 0.5, 0.5))
+    graph.add_edge(Edge(3, 6, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, 0.0, 0.0))  # knows the killer
+    graph.add_edge(Edge(4, 6, "friend", "Communal Sharing", 0.8, 0.8, 0.8, 1.0, 1.0))  # loves the killer
+    graph.add_edge(Edge(5, 6, "coworker", "Authority Ranking", 0.4, 0.2, 0.3, 0.0, 0.0))
+    graph.add_edge(Edge(5, 1, "neighbor", "Equality Matching", 0.4, 0.2, 0.3, -1.0, -1.0))  # hated the victim
+    phenomenon = ViolencePhenomenon(success_base_rate=10.0)
+    state = phenomenon.init_state(graph)
+    phenomenon._pick_aggressor = lambda graph, edge, a, b, rng: 2
+    events = phenomenon.apply_effect(graph, state, 1, 2, day=1, rng=random.Random(0))
+    assert not graph.nodes[1].alive
+    assert sorted(e.resident_a for e in events if e.kind == "witness_shock") == [3]
+    assert next(e for e in events if e.kind == "hired_assassination").place == 30
+
+
+def test_a_riot_starts_where_most_rioters_live():
+    # Project_Vision/08 2.6 (user, 2026-10-13)
+    graph = SocialGraph()
+    for resident_id, district in [(1, 5), (2, 5), (3, 6)]:
+        graph.add_node(Node(resident_id=resident_id, ses="poor", alive=True, district_id=district))
+    graph.building_xy.update({40: (0, 0), 41: (2, 0), 42: (9, 9)})
+    graph.building_districts.update({40: (5, "poor"), 41: (5, "poor"), 42: (6, "poor")})
+    riot = RiotPhenomenon()
+    riot.init_state(graph)
+    riot._begin_riot(graph, 1, [1, 2, 3], 0.5)
+    assert riot._active_riot["district"] == 5 and riot._active_riot["centre"] == (1.0, 0.0)
+
+
 def _run_all():
+    test_a_riot_starts_where_most_rioters_live()
+    test_witnesses_turn_on_the_killer_unless_they_hated_the_victim_or_love_the_killer()
+    test_a_crime_is_seen_by_who_lives_or_works_where_it_happens()
     test_mercenaries_are_paid_monthly_and_walk_when_unpaid()
     test_positive_valence_edges_never_fire()
     test_edge_probability_formula()

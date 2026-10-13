@@ -8,6 +8,44 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — Events happen somewhere (Project_Vision/08 2.6)
+
+User's choices (2026-10-13): witnesses change catching and grief; riots
+start where most rioters live and go for the nearest nobles. Fires and
+floods come with 07 6.2.
+- **A killing or theft happens** where the two people's tie meets (a
+  workshop, shop or church: `tie_place`), else at the victim's home
+  (`crime_place`). Whoever lives or works there sees it (`witnesses`).
+  `Event` has a `place` (building) for this and for writing back to
+  TownShape (08 3.4).
+- **Catching follows the witnesses** (`seen_chance`): the old rate (half
+  of killers caught, 40% of thefts noticed) with TYPICAL_WITNESSES
+  there, rising with more, falling with fewer, never 0 or 1. TYPICAL is
+  8, measured over real crimes (10 years, 3 seeds: killings median 7,
+  mean 9.1, 10th-90th percentile 3-17). At 7, Riverport's median at any
+  tie's place, the killers' catch rate averaged 54%; at 8, 50%, and thefts
+  39%.
+- **A witness who knows the killer may turn on them**, by half of
+  `grief_shock`, with chance (1 - hatred for the victim) x (1 - love for
+  the killer) (user's correction, 2026-10-13). Those who knew the victim
+  and the killer already get the old grief instead. That grief is still
+  scaled by tie strength, not warmth, so someone who hated the victim
+  grieves more: left as it was, raised with the user.
+- **A riot starts** in the district where most rioters live. Once the
+  guards break it goes for the nobles' houses nearest that district's
+  middle (1 / distance in place of hatred, so the expected deaths are
+  unchanged). Off the map, the most hated first, as before. Who joins is
+  unchanged.
+
+**25 years, seeds 1-3, against c9d6677:** killings 106, 100 and 116
+against 102, 110 and 118. Killers caught 55, 57 and 60 against 48, 50 and
+57: 52-57% of killings against 45-48%. That's higher in every seed (watch
+it; 3 seeds can't tell it from chance). Thefts caught about the same.
+24-38 witnesses turned on a killer per run. Riots 0-3 a run, with no
+nobles killed either way, so the nearest-noble rule hasn't been seen at
+work. Wealth, Gini and classes within the usual spread. Mercenaries hired
+42, 40 and 33 against 23, 25 and 27 (this session's runs gave 17-43).
+
 ## 2026-10-13 — Parishes (Project_Vision/08 2.7)
 
 - **A parish is the households nearest each church** on TownShape's map
