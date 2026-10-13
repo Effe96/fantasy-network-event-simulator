@@ -8,6 +8,54 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — The physical town, steps 1 and 2 (Project_Vision/08 2.2, 2.3)
+
+- **Neighbours from the map, in every town** (`sync_neighbours`,
+  `neighbouring_buildings`): a mover's street is everyone else in the
+  building plus TownShape's neighbouring buildings, both ways (its 4
+  nearest lived-in buildings, ties by id, and any building that has it
+  among its own 4). Before, a mover copied the street of one person
+  already there, and the map was used only for the first household into
+  an empty house in a town saved in TownShape's database.
+- **Every move ends in a real building:**
+  - **Newlyweds** live together from the wedding: in the kept household's
+    house, else whichever family house has more spare room (the
+    husband's if even). They still move out when a house frees (`later`
+    in `_housing`).
+  - **Orphans and widows** taken in by family move into the host's house
+    (`join_family`).
+  - **An heir** moves into the noble house with their spouse and the
+    children living with them (`_inherit`).
+  - **The homeless** sleep rough at the nearest `ROUGH_SPOTS` building
+    (temple, guard posts, warehouse: Riverport has no bridges in its
+    building list), kept in `graph.sleeps_rough`. That spot is their street
+    until they're housed.
+  - **New buildings** TownShape didn't place get a position from the sim
+    (`new_building`): `BUILDING_GAP` (2.4, Riverport's median gap
+    between neighbouring buildings) from the middle of the people's homes,
+    turned by the golden angle so several don't stack.
+- **A mover's district now follows them.** It was set only at import,
+  for newcomers and for soldiers coming home, so classmates and quarantine
+  used a stale district.
+- **Only warm old neighbours become fading friends** (08 2.1); the rest
+  become acquaintances. With real moves, every old neighbour becoming a
+  friend gave about 40% more friendships in 25 years. Both kinds of old
+  neighbour drift apart at the moved-away rate, 0.7 a year (user,
+  2026-10-13): at the acquaintance rate, 0.4, about 17,000 cool
+  ex-neighbours were around at any time.
+
+Couples living in different buildings: 15-18% at year 2 before, 2-3% after.
+
+**25 years, seeds 1 and 2, against aa4f154:** wealth within 6% either way
+(seed 1's committed run lost an estate to the commune), Gini 0.762 and
+0.741 against 0.749 and 0.742, very poor 13.0% and 14.3% against 19.0% and
+16.5%. Friendships 3,936 and 4,312 against 7,579 and 8,911, acquaintances
+17,670 and 17,401 against 1,203 and 1,587: the committed count held every
+old neighbour as a "friend" fading at 0.7 a year; now only warm ones are,
+and the rest fade as acquaintances at 0.4 a year. Ties per resident 103.5
+and 109.8 against 101.9 and 105.3. Killings 107 and 130 against 100 and
+106, inside the 100-130 the same seeds gave across the day's variants.
+
 ## 2026-10-12 — Speed pass: small, results identical
 
 Measured under PyPy (CPython's profile pointed at the wrong things: its

@@ -1125,37 +1125,60 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
     Whoever's home changed since the last call gets the new street: the
     people already living in that building and the neighbours of one of
     them (the one with the median count: a union of everyone's tripled
-    neighbour ties in 25 years). Their old neighbours become friends (user,
-    2026-10-10) who drift apart: `graph.fading_friends`, ended a few each year
+    neighbour ties in 25 years). Their warm old neighbours become friends (user,
+    2026-10-10) who drift apart, the rest acquaintances: `graph.fading_friends`, ended a few each year
     by FriendshipPhenomenon, unless they become neighbours again. Covers every
     move (new houses, eviction, joining family, the homeless housed). Called
     at import and monthly (economy).
-    In a town stored in TownShape's database, the first household into an
-    empty house, old or new, gets TownShape's street (neighbouring_buildings);
-    otherwise it keeps its old street (user, 2026-10-12: the reference runs
-    stay as calibrated; using the map there is its own change).
+    A home on the map gets TownShape's street, in every town
+    (Project_Vision/08 2.2, user 2026-10-12): everyone else in the building
+    and in its neighbouring buildings. A home that isn't on the map takes the
+    street of the people already there; an empty one keeps the old street.
+    The homeless sleep rough at the spot nearest their last home (08 3.1,
+    user 2026-10-12: the church steps, the gates; ROUGH_SPOTS), which is
+    their street until they're housed. A mover's district follows them.
     Returns how many ties were added."""
     seen = getattr(graph, "home_seen", {})
-    now = {n.resident_id: n.home_building_id for n in graph.nodes.values()
-           if n.alive and n.home_building_id is not None}
+    rough = graph.__dict__.setdefault("sleeps_rough", {})
+    now = {}
+    for n in graph.nodes.values():
+        if not n.alive:
+            rough.pop(n.resident_id, None)
+            continue
+        if n.home_building_id is not None:
+            rough.pop(n.resident_id, None)
+            now[n.resident_id] = n.home_building_id
+        elif n.resident_id in seen:
+            if n.resident_id not in rough and seen[n.resident_id] in graph.building_xy:
+                spot = rough_spot(graph, seen[n.resident_id])
+                if spot is not None:
+                    rough[n.resident_id] = spot
+            if n.resident_id in rough:
+                now[n.resident_id] = rough[n.resident_id]
     moved = {r for r, b in now.items() if r in seen and seen[r] != b}
+    for resident_id in moved:
+        node = graph.nodes[resident_id]
+        node.district_id, node.district_zone = graph.building_districts.get(
+            now[resident_id], (node.district_id, node.district_zone))
     added = 0
     if moved:
         living = defaultdict(list)
         for resident_id, building in now.items():
             living[building].append(resident_id)
         streets: Dict[int, Optional[set]] = {}
+        nearest: Dict[int, List[int]] = {}  # lived-in building -> its nearest, worked out once per call
         for resident_id in sorted(moved):
             building = now[resident_id]
             if building not in streets:
                 stayers = [r for r in living[building] if r not in moved]
                 street = None
-                if stayers:
+                if building in graph.building_xy:
+                    street = set(living[building]) | {r for b in neighbouring_buildings(graph, building, living, nearest)
+                                                      for r in living[b]}
+                elif stayers:
                     sets = sorted(({o for o, e in graph.ties_of(r).items() if _was(e, "neighbor") and graph.nodes[o].alive}
                                    for r in stayers), key=len)
                     street = set(stayers) | sets[len(sets) // 2]
-                elif graph.place_building is not None and building in graph.building_xy:
-                    street = {r for b in neighbouring_buildings(graph, building, living) for r in living[b]}
                 streets[building] = street
             street = streets[building]
             if street is None:
@@ -1163,9 +1186,16 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
             fading = graph.__dict__.setdefault("fading_friends", set())
             for other, edge in list(graph.ties_of(resident_id).items()):
                 if _was(edge, "neighbor") and other not in street and now.get(other) != building:
-                    if edge.source_type != "friend":
-                        befriend(edge)
-                    edge.former_type = "acquaintance"  # if it cools, it's an acquaintance
+                    # an old neighbour: a warm one becomes a friend who drifts apart,
+                    # the rest acquaintances, both drifting apart at the moved-away rate
+                    # (08 2.1, user 2026-10-12/13: every old neighbour a friend gave +40%
+                    # friendships once moves became real; at the acquaintance rate 17k piled up)
+                    if edge.source_type != "friend" and min(edge.valence_a_to_b, edge.valence_b_to_a) < FRIEND_WARMTH:
+                        _drop_to_acquaintance(edge)
+                    else:
+                        if edge.source_type != "friend":
+                            befriend(edge)
+                        edge.former_type = "acquaintance"  # if it cools, it's an acquaintance
                     fading.add(graph._key(resident_id, other))
             for other in sorted(street):
                 if other == resident_id:
@@ -1175,23 +1205,44 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
                     added += 1
                 else:
                     fading.discard(graph._key(resident_id, other))  # neighbours again
-    seen.update(now)  # the homeless keep their last home: they're still about the old street
+    seen.update(now)  # the homeless: their spot, else their last home
     graph.home_seen = seen
     return added
 
 
 K_NEAREST_BUILDINGS = 4  # TownShape's town_relationships.neighbors
+ROUGH_SPOTS = ("temple", "guard_post", "warehouse")  # the church steps, the gates, the docks (08 3.1)
 
 
-def neighbouring_buildings(graph: SocialGraph, building: int, living: Dict[int, List[int]]) -> List[int]:
-    """TownShape's neighbour rule for one building: the K_NEAREST_BUILDINGS
-    nearest lived-in buildings on the map.
-    ponytail: one way only; TownShape also counts a building that has this
-    one among its own nearest."""
+def rough_spot(graph: SocialGraph, building: int) -> Optional[int]:
+    """Where someone put out of `building` sleeps rough: the nearest ROUGH_SPOTS building on the map."""
     x, y = graph.building_xy[building]
-    near = sorted((((bx - x) ** 2 + (by - y) ** 2, b) for b, (bx, by) in graph.building_xy.items()
-                   if b != building and living.get(b)))
-    return [b for _, b in near[:K_NEAREST_BUILDINGS]]
+    spots = [b for b, kind in getattr(graph, "building_types", {}).items()
+             if kind in ROUGH_SPOTS and b in graph.building_xy]
+    return min(spots, key=lambda b: ((graph.building_xy[b][0] - x) ** 2 + (graph.building_xy[b][1] - y) ** 2, b),
+               default=None)
+
+
+def neighbouring_buildings(graph: SocialGraph, building: int, living: Dict[int, List[int]],
+                           nearest: Optional[Dict[int, List[int]]] = None) -> List[int]:
+    """TownShape's neighbour rule (town_relationships.neighbors), both ways:
+    the K_NEAREST_BUILDINGS nearest lived-in buildings on the map, ties by
+    id, plus any lived-in building that has this one among its own nearest.
+    `nearest` caches each building's nearest while `living` is unchanged."""
+    xy = graph.building_xy
+    occupied = [b for b in xy if living.get(b) or b == building]
+    if nearest is None:
+        nearest = {}
+
+    def nearest_of(b: int) -> List[int]:
+        if b not in nearest:
+            x, y = xy[b]
+            nearest[b] = [o for _, o in sorted(((xy[o][0] - x) ** 2 + (xy[o][1] - y) ** 2, o)
+                                               for o in occupied if o != b)[:K_NEAREST_BUILDINGS]]
+        return nearest[b]
+
+    near = nearest_of(building)
+    return near + [b for b in occupied if b != building and b not in near and building in nearest_of(b)]
 
 
 SCHOOL_AGES = (7, 14)  # C: reading, then the abacus school

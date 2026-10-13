@@ -47,11 +47,11 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
 - **09 §7 choices:** the user agreed with all of them.
 - **Step 3 built** (uncommitted): bribes, payoffs, theft, mercenaries and
   assassins move money; children are out of it; a payment log. The check
-  (step 1 against step 3, 2 years, 2 seeds) held. 09 §8 lists the choices
-  for the user.
+  (step 1 against step 3, 2 years, 2 seeds) held. 09 §8 lists the choices;
+  the user agreed with all of them.
 - **Merchant capital** is now split among the heirs: watch it over a long
   run.
-- **Step 1 committed** (d7c798d). The 25-year report was refreshed for it.
+- **Committed:** step 1 (d7c798d); step 3, the fix and the speed pass (aa4f154). The 25-year report is at v22 (step 3).
 - **Step 3's 25-year drift** was a mercenary hiring loop (fixed: a month's
   wage paid on hiring) and an heirless estate going to the commune. Holds
   over seeds 1 and 2 now.

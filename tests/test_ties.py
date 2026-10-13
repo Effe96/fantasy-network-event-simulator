@@ -91,8 +91,11 @@ def test_coworkers_are_tied_and_a_left_job_s_ties_become_acquaintances():
 
 
 def test_moving_brings_the_new_street_and_old_neighbours_become_friends_who_drift_apart():
-    graph = _street()  # 1 and 3 are neighbours on the old street
+    graph = _street()  # 1 and 3 are neighbours on the old street, warm to each other; 7 a cool neighbour
+    graph.get_edge(1, 3).valence_a_to_b = graph.get_edge(1, 3).valence_b_to_a = 0.4
     graph.nodes[1].home_building_id, graph.nodes[3].home_building_id = 20, 21
+    graph.add_node(Node(resident_id=7, ses="poor", gender="male", age=40, home_building_id=21))
+    graph.add_edge(Edge(1, 7, "neighbor", "Equality Matching", 0.3, 0.2, 0.2, 0.0, 0.0))
     graph.add_node(Node(resident_id=11, ses="poor", gender="male", age=40, home_building_id=30))  # new street
     graph.add_node(Node(resident_id=12, ses="poor", gender="male", age=40, home_building_id=31))
     graph.add_edge(Edge(11, 12, "neighbor", "Equality Matching", 0.3, 0.2, 0.2, 0.0, 0.0))
@@ -100,27 +103,55 @@ def test_moving_brings_the_new_street_and_old_neighbours_become_friends_who_drif
     sync_neighbours(graph, rng)  # where everyone lives
     graph.nodes[1].home_building_id = 30  # 1 moves in with 11
     sync_neighbours(graph, rng)
-    assert graph.get_edge(1, 3).source_type == "friend" and (1, 3) in graph.fading_friends  # an old neighbour
+    assert graph.get_edge(1, 3).source_type == "friend" and (1, 3) in graph.fading_friends  # a warm old neighbour
+    assert graph.get_edge(1, 7).source_type == "acquaintance" and (1, 7) in graph.fading_friends  # a cool one (08 2.1)
     assert graph.get_edge(1, 11).source_type == graph.get_edge(1, 12).source_type == "neighbor"
     assert graph.get_edge(1, 2).source_type == "spouse"  # family stays family
     friendship = FriendshipPhenomenon(moved_away_fade_per_year=1.0)  # they drift apart
     friendship._monthly(graph, 30, rng)
     graph.retire_ties_of_dead(31)
-    assert graph.get_edge(1, 3) is None
+    assert graph.get_edge(1, 3) is None and graph.get_edge(1, 7) is None
 
 
-def test_into_an_empty_house_the_map_s_street_only_in_a_stored_town():
-    for stored in (False, True):
-        graph = _street()
-        graph.nodes[1].home_building_id = 20
-        graph.add_node(Node(resident_id=11, ses="poor", gender="male", age=40, home_building_id=30))
-        graph.building_xy = {30: (0.0, 0.0), 40: (1.0, 0.0)}  # 40 stands empty next to 11's house
-        graph.place_building = (lambda *a: None) if stored else None
-        rng = random.Random(0)
-        sync_neighbours(graph, rng)
-        graph.nodes[1].home_building_id = 40
-        sync_neighbours(graph, rng)
-        assert (graph.get_edge(1, 11) is not None) == stored
+def test_the_new_street_comes_from_the_map_both_ways():
+    # Project_Vision/08 2.2 (user, 2026-10-12): TownShape's rule in every town
+    graph = _street()
+    graph.nodes[1].home_building_id = 20
+    xs = {40: 0, 41: 1, 42: 2, 43: 3, 44: 4, 45: -10, 47: 100, 48: 101, 49: 102, 50: 103}
+    graph.building_xy = {b: (float(x), 0.0) for b, x in xs.items()}
+    for b in xs:
+        if b != 40:
+            graph.add_node(Node(resident_id=100 + b, ses="poor", gender="male", age=40, home_building_id=b))
+    rng = random.Random(0)
+    sync_neighbours(graph, rng)
+    graph.nodes[1].home_building_id = 40  # into an empty house
+    sync_neighbours(graph, rng)
+    assert all(graph.get_edge(1, 100 + b) is not None for b in (41, 42, 43, 44))  # its 4 nearest
+    assert graph.get_edge(1, 145) is not None  # 45 has 40 among its own nearest
+    assert graph.get_edge(1, 147) is None  # far off
+
+
+def test_every_move_ends_in_a_real_place():
+    # Project_Vision/08 2.3, 3.1, 3.3 (user, 2026-10-12)
+    from economy import form_household, new_building
+    graph = SocialGraph()
+    graph.building_xy = {20: (0.0, 0.0), 21: (10.0, 0.0), 90: (11.0, 0.0)}
+    graph.building_districts = {20: (1, "poor"), 21: (2, "poor"), 90: (2, "poor")}
+    graph.building_types = {20: "residence", 21: "residence", 90: "temple"}
+    graph.houses = {20: {"room": 3}, 21: {"room": 6}}
+    graph.add_node(Node(resident_id=1, ses="poor", gender="male", age=25, household_id=1, home_building_id=20))
+    graph.add_node(Node(resident_id=2, ses="poor", gender="female", age=22, household_id=2, home_building_id=21))
+    form_household(graph, 1, 2)  # the bride's family house has more room
+    assert graph.nodes[1].home_building_id == graph.nodes[2].home_building_id == 21
+    rng = random.Random(0)
+    graph.nodes[1].home_building_id = 20
+    sync_neighbours(graph, rng)  # where everyone lives
+    graph.nodes[1].home_building_id = None  # put out: sleeps rough at the temple, the nearest spot
+    sync_neighbours(graph, rng)
+    assert graph.sleeps_rough[1] == 90 and graph.nodes[1].district_id == 2
+    built = new_building(graph, "residence", 6, [graph.nodes[2]])  # an unsaved town: the sim places it
+    x, y = graph.building_xy[built]
+    assert abs(((x - 10.0) ** 2 + y ** 2) ** 0.5 - 2.4) < 1e-9 and graph.building_districts[built] == (2, "poor")
 
 
 def _kin(graph, a, b, kind):
@@ -179,6 +210,8 @@ def _run_all():
     test_an_arrival_takes_over_ties_already_archived()
     test_coworkers_are_tied_and_a_left_job_s_ties_become_acquaintances()
     test_moving_brings_the_new_street_and_old_neighbours_become_friends_who_drift_apart()
+    test_the_new_street_comes_from_the_map_both_ways()
+    test_every_move_ends_in_a_real_place()
     test_wider_family_comes_through_parents_and_their_siblings()
     test_a_younger_household_is_linked_to_its_parents_household()
     test_middling_children_go_to_school_together_and_leave_at_15()

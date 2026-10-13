@@ -3151,7 +3151,16 @@ class PopulationPhenomenon:
                 break
         else:
             return None
-        heir.household_id = old.household_id
+        if heir.household_id != old.household_id:  # moves in, with their spouse and children at home (08 2.3)
+            own = heir.household_id
+            house = next((n.home_building_id for n in graph.nodes.values()
+                          if n.alive and n.household_id == old.household_id and n.home_building_id is not None),
+                         old.home_building_id)
+            for node in [heir] + [n for n in kin(heir.resident_id, "spouse") + kin(heir.resident_id, "parent", True)
+                                  if n.household_id == own]:
+                node.household_id = old.household_id
+                if house is not None:
+                    node.home_building_id = house
         heir.is_noble = True
         graph.role_changes.append(heir.resident_id)  # phenomena that keep roles see a noble now
         return heir.resident_id
@@ -3648,13 +3657,13 @@ class FriendshipPhenomenon:
             elif edge.source_type not in FAMILY and coolest >= FRIEND_WARMTH:
                 befriend(edge)
                 self._befriended += 1
-            elif edge.source_type == "acquaintance" and rng.random() < self._fade_per_month:
+            elif edge.source_type == "acquaintance" and (a, b) not in fading and rng.random() < self._fade_per_month:
                 graph.retire_tie(a, b, day, "faded")
                 self._faded += 1
-        for key in sorted(fading):
+        for key in sorted(fading):  # old neighbours, friends or not, drift apart
             edge = graph.edges.get(key)
-            if edge is None or edge.source_type != "friend":
-                fading.discard(key)  # gone, or cooled into an acquaintance (which fades on its own)
+            if edge is None or edge.source_type not in ("friend", "acquaintance"):
+                fading.discard(key)
             elif rng.random() < self._moved_away_fade_per_month:
                 fading.discard(key)
                 graph.retire_tie(key[0], key[1], day, "drifted apart")

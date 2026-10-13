@@ -14,6 +14,7 @@ Two halves:
 - EconomyPhenomenon (monthly): wages, property income, spending, merchants'
   imports and exports, and class following wealth once a year.
 """
+import math
 import random
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -2185,15 +2186,29 @@ def new_building(graph, building_type: str, capacity: int, people) -> int:
     database (town.py), TownShape places it on the map, near where `people`
     live (graph.place_building). The sim's rules decide what gets built
     (user, 2026-10-11: TownShape draws the town, it doesn't set its rules):
-    with no room on the map it's built all the same, unplaced, with an id
-    below zero, clear of TownShape's. Not stored: the next free id."""
+    with no room on the map it's built all the same, with an id below zero,
+    clear of TownShape's. Not stored: the next free id. Wherever TownShape
+    didn't place it, the sim does (Project_Vision/08 3.3, user 2026-10-12):
+    BUILDING_GAP from the middle of the people's homes, in the district of the first."""
     if graph.place_building is None:
-        return max([*graph.building_types, *getattr(graph, "houses", {})], default=0) + 1
-    district = next((n.district_id for n in people if n.district_id is not None), None)
-    building = graph.place_building(building_type, capacity, district)
-    if building is None:
-        building = min(min(graph.building_types, default=0), 0) - 1
+        building = max([*graph.building_types, *getattr(graph, "houses", {})], default=0) + 1
+    else:
+        district = next((n.district_id for n in people if n.district_id is not None), None)
+        building = graph.place_building(building_type, capacity, district)
+        if building is None:
+            building = min(min(graph.building_types, default=0), 0) - 1
+    homes = [n.home_building_id for n in people if n.home_building_id in graph.building_xy]
+    if building not in graph.building_xy and homes:
+        x = sum(graph.building_xy[b][0] for b in homes) / len(homes)
+        y = sum(graph.building_xy[b][1] for b in homes) / len(homes)
+        turn = building * 2.399963  # the golden angle: buildings put up around one spot spread out
+        graph.building_xy[building] = (x + BUILDING_GAP * math.cos(turn), y + BUILDING_GAP * math.sin(turn))
+        if homes[0] in graph.building_districts:
+            graph.building_districts[building] = graph.building_districts[homes[0]]
     return building
+
+
+BUILDING_GAP = 2.4  # map units: the median distance from a Riverport building to its nearest
 
 
 def new_household_id(graph) -> int:
@@ -2217,15 +2232,21 @@ def form_household(graph, a: int, b: int) -> None:
     spouse with children under 18 at home keeps that household and the other
     joins it. The bride's father (else her mother) gives her a dowry,
     DOWRY_SHARE of his cash and land, which stays hers (user, 2026-10-12);
-    for two men or two women, each family gives half of that to its own."""
+    for two men or two women, each family gives half of that to its own.
+    They live together from the wedding (Project_Vision/08 2.3): in the
+    house of the household kept, else in whichever family's house has more
+    room, the husband's if even; from there they move out when a house frees."""
     first, second = graph.nodes[a], graph.nodes[b]
     old_first, old_second = household_key(first), household_key(second)
     if _dependent_children(graph, first):
-        home = old_first
+        home, keeper = old_first, first
     elif _dependent_children(graph, second):
-        home = old_second
+        home, keeper = old_second, second
     else:
-        home = new_household_id(graph)
+        home, keeper = new_household_id(graph), None
+    building = keeper.home_building_id if keeper is not None else _newlyweds_home(graph, first, second)
+    if building is not None:
+        first.home_building_id = second.home_building_id = building
     if hasattr(graph, "money"):
         for node in (first, second):
             if first.gender == second.gender:
@@ -2241,6 +2262,20 @@ def form_household(graph, a: int, b: int) -> None:
     first.household_id = second.household_id = home = _real_household_id(graph, home)
     if home not in (old_first, old_second):
         mark_new_household(graph, home, "newlyweds")
+
+
+def _newlyweds_home(graph, first, second) -> Optional[int]:
+    """Of the two family houses, the one with more spare room; the husband's if even."""
+    homes = [n for n in sorted((first, second), key=lambda n: n.gender != "male") if n.home_building_id is not None]
+    if len(homes) < 2:
+        return homes[0].home_building_id if homes else None
+    houses = getattr(graph, "houses", {})
+
+    def spare(building):
+        living = sum(1 for n in graph.nodes.values() if n.alive and n.home_building_id == building)
+        return houses.get(building, {}).get("room", 0) - living
+
+    return max(homes, key=lambda n: spare(n.home_building_id)).home_building_id
 
 
 def _real_household_id(graph, key):
@@ -2384,7 +2419,9 @@ def join_family(graph, dead: int) -> Optional[str]:
         if group:
             host = max(group, key=lambda n: n.age or 0)
             host.household_id = home = _real_household_id(graph, household_key(host))
-            for n in left:
+            for n in left:  # they move into the host's house (Project_Vision/08 2.3)
                 n.household_id = home
+                if host.home_building_id is not None:
+                    n.home_building_id = host.home_building_id
             return outcome
     return None
