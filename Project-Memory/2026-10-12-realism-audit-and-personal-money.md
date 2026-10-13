@@ -98,4 +98,13 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
   the witnesses' rule: mourners turn on the killer with chance
   (1 - hatred for the victim)(1 - love for the killer). Uncommitted.
   Grief shocks fell in 2 of 3 seeds; killings average 111 against 107.
+- **Grief committed (1530810); TownShape brief committed (51ea294).**
+  The user chose to have TownShape's agent build the events table
+  (`docs/townshape-brief-events-2026-10-13.md`); no TownShape session was
+  running, so the user passes it on.
+- **Step 9 (08 2.8), uncommitted:** a new podere takes the empty field
+  nearest its owner's home (Riverport: 22 free). The sim places it;
+  TownShape's `place_building` would put a farmstead inside the walls.
+  25-year runs identical to before. Asked: should sharecroppers live on
+  the podere?
 - **Next:** 08 3.4, a TownShape brief for events with a place.

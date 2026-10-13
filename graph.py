@@ -1,3 +1,4 @@
+import json
 import random
 import sqlite3
 from collections import defaultdict
@@ -248,6 +249,7 @@ class SocialGraph:
         self.reference_year: Optional[int] = None  # for a newcomer's age
         self.building_districts: Dict[int, Tuple[int, str]] = {}  # building -> (district, zone)
         self.building_xy: Dict[int, Tuple[float, float]] = {}  # building -> its centre on TownShape's map
+        self.fields: Dict[int, Tuple[float, float]] = {}  # farmland district with no building -> its middle
         # the town's own highest resident and household ids, the dead included,
         # so an id made here is never one TownShape already used
         self.max_stored_resident_id = 0
@@ -755,6 +757,11 @@ def _load_districts(conn: sqlite3.Connection, graph: SocialGraph) -> None:
         return
     graph.building_districts = {building_id: (district_id, zone) for building_id, district_id, zone, _, _ in buildings}
     graph.building_xy = {building_id: (x, y) for building_id, _, _, x, y in buildings}
+    built = {district_id for district_id, _ in graph.building_districts.values()}
+    for district_id, polygon in conn.execute("SELECT id, polygon FROM districts WHERE zone_type = 'farmland_edge'"):
+        ring = json.loads(polygon)[0] if polygon else []
+        if ring and district_id not in built:  # where a podere can go (Project_Vision/08 2.8)
+            graph.fields[district_id] = (sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring))
     for node in graph.nodes.values():
         location = graph.building_districts.get(node.home_building_id)
         if location is not None:
@@ -1265,6 +1272,19 @@ def rough_spot(graph: SocialGraph, building: int) -> Optional[int]:
              if kind in ROUGH_SPOTS and b in graph.building_xy]
     return min(spots, key=lambda b: ((graph.building_xy[b][0] - x) ** 2 + (graph.building_xy[b][1] - y) ** 2, b),
                default=None)
+
+
+def take_field(graph: SocialGraph, building: int, near: Optional[int]) -> None:
+    """A new podere's plot (Project_Vision/08 2.8): the empty field nearest
+    `near` (the owner's home), which it then fills. ponytail: the sim's own
+    plot, not TownShape's -- its place_building would put a farmstead inside
+    the walls; ask once it can place one in a field. No field left: off the map."""
+    if not graph.fields:
+        return
+    x, y = graph.building_xy.get(near, (0.0, 0.0))
+    field = min(graph.fields, key=lambda d: ((graph.fields[d][0] - x) ** 2 + (graph.fields[d][1] - y) ** 2, d))
+    graph.building_xy[building] = graph.fields.pop(field)
+    graph.building_districts[building] = (field, "farmland_edge")
 
 
 def where_lives(graph: SocialGraph, resident_id: int) -> Optional[int]:

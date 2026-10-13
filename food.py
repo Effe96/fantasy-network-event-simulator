@@ -15,7 +15,7 @@ import random
 from collections import defaultdict
 from typing import Any, Dict, List
 
-from graph import nearest_first
+from graph import nearest_first, take_field, where_lives
 
 STAIA_PER_PERSON_MONTH = 0.9 * 365 / 18 / 12  # book §5: 0.9 kg a day, 18 kg a staio (~1.52)
 BAKER_MARGIN = 0.15  # C: the baker's share of the bread price
@@ -218,8 +218,7 @@ class FoodMarket:
         grain at import, the household with the most land outside takes some
         in hand as a podere, worked by a poor couple who leave day labour or
         idleness for it (mezzadria: Florentine citizens' land in the contado).
-        The podere exists only in the sim until TownShape can place it
-        (farmsteads, integration doc 3.3)."""
+        It takes the empty field nearest the owner's home (take_field)."""
         normal = self.yield_per_farm * farms + self.podere_yield * len(self.poderi)
         value = self._podere_value()
         while normal + self.podere_yield / 2 < self.local_share * demand:
@@ -232,6 +231,7 @@ class FoodMarket:
             else:  # on TownShape's map: ids below zero, theirs to come (no farmsteads yet)
                 building = min(min(graph.building_types, default=0), 0) - 1
             graph.building_types[building] = "podere"
+            take_field(graph, building, where_lives(graph, owner[1]))
             self.poderi[building] = {"owner": owner, "value": value}
             for node in workers:
                 node.occupation, node.workplace_building_id = "sharecropper", building

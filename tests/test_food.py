@@ -127,8 +127,13 @@ def test_a_growing_town_gets_a_podere_whose_harvest_is_split_and_whose_land_stop
         graph.nodes[resident_id].ses, graph.nodes[resident_id].occupation = "very_poor", "day_labourer"
     graph.land = {("p", 5): 10_000.0}
     food.yield_per_farm, food.podere_yield = 1.0, 20.0  # the farm grows far less than the town's share
+    graph.nodes[5].home_building_id, graph.building_xy[90] = 90, (60.0, 0.0)
+    graph.fields = {7: (50.0, 0.0), 8: (10.0, 0.0)}
     _harvest(graph, economy, members)
     (building, podere), = food.poderi.items()  # one couple to work it, so one podere
+    # on the empty field nearest the owner's home, which is then taken
+    assert graph.building_xy[building] == (50.0, 0.0) and graph.building_districts[building][0] == 7
+    assert graph.fields == {8: (10.0, 0.0)}
     assert podere["owner"] == ("p", 5) and graph.building_types[building] == "podere"
     assert all(graph.nodes[r].occupation == "sharecropper" and graph.nodes[r].workplace_building_id == building
                for r in (3, 4))

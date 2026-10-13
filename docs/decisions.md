@@ -8,6 +8,26 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — Farms on the map (Project_Vision/08 2.8)
+
+- **A new podere takes an empty field:** a farmland district with no
+  building (Riverport has 34 farmland districts, 12 with a farmstead, so 22
+  free; runs found 7-11 poderi in 25 years). The one nearest the owner's
+  home, at its middle (the mean of its outline's corners). No field left:
+  off the map, as before.
+- **The sim places it, not TownShape:** TownShape's `place_building` fills
+  gaps inside the walls first and leaves farmland out, so a farmstead would
+  land in town. Until it can place one in a given field, the podere has a
+  position only in the sim and isn't saved to the map (its id is below
+  zero, like any building TownShape didn't place).
+- **Sharecroppers still live in town;** whether they move onto the podere
+  (the casa colonica) is asked of the user.
+
+**25 years, seeds 1-3:** identical to 1530810, number for number. Nothing
+that drives behaviour reads a podere's plot yet: nobody lives there, few ties
+meet there, and placing it draws no randomness. A 6-year check (seed 1) put
+both poderi founded on their own fields (districts 21 and 36), 20 left.
+
 ## 2026-10-13 — Events happen somewhere (Project_Vision/08 2.6)
 
 User's choices (2026-10-13): witnesses change catching and grief; riots
