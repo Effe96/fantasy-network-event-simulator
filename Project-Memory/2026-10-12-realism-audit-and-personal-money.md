@@ -111,4 +111,12 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
   there, else the town's jobless, else an arrival. Correction to what I
   told the user: arrivals already took poderi up, so they weren't fallow
   for good. Poderi taken up 7-10 per run; no harvests lost.
+- **Committed (b3ee156).** TownShape built `town_events` (6746474) and
+  sent a note. The user: the sim's agent is the higher level; TownShape's
+  notes are recommendations (memory saved). **Step 8 (08 3.4),
+  uncommitted:** events kept in the graph, saved to `town_events`, outcome
+  in the detail, group killings placed, riots with their district. Found
+  and fixed: building and household 0 were saved as "not TownShape's"
+  (residents of building 0 saved homeless). Checked end to end in
+  TownShape's viewer queries.
 - **Next:** 08 3.4, a TownShape brief for events with a place.

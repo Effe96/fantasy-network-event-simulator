@@ -37,6 +37,9 @@ from graph import TieFilter, import_snapshot
 
 TOWNSHAPE = Path(os.environ.get("TOWNSHAPE", Path(__file__).resolve().parent.parent / "TownShape"))
 LEFT_ALIVE = ("moved away", "banished")  # recorded as deaths in the sim; departures in TownShape
+# events saved to TownShape's town_events (Project_Vision/08 3.4), by its kind there
+PLACED_EVENTS = {"violence": "killing", "hired_assassination": "hired_assassination",
+                 "group_violence": "group_killing", "theft": "theft", "riot": "riot"}
 
 
 # The sim's rules stand where TownShape's differ (user, 2026-10-11: TownShape
@@ -49,7 +52,7 @@ def _household(key):
 
 
 def _sim_household(household_id: int):
-    return household_id if household_id > 0 else ("alone", -household_id)
+    return household_id if household_id >= 0 else ("alone", -household_id)
 
 
 def _shift_years(day: Optional[str], years: int) -> Optional[str]:
@@ -60,7 +63,7 @@ def _shift_years(day: Optional[str], years: int) -> Optional[str]:
 
 
 def _placed(building: Optional[int]) -> Optional[int]:
-    return building if building is not None and building > 0 else None
+    return building if building is not None and building >= 0 else None  # TownShape counts from 0
 
 
 def _townshape() -> None:
@@ -90,6 +93,11 @@ class Town:
     def run(self, days: int):
         result = run_simulation(self.graph, self.phenomena, days, self.seed, resume=self.resume)
         self.resume = result.resume
+        # the whole history, kept in the graph (so in the snapshot) for each save
+        self.graph.__dict__.setdefault("town_events", []).extend(
+            (e.day, PLACED_EVENTS[e.kind], e.place, e.district,
+             *((None, None) if e.kind == "riot" else (e.resident_a, e.resident_b)), e.detail)
+            for e in result.events if e.kind in PLACED_EVENTS)
         return result
 
     def _place(self, building_type: str, capacity: int, district: Optional[int]) -> Optional[int]:
@@ -174,6 +182,12 @@ class Town:
                              [(d["resident_id"], on_day(d["day"]), d["cause"]) for d in graph.deaths
                               if d["cause"] in LEFT_ALIVE]
                              + [(rid, on_day(record["left"]), "soldiering") for rid, record in sorted(away.items())])
+            conn.execute("DELETE FROM town_events")
+            conn.executemany("INSERT INTO town_events (event_date, kind, building_id, district_id, actor_resident_id,"
+                             " target_resident_id, detail) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             [(on_day(day), kind, _placed(place), district, actor, target, detail)
+                              for day, kind, place, district, actor, target, detail
+                              in getattr(graph, "town_events", [])])
 
             conn.execute("DELETE FROM resident_traits")
             conn.executemany("INSERT INTO resident_traits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -217,7 +231,7 @@ class Town:
                                    else household_of.get(h["owner"][1], _household(household_key(graph.nodes[h["owner"][1]]))),
                                    {COMMUNE: "commune", CHURCH: "church"}.get(h["owner"], "household"),
                                    h["value"], h["room"], h.get("left"))
-                                  for b, h in sorted(graph.houses.items()) if _placed(b)])
+                                  for b, h in sorted(graph.houses.items()) if _placed(b) is not None])
 
             params = graph.params
             conn.execute('UPDATE town_state SET "current_date" = ?, aggression = ?, loyalty = ?, religiosity = ?,'

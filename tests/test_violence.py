@@ -858,7 +858,8 @@ def test_a_riot_starts_where_most_rioters_live():
     graph.building_districts.update({40: (5, "poor"), 41: (5, "poor"), 42: (6, "poor")})
     riot = RiotPhenomenon()
     riot.init_state(graph)
-    riot._begin_riot(graph, 1, [1, 2, 3], 0.5)
+    (event,) = riot._begin_riot(graph, 1, [1, 2, 3], 0.5)
+    assert event.district == 5  # saved to TownShape's town_events (08 3.4)
     assert riot._active_riot["district"] == 5 and riot._active_riot["centre"] == (1.0, 0.0)
 
 

@@ -22,6 +22,7 @@ class Event:
     resident_b: int
     detail: str
     place: Optional[int] = None  # the building it happened at, if known (Project_Vision/08 2.6)
+    district: Optional[int] = None  # where an event with no single building happened (a riot)
 
 
 class Phenomenon(Protocol):
@@ -959,8 +960,10 @@ class ViolencePhenomenon:
         seen = witnesses(graph, place, {victim, culprit, killer})
         events = [Event(day, self.name, kind, culprit, victim, f"escalated conflict, {len(seen)} saw it", place)]
         if killer is not None:
-            events.extend(self._pursue_killer(graph, state, killer, victim, day, rng,
-                                              patron=culprit if hired else None, seen=len(seen)))
+            caught = self._pursue_killer(graph, state, killer, victim, day, rng,
+                                         patron=culprit if hired else None, seen=len(seen))
+            events[0].detail += ", the killer was caught" if caught else ""
+            events.extend(caught)
 
         for neighbor_id in graph.neighbors(victim):
             if neighbor_id == culprit:
@@ -1326,8 +1329,12 @@ class ViolencePhenomenon:
         state[victim]["alive"] = False
         graph.record_death(victim, day, "violence", killed_by=ringleader)
         self._group_kills += 1
-        events = [Event(day, self.name, "group_violence", ringleader, victim, f"killed by a {len(band)}-strong band")]
-        events.extend(self._pursue_killer(graph, state, ringleader, victim, day, rng))
+        place = crime_place(graph, graph.get_edge(ringleader, victim), victim)
+        events = [Event(day, self.name, "group_violence", ringleader, victim,
+                        f"killed by a {len(band)}-strong band", place)]
+        caught = self._pursue_killer(graph, state, ringleader, victim, day, rng)
+        events[0].detail += ", the killer was caught" if caught else ""
+        events.extend(caught)
 
         for neighbor_id in graph.neighbors(victim):
             if neighbor_id in band:
@@ -1822,7 +1829,7 @@ class RiotPhenomenon:
             "riot_bar": max(1, round(self.riot_bar_per_participant * len(participants))),
         }
         return [Event(day, self.name, "riot", participants[0], participants[0],
-                      f"{len(participants)} rioters joined in district {district}")]
+                      f"{len(participants)} rioters joined in district {district}", district=district)]
 
     def _advance_riot(self, graph, day: int, rng: random.Random) -> List[Event]:
         riot = self._active_riot
@@ -2404,7 +2411,9 @@ class TheftPhenomenon:
         events = [Event(day, self.name, "theft", thief_id, victim_id, f"stole {taken:.2f} fl", place)]
 
         if rng.random() >= seen_chance(self.discovery_chance, len(seen)):  # more often seen, the more are there
+            events[0].detail += ", unnoticed"
             return events
+        events[0].detail += ", noticed"
         self._caught += 1
 
         edge = graph.get_edge(thief_id, victim_id)

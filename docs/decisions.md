@@ -8,6 +8,40 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — Events on TownShape's map (Project_Vision/08 3.4)
+
+TownShape built `town_events` (its 6746474) from our brief and sent
+recommendations (`TownShape/docs/for-social-sim-town-events-2026-10-13.md`).
+The sim decides what to take (user, 2026-10-13: the sim's agent is the
+higher level). Taken, with these choices:
+- **The history lives in the graph** (`graph.town_events`), so it's in the
+  pickled snapshot without a new field; `Town.run` adds each run's
+  killings, thefts and riots. TownShape suggested a list on `Town`; the
+  graph is already what's pickled.
+- **Saved like departures:** all rows deleted and written again each save.
+  Kinds as TownShape stores them: killing, hired_assassination,
+  group_killing, theft, riot (`PLACED_EVENTS`).
+- **The outcome goes in the event's own detail**, when it happens: a theft
+  "noticed" or "unnoticed", a killing "the killer was caught". Not pieced
+  together from later events at save time, as TownShape suggested.
+- **A group killing gets a place** (`crime_place`, as the other killings).
+  Its catching still ignores witnesses: not asked for in 2.6, raised with
+  the user.
+- **A riot's event carries its district** (`Event.district`), with no
+  actor or target (its first rioter is only bookkeeping).
+
+**Bug found doing it:** TownShape numbers a new town's buildings and
+households from 0, and the save took 0 as "not TownShape's" (the sim's own
+are below 0). So everyone living in building 0 was saved homeless, its
+house had no tenure row, and household 0's rent arrears were saved as
+none. Riverport, numbered from 100000, wasn't affected. Fixed: 0 is
+TownShape's.
+
+**Checked:** an 800-person town, 2 years, saved and reloaded in between: 93
+events in TownShape's table, none breaking a foreign key; TownShape's
+viewer queries list them on the map and in a building's panel, with names.
+Nothing that drives the run reads these, so Riverport's runs are unchanged.
+
 ## 2026-10-13 — Farms on the map (Project_Vision/08 2.8)
 
 - **A new podere takes an empty field:** a farmland district with no

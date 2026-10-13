@@ -31,8 +31,10 @@ def test_a_saved_town_carries_on_as_if_it_never_stopped():
         stopped = create_town(PARAMETERS, f"{folder}/b.db")
         first = stopped.run(35)  # across a month's end: the economy's monthly round runs after the load
         stopped.save()
-        second = load_town(f"{folder}/b.db").run(35)
+        again = load_town(f"{folder}/b.db")
+        second = again.run(35)
         assert _record(whole) == tuple(a + b for a, b in zip(_record(first), _record(second)))
+        assert again.graph.town_events == straight.graph.town_events  # the history comes back with the town
 
 
 def test_the_saved_town_is_the_sim_s_and_its_tables_follow_the_sim():
@@ -65,11 +67,20 @@ def test_the_saved_town_is_the_sim_s_and_its_tables_follow_the_sim():
         assert conn.execute("SELECT household_id FROM residents WHERE id = ?", (lone,)).fetchone()[0] == -lone
         assert conn.execute("SELECT COUNT(*) FROM relationships").fetchone()[0] >= len(graph.edges)
         assert conn.execute('SELECT "current_date" FROM town_state').fetchone()[0] == "1301-02-10"
+        # the sim's placed events, all of them, in TownShape's town_events (08 3.4)
+        assert conn.execute("SELECT COUNT(*) FROM town_events").fetchone()[0] == len(graph.town_events)
         conn.close()
         gc.collect()  # TownShape's refusal leaves its connection open until collected (Windows locks the file)
 
 
+def test_townshape_s_building_and_household_0_are_real():
+    # a new town's ids start at 0; only the sim's own are below it
+    assert town._placed(0) == 0 and town._placed(-1) is None
+    assert town._sim_household(0) == 0 and town._sim_household(-7) == ("alone", 7)
+
+
 def _run_all():
+    test_townshape_s_building_and_household_0_are_real()
     test_a_saved_town_carries_on_as_if_it_never_stopped()
     test_the_saved_town_is_the_sim_s_and_its_tables_follow_the_sim()
     print("OK")
