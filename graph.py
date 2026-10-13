@@ -1195,8 +1195,14 @@ def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
             living[building].append(resident_id)
         streets: Dict[int, Optional[set]] = {}
         nearest: Dict[int, List[int]] = {}  # lived-in building -> its nearest, worked out once per call
+        staff_at = defaultdict(list)
+        for n in graph.nodes.values():
+            if n.alive and n.workplace_building_id is not None:
+                staff_at[n.workplace_building_id].append(n.resident_id)
         for resident_id in sorted(moved):
             building = now[resident_id]
+            if building in graph.building_xy:
+                move_shops(graph, resident_id, building, staff_at, rng)
             if building not in streets:
                 stayers = [r for r in living[building] if r not in moved]
                 street = None
@@ -1249,6 +1255,58 @@ def rough_spot(graph: SocialGraph, building: int) -> Optional[int]:
              if kind in ROUGH_SPOTS and b in graph.building_xy]
     return min(spots, key=lambda b: ((graph.building_xy[b][0] - x) ** 2 + (graph.building_xy[b][1] - y) ** 2, b),
                default=None)
+
+
+def where_lives(graph: SocialGraph, resident_id: int) -> Optional[int]:
+    """Their home, or the spot they sleep rough at."""
+    home = graph.nodes[resident_id].home_building_id
+    return home if home is not None else getattr(graph, "sleeps_rough", {}).get(resident_id)
+
+
+def nearest_first(graph: SocialGraph, building: Optional[int], places: List[Any], where=lambda p: p) -> List[Any]:
+    """`places` from the nearest to `building` on the map (Project_Vision/08
+    2.4), ties by order; any off the map, or all when `building` is, keep
+    their order after them. `where(place)` gives a place's building."""
+    xy = graph.building_xy
+    if building not in xy:
+        return list(places)
+    x, y = xy[building]
+    far = float("inf")
+    return sorted(places, key=lambda p: ((xy[where(p)][0] - x) ** 2 + (xy[where(p)][1] - y) ** 2)
+                  if where(p) in xy else far)
+
+
+SHOP_KINDS = ("shop", "tavern", "blacksmith")  # TownShape's shop_relationships buildings
+
+
+def move_shops(graph: SocialGraph, resident_id: int, building: int, staff_at: Dict[int, List[int]],
+               rng: random.Random) -> None:
+    """A mover keeps buying the same kinds of things, at the nearest place of
+    each kind to their new home (08 2.4, user 2026-10-12): ties to its staff,
+    as much contact as their closest old one; the old places' ties become
+    acquaintances that drift apart like old neighbours' (08 2.1, user
+    2026-10-13). `staff_at`: workplace -> who works there."""
+    kinds = getattr(graph, "building_types", {})
+    fading = graph.__dict__.setdefault("fading_friends", set())
+    old = defaultdict(list)  # kind -> (staff, tie)
+    for other, edge in graph.ties_of(resident_id).items():
+        if _was(edge, "shopkeeper_customer") and edge.resident_a == resident_id:
+            kind = kinds.get(graph.nodes[other].workplace_building_id)
+            if kind in SHOP_KINDS:
+                old[kind].append((other, edge))
+    for kind, ties in old.items():
+        places = [b for b in staff_at if kinds.get(b) == kind and staff_at[b] != [resident_id]]
+        if not places:
+            continue
+        place = nearest_first(graph, building, sorted(places))[0]
+        for other, edge in ties:
+            if graph.nodes[other].workplace_building_id != place:
+                _drop_to_acquaintance(edge)
+                fading.add(graph._key(resident_id, other))
+        best = max(ties, key=lambda t: t[1].time)[1]
+        for staff in staff_at[place]:
+            if staff != resident_id and graph.get_edge(resident_id, staff) is None:
+                graph.add_edge(shop_edge(graph, resident_id, staff, best.time, best.services, False, rng))
 
 
 def neighbouring_buildings(graph: SocialGraph, building: int, living: Dict[int, List[int]],

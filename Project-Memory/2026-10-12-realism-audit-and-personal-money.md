@@ -74,4 +74,9 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
   quarantine border pause. Fixed disease reading the districts people
   started in, which raised first-year plague deaths (about 196 to 231 on
   average over 4 seeds). Reasons and numbers in docs/decisions.md.
-- **Next:** 08 2.4, shops by distance.
+- **Step 3 committed (b1b21d9).**
+- **Step 4 (08 2.4), uncommitted:** bread and workshop goods from the
+  nearest seller; a mover's shops, taverns and smithy re-picked by
+  distance, the old ones' ties drifting apart at 0.7. 25 years held;
+  evictions in seed 2 (1,001) to watch.
+- **Next:** 08 2.5, quarantine closes part of the town.

@@ -15,6 +15,8 @@ import random
 from collections import defaultdict
 from typing import Any, Dict, List
 
+from graph import nearest_first
+
 STAIA_PER_PERSON_MONTH = 0.9 * 365 / 18 / 12  # book §5: 0.9 kg a day, 18 kg a staio (~1.52)
 BAKER_MARGIN = 0.15  # C: the baker's share of the bread price
 NORMAL_COVER_MONTHS = 4.0  # C: stocks covering this many months of demand sell at the normal price
@@ -378,7 +380,8 @@ class FoodMarket:
             self._last_baker = None
             return 0.0
         before = econ.cash(graph, key)
-        baker = bakers[rng.randrange(len(bakers))]
+        # the nearest baker (Project_Vision/08 2.4)
+        baker = nearest_first(graph, econ.lives_at(graph, key), bakers, lambda n: n.workplace_building_id)[0]
         econ._buy(graph, key, amount, [baker], rng, income)
         self._last_baker = person_of(baker)
         return before - econ.cash(graph, key)

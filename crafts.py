@@ -18,6 +18,8 @@ import random
 from collections import defaultdict
 from typing import Any, Dict, List
 
+from graph import nearest_first
+
 # trade -> (good, input, the input's share of the good's value, where the input comes from)
 CRAFTS = {
     "weaver": ("cloth", "wool", 0.3, "import"),  # 0.3: economy.RAW_WOOL_SHARE
@@ -261,7 +263,7 @@ class CraftMarket:
             self._makers_of = (shops, len(shops), makers_of)
         makers = [b for b in self._makers_of[2][good] if self.stock[b] > 1e-9
                   and household_key(shops[b]["master"]) != home]
-        rng.shuffle(makers)
+        makers = nearest_first(graph, econ.lives_at(graph, buyer), makers)  # the nearest first (Project_Vision/08 2.4)
         got = 0.0
         for building in makers:
             if got >= value - 1e-9:

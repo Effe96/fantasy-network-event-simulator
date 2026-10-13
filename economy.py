@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from crafts import BASKET_SHARES as CRAFT_SHARES, CRAFTS, CraftMarket
 from food import FoodMarket
-from graph import FAMILY, sync_classmates, sync_coworkers, sync_neighbours
+from graph import FAMILY, sync_classmates, sync_coworkers, sync_neighbours, where_lives
 from merchants import MerchantTrade
 
 FLORIN_IN_SOLDI = 64  # book §1, 1349
@@ -942,6 +942,11 @@ class EconomyPhenomenon:
         if key in self._members:
             return self._members[key]
         return [n for n in graph.nodes.values() if n.alive and household_key(n) == key]
+
+    def lives_at(self, graph, key) -> Optional[int]:
+        """Where a key buys from (Project_Vision/08 2.4): a person's home, a household's."""
+        people = [graph.nodes[key[1]]] if is_person(key) else self._people(graph, key)
+        return where_lives(graph, people[0].resident_id) if people else None
 
     def household_of(self, graph, key):
         """The household a key spends for: a person's, or the household itself."""

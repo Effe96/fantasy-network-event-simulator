@@ -8,6 +8,37 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — Shops by distance (Project_Vision/08 2.4)
+
+- **Bread from the nearest baker** (`food._pay_baker`), and **workshop
+  goods from the nearest workshop with stock**, then the next
+  (`CraftMarket._from_workshops`), instead of one at random. Bakers have
+  no stock limit, so a household's bread all goes to its nearest one.
+  Where a household lives: `EconomyPhenomenon.lives_at`, a home or the
+  spot it sleeps rough at (`where_lives`); off the map, the old order.
+  A new workshop gets the customers it's nearest to without anything else.
+- **Shops and taverns stay tie-based**: TownShape's ties are kept at the
+  start. A mover (`move_shops`, from `sync_neighbours`) keeps buying the
+  same kinds of things at the nearest shop, tavern or smithy, with ties to
+  its staff as close as their closest old one. The old places' ties become
+  acquaintances that drift apart like old neighbours (0.7 a year, the
+  user's choice for neighbours): at the acquaintance rate, 0.4, there were
+  13,400 and 16,100 acquaintances at year 25 against 10,100 and 11,200.
+- **Rejected for now:** picking every household's shops by distance at the
+  start. TownShape's ties already come from distance and habit, and the
+  sim's rules apply from the first move.
+
+**5 quiet years, seeds 1 and 2:** sellers no poorer. Bakers' median
+wealth 12 and 39 fl against 8 and 11, with one baker under 5 fl in seed 1.
+Craft masters at nearly nothing (weavers, tanners, dyers) were so before.
+
+**25 years against b1b21d9 (s1, s2):** wealth 93,880 and 95,675 against
+91,230 and 96,324. Gini 0.748 and 0.756 against 0.757 and 0.761. Very
+poor 17.3% and 18.0% against 17.6% and 14.7%. Acquaintances 9,211 and
+12,885, friendships 3,506 and 4,469. Killings 106 and 103 against 97 and
+110. Evictions 859 and 1,001 against 727 and 835. 1,001 is above the
+743-861 these seeds gave across today's variants: watch it.
+
 ## 2026-10-13 — Every tie has a place; ties pause across a quarantine (Project_Vision/08 2.1)
 
 - **A tie's place** (`tie_place`): the workplace for coworkers and guards,

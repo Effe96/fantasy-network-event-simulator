@@ -203,7 +203,25 @@ def test_middling_children_go_to_school_together_and_leave_at_15():
     assert graph.get_edge(40, 41).source_type == "acquaintance"
 
 
+def test_a_mover_buys_at_the_nearest_shop_of_each_kind():
+    # Project_Vision/08 2.4 (user, 2026-10-12)
+    graph = _street()  # 1 buys at shop 50 (staff 4)
+    graph.add_node(Node(resident_id=8, ses="poor", gender="male", age=40, workplace_building_id=51))
+    graph.building_types = {50: "shop", 51: "shop", 30: "residence", 31: "residence"}
+    graph.building_xy.update({50: (0, 0), 51: (10, 0), 30: (9, 0), 31: (1, 0)})
+    graph.nodes[1].home_building_id, graph.nodes[2].home_building_id = 31, 31
+    rng = random.Random(0)
+    sync_neighbours(graph, rng)
+    graph.nodes[1].home_building_id = 30  # next to shop 51
+    sync_neighbours(graph, rng)
+    assert graph.get_edge(1, 8).source_type == "shopkeeper_customer" and graph.get_edge(1, 8).time == 0.6
+    assert graph.get_edge(1, 4).source_type == "acquaintance" and (1, 4) in graph.fading_friends  # the old shop
+    assert graph.get_edge(5, 1).source_type == "shopkeeper_customer"  # her own stall's customer stays
+    assert graph_module.nearest_first(graph, 30, [50, 51, 99]) == [51, 50, 99]  # off the map last
+
+
 def _run_all():
+    test_a_mover_buys_at_the_nearest_shop_of_each_kind()
     test_a_newborn_has_the_mother_s_neighbours()
     test_coming_of_age_brings_the_household_s_shops_not_the_parent_s_customers()
     test_the_ties_of_the_dead_move_to_the_archive_after_a_day()
