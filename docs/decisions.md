@@ -20,13 +20,29 @@
   land in town. Until it can place one in a given field, the podere has a
   position only in the sim and isn't saved to the map (its id is below
   zero, like any building TownShape didn't place).
-- **Sharecroppers still live in town;** whether they move onto the podere
-  (the casa colonica) is asked of the user.
+- **The sharecroppers' household lives on the podere** (the casa colonica;
+  user, 2026-10-13). Rent, eviction and moving into new houses only look
+  at town houses, so it pays no rent and isn't moved back.
+- **A dead sharecropper's place** (user, 2026-10-13) goes to the eldest of
+  those living on the podere who can take it (18-50, no steady work: the
+  same test as founding), else to one without steady work in town (very
+  poor first), whose household moves onto it, else to an arrival from
+  outside, as before. Until now only arrivals took it up, after about two
+  months. A family member with steady work elsewhere doesn't leave it, and
+  a family whose podere goes to someone from town stays on.
 
 **25 years, seeds 1-3:** identical to 1530810, number for number. Nothing
 that drives behaviour reads a podere's plot yet: nobody lives there, few ties
 meet there, and placing it draws no randomness. A 6-year check (seed 1) put
 both poderi founded on their own fields (districts 21 and 36), 20 left.
+
+**With families on the podere and taking it up, against c8820e1:** poderi
+taken up by family or the town's jobless 10, 7 and 9; harvests lost
+to an empty podere 6, 0 and 1 before, none now; grain from poderi 3-19%
+higher. Population, wealth, Gini, classes, homeless and killings within
+the usual spread. Seed 1's commune held 2,302 fl of land at year 25 (an
+heirless estate in year 13), against a maximum of 920 in this session's
+earlier runs: watch.
 
 ## 2026-10-13 — Events happen somewhere (Project_Vision/08 2.6)
 

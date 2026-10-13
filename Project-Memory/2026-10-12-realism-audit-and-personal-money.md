@@ -105,6 +105,10 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
 - **Step 9 (08 2.8), uncommitted:** a new podere takes the empty field
   nearest its owner's home (Riverport: 22 free). The sim places it;
   TownShape's `place_building` would put a farmstead inside the walls.
-  25-year runs identical to before. Asked: should sharecroppers live on
-  the podere?
+  25-year runs identical to before. Committed (c8820e1).
+- **Then, uncommitted:** the user chose that sharecroppers' households live
+  on the podere, and that a dead sharecropper's place goes to the family
+  there, else the town's jobless, else an arrival. Correction to what I
+  told the user: arrivals already took poderi up, so they weren't fallow
+  for good. Poderi taken up 7-10 per run; no harvests lost.
 - **Next:** 08 3.4, a TownShape brief for events with a place.

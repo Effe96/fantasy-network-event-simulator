@@ -218,7 +218,8 @@ class FoodMarket:
         grain at import, the household with the most land outside takes some
         in hand as a podere, worked by a poor couple who leave day labour or
         idleness for it (mezzadria: Florentine citizens' land in the contado).
-        It takes the empty field nearest the owner's home (take_field)."""
+        It takes the empty field nearest the owner's home (take_field), and
+        the sharecroppers' household moves onto it."""
         normal = self.yield_per_farm * farms + self.podere_yield * len(self.poderi)
         value = self._podere_value()
         while normal + self.podere_yield / 2 < self.local_share * demand:
@@ -233,6 +234,10 @@ class FoodMarket:
             graph.building_types[building] = "podere"
             take_field(graph, building, where_lives(graph, owner[1]))
             self.poderi[building] = {"owner": owner, "value": value}
+            # their household lives on it, in the casa colonica (user, 2026-10-13):
+            # rent and moving only see town houses, so it stays and pays none
+            for node in next(people for people in members.values() if workers[0] in people):
+                node.home_building_id = building
             for node in workers:
                 node.occupation, node.workplace_building_id = "sharecropper", building
                 graph.employer.pop(node.resident_id, None)
@@ -243,9 +248,7 @@ class FoodMarket:
     def _sharecroppers(self, graph, members, owner, rng: random.Random) -> List[Any]:
         """A couple (or one adult) of a very poor household, else a poor one,
         with neither in steady work."""
-        def able(n):
-            return (n.alive and not n.is_noble and n.occupation in SHARECROPPER_FROM and n.age is not None
-                    and SHARECROPPER_AGES[0] <= n.age <= SHARECROPPER_AGES[1])
+        able = can_sharecrop
         for ses in ("very_poor", "poor"):
             home = household_key_of(graph, owner)
             households = sorted((k for k, people in members.items()
@@ -421,6 +424,41 @@ def person_of(node):
     """A farmer's or baker's own purse (personal money, Project_Vision/09)."""
     from economy import person_key
     return person_key(node.resident_id)
+
+
+def can_sharecrop(n) -> bool:
+    return (n.alive and not n.is_noble and n.occupation in SHARECROPPER_FROM and n.age is not None
+            and SHARECROPPER_AGES[0] <= n.age <= SHARECROPPER_AGES[1])
+
+
+def sharecropper_for(graph, dead, rng: random.Random):
+    """Who takes up a dead sharecropper's place on the podere (user,
+    2026-10-13): the eldest who can of those living on it, else one without
+    steady work in town (very poor first), whose household moves onto it.
+    None leaves it to an arrival from outside (PopulationPhenomenon)."""
+    from economy import household_key
+    podere = dead.workplace_building_id
+    living = [n for n in graph.nodes.values() if n.alive]
+    taker = min((n for n in living if n.home_building_id == podere and can_sharecrop(n)),
+                key=lambda n: (-n.age, n.resident_id), default=None)
+    if taker is None:
+        households = defaultdict(list)
+        for n in living:
+            households[household_key(n)].append(n)
+        for ses in ("very_poor", "poor"):
+            keys = sorted((k for k, people in households.items()
+                           if graph.building_types.get(people[0].home_building_id) != "podere"
+                           and any(can_sharecrop(n) and n.ses == ses for n in people)), key=str)
+            if keys:
+                people = households[rng.choice(keys)]
+                taker = min((n for n in people if can_sharecrop(n)), key=lambda n: (-n.age, n.resident_id))
+                for node in people:
+                    node.home_building_id = podere
+                break
+    if taker is not None:
+        taker.occupation, taker.workplace_building_id = "sharecropper", podere
+        getattr(graph, "employer", {}).pop(taker.resident_id, None)
+    return taker
 
 
 def household_key_of(graph, key):

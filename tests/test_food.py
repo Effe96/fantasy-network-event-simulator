@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from economy import COMMUNE, EconomyPhenomenon
-from food import BAKER_MARGIN, HARVEST_DAY, HOARD_RESENTMENT
+from food import BAKER_MARGIN, HARVEST_DAY, HOARD_RESENTMENT, sharecropper_for
 from graph import Edge, Node, SocialGraph
 
 
@@ -134,6 +134,8 @@ def test_a_growing_town_gets_a_podere_whose_harvest_is_split_and_whose_land_stop
     # on the empty field nearest the owner's home, which is then taken
     assert graph.building_xy[building] == (50.0, 0.0) and graph.building_districts[building][0] == 7
     assert graph.fields == {8: (10.0, 0.0)}
+    family = [n for n in graph.nodes.values() if n.household_id == graph.nodes[3].household_id]
+    assert family and all(n.home_building_id == building for n in family)  # they live on it
     assert podere["owner"] == ("p", 5) and graph.building_types[building] == "podere"
     assert all(graph.nodes[r].occupation == "sharecropper" and graph.nodes[r].workplace_building_id == building
                for r in (3, 4))
@@ -143,6 +145,29 @@ def test_a_growing_town_gets_a_podere_whose_harvest_is_split_and_whose_land_stop
     assert food.farm_stock[("p", 3)] == food.farm_stock[("p", 5)] == 10.0  # mezzadria: half each
     # the owner's half of a normal harvest, at the normal price, replaces the rent on that land
     assert abs(10.0 * food.staio_fl / (1 + BAKER_MARGIN) - podere["value"] * 0.07) < 1e-9
+
+
+def test_a_dead_sharecropper_s_podere_goes_to_the_family_then_the_town_s_jobless():
+    graph, economy, members = _town()
+    food = economy.food
+    food.famine_chance = 0.0
+    for resident_id in (3, 4):
+        graph.nodes[resident_id].ses, graph.nodes[resident_id].occupation = "very_poor", "day_labourer"
+    graph.land = {("p", 5): 10_000.0}
+    food.yield_per_farm, food.podere_yield = 1.0, 20.0
+    _harvest(graph, economy, members)
+    (building, _), = food.poderi.items()
+    nodes = graph.nodes
+    nodes[4].occupation = None  # she left the farm work, still living there
+    nodes[3].alive = False
+    assert sharecropper_for(graph, nodes[3], random.Random(0)) is nodes[4]  # the family first
+    assert nodes[4].occupation == "sharecropper" and nodes[4].workplace_building_id == building
+    nodes[4].alive = False
+    nodes[2].ses, nodes[2].occupation = "very_poor", None
+    assert sharecropper_for(graph, nodes[4], random.Random(0)) is nodes[2]  # then one without work in town
+    assert nodes[2].home_building_id == building  # who moves onto it
+    nodes[2].alive = False
+    assert sharecropper_for(graph, nodes[2], random.Random(0)) is None  # an arrival from outside, then
 
 
 def _run_all():

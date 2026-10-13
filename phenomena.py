@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 from demography import old_age_death_chance
 from economy import (BASKET_PER_PERSON, BUILDING_GAP, MERCHANT_KEEPS_JOB, MONEY_AGE, PRECARIOUS, form_household, has_purse,
                      household_key, job_kind, mark_new_household, new_household_id, person_key, steal, transfer)
+from food import sharecropper_for
 from graph import (CLOSE_FAMILY, FAMILY, FISKE_TAGS, can_meet, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
                    edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, tie_place,
                    unfriend, where_lives)
@@ -3046,6 +3047,7 @@ class PopulationPhenomenon:
         self._inheritances = 0
         self._shop_ties = 0
         self._veterans_posted = 0
+        self._poderi_taken_up = 0
 
     def init_state(self, graph) -> Dict[int, Any]:
         self._start_size = sum(1 for node in graph.nodes.values() if node.alive)
@@ -3102,6 +3104,14 @@ class PopulationPhenomenon:
             # every customer's tie (2026-09-29: shop ties per adult fell 52 -> 35
             # in 10 years). The jobless are replaced only below the target.
             old = graph.nodes[dead]
+            if old.occupation == "sharecropper" and old.workplace_building_id is not None:
+                taker = sharecropper_for(graph, old, rng)
+                if taker is not None:
+                    self._vacancies.remove(dead)
+                    self._poderi_taken_up += 1
+                    events.append(Event(day, self.name, "took_up_podere", taker.resident_id, dead,
+                                        "took up the podere of"))
+                    continue
             if old.role == "guard":
                 veteran = self._veteran_for_post(graph, rng)
                 if veteran is not None:
@@ -3353,6 +3363,7 @@ class PopulationPhenomenon:
         return {"arrivals": self._arrivals, "arrived_as_families": self._families, "arrived_to_lodge": self._lodgers,
                 "came_for_work": self._came_for_work, "moved_away": self._moved_out,
                 "inheritances": self._inheritances, "veterans_made_guards": self._veterans_posted,
+                "poderi_taken_up": self._poderi_taken_up,
                 "open_vacancies": len(self._vacancies), "shop_ties_on_coming_of_age": self._shop_ties}
 
 
