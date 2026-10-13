@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from crafts import BASKET_SHARES as CRAFT_SHARES, CRAFTS, CraftMarket
 from food import FoodMarket
-from graph import FAMILY, sync_classmates, sync_coworkers, sync_neighbours, where_lives
+from graph import FAMILY, sealed_side, sync_classmates, sync_coworkers, sync_neighbours, where_lives
 from merchants import MerchantTrade
 
 FLORIN_IN_SOLDI = 64  # book §1, 1349
@@ -948,6 +948,12 @@ class EconomyPhenomenon:
         people = [graph.nodes[key[1]]] if is_person(key) else self._people(graph, key)
         return where_lives(graph, people[0].resident_id) if people else None
 
+    def can_reach(self, graph, key, building) -> bool:
+        """False when a quarantine border runs between where a key lives and
+        `building` (Project_Vision/08 2.5): no work, no buying across it."""
+        return (not graph.quarantined_districts
+                or sealed_side(graph, self.lives_at(graph, key)) == sealed_side(graph, building))
+
     def household_of(self, graph, key):
         """The household a key spends for: a person's, or the household itself."""
         return household_key(graph.nodes[key[1]]) if is_person(key) else key
@@ -1024,7 +1030,7 @@ class EconomyPhenomenon:
         return sum(min(amount * share, sum(max(0.0, money.get(person_key(n.resident_id), 0.0)) for n in family))
                    for share, family in self._family_shares(graph, key))
 
-    def _give_household(self, graph, giver, key, amount: float, need: float) -> float:
+    def _give_household(self, graph, giver, key, amount: float, need: float, kind: Optional[str] = None) -> float:
         """Help for a hungry household goes to the families short of their share, through their heads."""
         given = 0.0
         for share, family in self._family_shares(graph, key):
@@ -1032,7 +1038,7 @@ class EconomyPhenomenon:
             short = max(0.0, need * share - held)
             if short > 0 and given < amount:
                 given += self._pay(graph, giver, person_key(head_of(graph, family).resident_id),
-                                   min(short, amount - given))
+                                   min(short, amount - given), kind)
         return given
 
     @staticmethod
@@ -1142,13 +1148,22 @@ class EconomyPhenomenon:
         for node in alive:
             members[household_key(node)].append(node)
         self._members, self._groups, self._paid_month = members, {}, defaultdict(float)
+        # a quarantine (08 2.5): who can't get to work across its border earns nothing, makes nothing
+        stuck = set()
+        if graph.quarantined_districts:
+            for node in alive:
+                boss = graph.nodes.get(getattr(graph, "employer", {}).get(node.resident_id))
+                place = node.workplace_building_id if node.workplace_building_id is not None else (
+                    where_lives(graph, boss.resident_id) if boss is not None else None)
+                if place is not None and not self.can_reach(graph, person_key(node.resident_id), place):
+                    stuck.add(node.resident_id)
         self.trade.start_month(self, graph, alive, self.food, rng, income)  # cargoes land, heirs, ruin
         by_occupation = defaultdict(list)
         for node in alive:
             by_occupation[job_kind(node.occupation)].append(node)
         sellers = [n for n in alive if job_kind(n.occupation) in LOCAL_SELLERS]
         shop_sellers = [n for n in alive if job_kind(n.occupation) in SHOP_SELLERS]
-        self.crafts.start_month(alive)
+        self.crafts.start_month([n for n in alive if n.resident_id not in stuck])
         merchants = [n for n in by_occupation["merchant"]]
         farmers = by_occupation["farmer"]
 
@@ -1178,7 +1193,7 @@ class EconomyPhenomenon:
         for node in alive:
             kind = job_kind(node.occupation)
             wage, payer = PAY.get(kind, (UNSKILLED_WAGE, "master") if kind == "craft_hand" else (0.0, None))
-            if payer in (None, "public", "day labour"):
+            if payer in (None, "public", "day labour") or node.resident_id in stuck:
                 continue
             employer = self._employer(graph, node, payer, rng)
             if employer is None:
@@ -1235,6 +1250,11 @@ class EconomyPhenomenon:
                 given = self._give_household(graph, CHURCH, key, min(short, church_budget), need)
                 church_budget -= given
                 self._year["church: gave to the hungry"] += given
+            sealed = graph.quarantined_districts and sealed_side(graph, self.lives_at(graph, key)) is not None
+            short = need - self._affordable(graph, key, need)
+            if sealed and short > 0:  # the commune feeds a sealed district (08 3.2, user): its fund, then forced loans
+                self._commune_borrow(graph, short - graph.money.get(COMMUNE, 0.0), alive)
+                self._year["commune: fed the sealed"] += self._give_household(graph, COMMUNE, key, short, need, "sealed food")
             spend = self._affordable(graph, key, need)
             if spend < need * 0.999:  # hungry: the families that couldn't pay their share (a lodger, not their hosts)
                 self._hungry += 1
@@ -1244,7 +1264,8 @@ class EconomyPhenomenon:
                         for node in family:
                             graph.hunger[node.resident_id] = 1.0 - held / (need * share)
             before = self.cash(graph, key)  # bread first, then the rest
-            self.food.feed(self, graph, key, people, min(spend, grain_cost[key]), bakers, farmers, merchants,
+            near = [b for b in bakers if self.can_reach(graph, key, b.workplace_building_id)] if sealed else bakers
+            self.food.feed(self, graph, key, people, min(spend, grain_cost[key]), near, farmers, merchants,
                            rng, income)
             rest = spend - (before - self.cash(graph, key))
             crafts_due = sum(v for _, _, v in worn[key])
@@ -2048,12 +2069,20 @@ class EconomyPhenomenon:
         """Bought in town from any seller, as before; when that is a shop or
         tavern (one somebody is tied to), from the ones this household knows
         (`shops`, see _tied_shops). The seller's takings count as their income."""
+        if graph.quarantined_districts:  # only on this side of a border (08 2.5)
+            side = sealed_side(graph, self.lives_at(graph, key))
+            sellers = [n for n in sellers if sealed_side(graph, n.workplace_building_id) == side]
         if amount <= 0 or not sellers:
             return
         seller = person_key(sellers[rng.randrange(len(sellers))].resident_id)
         home = self.household_of(graph, key)
         if shops and seller in shops[1] and home in shops[0]:
-            seller = rng.choices(*shops[0][home])[0]
+            tied = shops[0][home]
+            if graph.quarantined_districts:
+                reach = {person_key(n.resident_id) for n in sellers}
+                tied = ([k for k in tied[0] if k in reach], [w for k, w in zip(*tied) if k in reach])
+            if any(tied[1]):
+                seller = rng.choices(*tied)[0]
         tax = self._pay(graph, key, COMMUNE, amount * GABELLE)
         self._year["commune: gabelle"] += tax
         income[seller] += self._pay(graph, key, seller, amount - tax)

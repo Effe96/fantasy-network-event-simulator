@@ -8,6 +8,36 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — Quarantine closes part of the town (Project_Vision/08 2.5, 3.2)
+
+While a district is sealed (`sealed_side`, `EconomyPhenomenon.can_reach`):
+- **Work:** someone whose workplace (or, without one, their employer's
+  home) is on the other side of the border isn't paid, and a workshop
+  counts only the staff who can get there. Public wages (guards, priests)
+  are still paid: they man the cordon.
+- **Buying:** bread, workshop goods and shops only from sellers on the
+  buyer's side; a household with no baker inside bakes at home.
+- **Merchants:** cargoes for a merchant living inside wait at sea until
+  the quarantine lifts; merchants sell only to their own side.
+- **Food crosses the cordon, nothing else:** grain from the farmers and
+  the grain merchants still reaches a sealed district, as the commune
+  brought food to the cordon. **The commune pays** what a sealed
+  household is short of for food, after the Church's alms, from its fund
+  and then forced loans (3.2, user), logged as "sealed food".
+- **Meeting people** through someone across the border stops too.
+- **Not done:** day labour and rent still cross the border (rent is paid,
+  not delivered); disease keeps its own leak.
+
+Nothing changes while nothing is sealed, so quiet runs are the same.
+
+**3 years with a plague at day 180, 4 seeds, against 55bc5e8:** plague
+deaths 899 in all against 882. The first year is lighter (166, 198, 181,
+176 against 192, 264, 181, 229), but two seeds had a second wave the next
+year (79 and 82). Disease isn't paused by the border, so the first-year
+difference is mostly chance. The commune borrowed 17-136 fl in forced
+loans to feed sealed districts, where before it borrowed none. Hunger
+was about the same.
+
 ## 2026-10-13 — Shops by distance (Project_Vision/08 2.4)
 
 - **Bread from the nearest baker** (`food._pay_baker`), and **workshop

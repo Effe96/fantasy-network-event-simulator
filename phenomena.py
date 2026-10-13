@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 from demography import old_age_death_chance
 from economy import (BASKET_PER_PERSON, MERCHANT_KEEPS_JOB, MONEY_AGE, PRECARIOUS, form_household, has_purse,
                      household_key, job_kind, mark_new_household, new_household_id, person_key, steal, transfer)
-from graph import (CLOSE_FAMILY, FAMILY, FISKE_TAGS, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
+from graph import (CLOSE_FAMILY, FAMILY, FISKE_TAGS, can_meet, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
                    edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, unfriend)
 
 
@@ -3633,7 +3633,9 @@ class FriendshipPhenomenon:
                 if not others:
                     break
                 via = others[rng.randrange(len(others))]
-                if graph.nodes[via].alive and rng.random() < graph.get_edge(actor, via).time:
+                if (graph.nodes[via].alive and (not graph.quarantined_districts  # not across a border (08 2.5)
+                                                or can_meet(graph, graph.get_edge(actor, via)))
+                        and rng.random() < graph.get_edge(actor, via).time):
                     theirs = graph.neighbors(via)
                     stranger = theirs[rng.randrange(len(theirs))]
                     if (stranger != actor and self._can_meet(graph.nodes[stranger])

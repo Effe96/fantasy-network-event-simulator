@@ -21,6 +21,8 @@ import random
 from collections import defaultdict
 from typing import Any, Dict, List
 
+from graph import sealed_side, where_lives
+
 LEAD_MONTHS = {"grain": 1, "cloth": 2, "wares": 2, "luxuries": 3}  # C: months a cargo takes to land
 COVER_MONTHS = 2.0  # C: a merchant keeps about this many months of sales in the warehouse
 EXPORT_MONTHS = 2  # C: months until a cargo of exports is sold outside and paid
@@ -90,7 +92,9 @@ class MerchantTrade:
             return spent
         home = econ.household_of(graph, buyer)
         sellers = [m for m, l in self.line.items() if l == line and self.stock[m] > 1e-9
-                   and household_key(graph.nodes[m]) != home]
+                   and household_key(graph.nodes[m]) != home
+                   # food crosses a quarantine's cordon, nothing else (Project_Vision/08 2.5, 3.2)
+                   and (line == "grain" or econ.can_reach(graph, buyer, where_lives(graph, m)))]
         rng.shuffle(sellers)
         spent = 0.0
         for merchant in sellers:
@@ -192,7 +196,9 @@ class MerchantTrade:
         self._successions(graph, alive)
         from economy import person_key
         losers = set()
-        for cargo in [c for c in self.afloat if c[0] <= self.month]:
+        # a merchant inside a sealed district gets no cargo until it's lifted (08 2.5)
+        for cargo in [c for c in self.afloat if c[0] <= self.month
+                      and sealed_side(graph, where_lives(graph, c[1])) is None]:
             self.afloat.remove(cargo)
             _, merchant, units, cost = cargo
             if rng.random() < CARGO_LOST:

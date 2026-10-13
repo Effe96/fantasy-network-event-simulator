@@ -590,7 +590,33 @@ def test_belongings_wear_out_and_the_basket_buys_back_the_wear():
     assert abs(wanted[(4, "clothing")] - worn) < 1e-9  # what an ordinary person wears out in a month
 
 
+def test_a_quarantine_border_stops_buying_across_it():
+    # Project_Vision/08 2.5 (user, 2026-10-12)
+    graph, economy, members, needs = _lenders_and_borrower()
+    baker = Node(resident_id=20, ses="middling", alive=True, age=40, household_id=20, occupation="baker",
+                 workplace_building_id=50)
+    potter = Node(resident_id=21, ses="middling", alive=True, age=40, household_id=21, occupation="potter",
+                  workplace_building_id=51)
+    for node in (baker, potter):
+        graph.add_node(node)
+        graph.money[P(node.resident_id)] = 0.0
+    graph.nodes[4].home_building_id = graph.nodes[5].home_building_id = 30
+    graph.building_districts.update({30: (1, "poor"), 50: (2, "merchant"), 51: (1, "merchant")})
+    graph.add_edge(Edge(4, 20, "shopkeeper_customer", "Market Pricing", 0.3, 0.1, 0.5, 0.0, 0.0))
+    graph.add_edge(Edge(1, 20, "shopkeeper_customer", "Market Pricing", 0.3, 0.1, 0.5, 0.0, 0.0))
+    graph.money[P(4)] = 10.0
+    economy._members = members = {**members, 20: [baker], 21: [potter]}
+    shops = economy._tied_shops(graph, members, [baker, potter])
+    graph.quarantined_districts[2] = "priest"  # the baker's shop is sealed off
+    income = __import__("collections").defaultdict(float)
+    for i in range(20):
+        economy._buy(graph, 3, 0.1, [baker, potter], random.Random(i), income, shops)
+    assert graph.money[P(20)] == 0.0 and graph.money[P(21)] > 1.9  # all to the potter on their side
+    assert not economy.can_reach(graph, 3, 50) and economy.can_reach(graph, 3, 51)
+
+
 def _run_all():
+    test_a_quarantine_border_stops_buying_across_it()
     test_at_import_each_household_s_wealth_is_split_among_its_people_and_none_is_lost()
     test_a_child_s_wages_go_to_a_parent_until_sixteen()
     test_a_family_pays_in_by_earnings_and_a_lodger_pays_their_share_whatever_they_earn()

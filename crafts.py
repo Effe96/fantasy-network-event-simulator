@@ -262,7 +262,7 @@ class CraftMarket:
                 makers_of[CRAFTS[s["trade"]][0]].append(b)
             self._makers_of = (shops, len(shops), makers_of)
         makers = [b for b in self._makers_of[2][good] if self.stock[b] > 1e-9
-                  and household_key(shops[b]["master"]) != home]
+                  and household_key(shops[b]["master"]) != home and econ.can_reach(graph, buyer, b)]
         makers = nearest_first(graph, econ.lives_at(graph, buyer), makers)  # the nearest first (Project_Vision/08 2.4)
         got = 0.0
         for building in makers:

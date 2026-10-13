@@ -79,4 +79,8 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
   nearest seller; a mover's shops, taverns and smithy re-picked by
   distance, the old ones' ties drifting apart at 0.7. 25 years held;
   evictions in seed 2 (1,001) to watch.
-- **Next:** 08 2.5, quarantine closes part of the town.
+- **Step 4 committed (55bc5e8).**
+- **Step 5 (08 2.5, 3.2), uncommitted:** a sealed district can't work,
+  buy or meet across its border; merchants' cargoes wait; food crosses
+  the cordon and the commune pays for it. Plague runs held (4 seeds).
+- **Next:** 08 2.7, parishes.

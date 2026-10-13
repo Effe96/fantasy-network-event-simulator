@@ -1148,6 +1148,13 @@ def can_meet(graph: SocialGraph, edge: "Edge") -> bool:
     return len(sides) == 1
 
 
+def sealed_side(graph: SocialGraph, building: Optional[int]) -> Optional[int]:
+    """The sealed district a building is in, else None: places on different
+    sides can't reach each other (Project_Vision/08 2.5)."""
+    district = graph.building_districts.get(building, (None, None))[0]
+    return district if district in graph.quarantined_districts else None
+
+
 def sync_neighbours(graph: SocialGraph, rng: random.Random) -> int:
     """New neighbours when moving (Project_Vision/05 B2, user 2026-10-10).
     Whoever's home changed since the last call gets the new street: the
