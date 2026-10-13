@@ -8,6 +8,35 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-13 — Parishes (Project_Vision/08 2.7)
+
+- **A parish is the households nearest each church** on TownShape's map
+  (`sync_parishes`, at import and monthly). Each head of household gets a
+  `parishioner` tie to the parish priest, or to an acolyte where the
+  church has no priest. The tie's place is the church, so it pauses
+  across a quarantine border. A tie that is no longer theirs (a new head,
+  a move, a new priest) drifts apart like an old neighbour's.
+- **Not one church per district**, as 08 first proposed: Riverport has 1
+  temple, 3 clergy and 26 districts, most of them about 8 people, and a
+  town of 2,000 historically had one or two parishes. The user chose the
+  nearest church (2026-10-13), so Riverport is one parish of about 450
+  heads of household.
+- The religion phenomenon rebuilds its civilian-priest ties whenever the
+  parishes change (`graph.parish_version`); it used to build them once.
+
+**25 years against 55bc5e8 (s1, s2):** about 3 times the priests'
+contact: devotions 9,192 and 8,456 against 2,673 and 2,490, corruptions
+1,244 and 1,765 against 505 and 551, payoffs paid 694 and 979 fl against
+411 and 499. Faith ends a little lower (mean religiousness 0.463 and 0.468
+against 0.489 and 0.486), as blame grows with gratitude. Wealth, Gini,
+classes and killings within the usual spread. Acquaintances 19,456 and
+15,813 against 9,211 and 12,885. That isn't from meeting people through
+the priest (people met: the same). The count swings a lot between runs
+(seed 1 year 5: 8,855 against 5,624).
+
+**Plague, 3 years, seeds 1 and 2:** more anger at a seal (1,255 and 965
+against 1,076 and 724), now that everyone knows the priest.
+
 ## 2026-10-13 — Quarantine closes part of the town (Project_Vision/08 2.5, 3.2)
 
 While a district is sealed (`sealed_side`, `EconomyPhenomenon.can_reach`):

@@ -83,4 +83,9 @@ Evictions are 22–42% higher, partly lodgers put out on their own.
 - **Step 5 (08 2.5, 3.2), uncommitted:** a sealed district can't work,
   buy or meet across its border; merchants' cargoes wait; food crosses
   the cordon and the commune pays for it. Plague runs held (4 seeds).
-- **Next:** 08 2.7, parishes.
+- **Step 5 committed (7ec1b97).**
+- **Step 6 (08 2.7), uncommitted:** the user chose parishes by the
+  nearest church (Riverport: 1 temple, so one parish); each head of
+  household is tied to the priest. The priests' influence and payoffs
+  roughly tripled; faith ends slightly lower.
+- **Next:** 08 2.6, events happen somewhere.

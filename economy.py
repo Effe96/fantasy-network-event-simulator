@@ -21,7 +21,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from crafts import BASKET_SHARES as CRAFT_SHARES, CRAFTS, CraftMarket
 from food import FoodMarket
-from graph import FAMILY, sealed_side, sync_classmates, sync_coworkers, sync_neighbours, where_lives
+from graph import (FAMILY, _drop_to_acquaintance, edge_from_relationship, nearest_first, sealed_side, sync_classmates, sync_coworkers,
+                   sync_neighbours, where_lives)
 from merchants import MerchantTrade
 
 FLORIN_IN_SOLDI = 64  # book §1, 1349
@@ -374,6 +375,48 @@ def setup_economy(graph, building_types: Dict[int, str], townshape_wealth: Dict[
     _split_purses(graph)
     _set_class_lines(graph, rng)
     give_belongings(graph)
+    sync_parishes(graph, random.Random(f"parishes-{seed}"))
+
+
+def sync_parishes(graph, rng: random.Random) -> int:
+    """Parishes (Project_Vision/08 2.7, user 2026-10-13): each household's
+    head is tied to the priest of the church nearest their home (an acolyte
+    where a church has no priest). A tie to a priest who is no longer theirs
+    (a new head, a move, a new priest) drifts apart like an old neighbour's.
+    Called at import and monthly. Returns how many ties were added."""
+    kinds = getattr(graph, "building_types", {})
+    clergy = sorted((n for n in graph.nodes.values() if n.alive and n.role == "priest"),
+                    key=lambda n: (n.occupation != "priest", n.resident_id))
+    churches = {}
+    for n in clergy:
+        if kinds.get(n.workplace_building_id) == "temple":
+            churches.setdefault(n.workplace_building_id, n.resident_id)
+    households = defaultdict(list)
+    for n in graph.nodes.values():
+        if n.alive and n.role != "priest":
+            households[household_key(n)].append(n)
+    wanted = set()
+    if churches:
+        for people in households.values():
+            head = head_of(graph, people)
+            church = nearest_first(graph, where_lives(graph, head.resident_id), sorted(churches))[0]
+            wanted.add((head.resident_id, churches[church]))
+    fading = graph.__dict__.setdefault("fading_friends", set())
+    changed = 0
+    for n in clergy:
+        for other, edge in graph.ties_of(n.resident_id).items():
+            if "parishioner" in (edge.source_type, edge.former_type) and (other, n.resident_id) not in wanted:
+                _drop_to_acquaintance(edge)
+                fading.add(graph._key(other, n.resident_id))
+                changed += 1
+    added = 0
+    for head, priest in sorted(wanted):
+        if graph.get_edge(head, priest) is None:  # one they know already keeps that tie
+            graph.add_edge(edge_from_relationship(graph, head, priest, "parishioner", rng))
+            added += 1
+    if added or changed:
+        graph.parish_version = getattr(graph, "parish_version", 0) + 1
+    return added
 
 
 def _split_purses(graph) -> None:
@@ -1336,6 +1379,7 @@ class EconomyPhenomenon:
         self._year["coworker ties added"] += sync_coworkers(graph, rng)  # this month's job changes
         self._year["neighbour ties added"] += sync_neighbours(graph, rng)  # and moves
         self._year["classmate ties added"] += sync_classmates(graph, rng)
+        self._year["parish ties added"] += sync_parishes(graph, rng)
 
     def _housing(self, graph, members, needs, income, rng: random.Random) -> None:
         """Once food is bought (user: food first): tenants pay rent; a tenant

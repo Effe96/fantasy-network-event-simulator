@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from economy import (CHURCH, COMMUNE, house_wealth, set_house_owner, DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for,
+from economy import (sync_parishes, CHURCH, COMMUNE, house_wealth, set_house_owner, DOWRY_SHARE, PRATO_1300_TOP1, EconomyPhenomenon, _decile_shares, class_for,
                      earner_key, form_household, gini, join_family, pass_on_merchant_house, settle_estate, setup_economy,
                      wealth)
 
@@ -615,7 +615,29 @@ def test_a_quarantine_border_stops_buying_across_it():
     assert not economy.can_reach(graph, 3, 50) and economy.can_reach(graph, 3, 51)
 
 
+def test_each_head_of_household_knows_the_priest_of_the_nearest_church():
+    # Project_Vision/08 2.7 (user, 2026-10-13)
+    graph = _town()  # households 1 (1, 2), 2 (3) and 3 (4, 5)
+    for resident_id, job, church in [(10, "priest", 70), (11, "acolyte", 71)]:
+        graph.add_node(Node(resident_id=resident_id, ses="middling", alive=True, gender="male", age=50,
+                            occupation=job, workplace_building_id=church, household_id=resident_id))
+    graph.building_types = {70: "temple", 71: "temple"}
+    graph.building_xy.update({70: (0, 0), 71: (10, 0), 30: (1, 0), 31: (9, 0)})
+    for resident_id, home in [(1, 30), (2, 30), (3, 30), (4, 31), (5, 31)]:
+        graph.nodes[resident_id].home_building_id = home
+    rng = random.Random(0)
+    assert sync_parishes(graph, rng) == 3
+    assert graph.get_edge(1, 10).source_type == "parishioner" and graph.get_edge(3, 10) is not None
+    assert graph.get_edge(4, 11).source_type == "parishioner"  # no priest there: the acolyte
+    assert graph.get_edge(2, 10) is None  # the head only
+    graph.nodes[4].home_building_id = graph.nodes[5].home_building_id = 30  # they move near the other church
+    sync_parishes(graph, rng)
+    assert graph.get_edge(4, 10).source_type == "parishioner"
+    assert graph.get_edge(4, 11).source_type == "acquaintance" and (4, 11) in graph.fading_friends
+
+
 def _run_all():
+    test_each_head_of_household_knows_the_priest_of_the_nearest_church()
     test_a_quarantine_border_stops_buying_across_it()
     test_at_import_each_household_s_wealth_is_split_among_its_people_and_none_is_lost()
     test_a_child_s_wages_go_to_a_parent_until_sixteen()

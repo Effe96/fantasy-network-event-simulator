@@ -50,6 +50,7 @@ CONTAGION_TYPE_WEIGHTS = {
     "aunt_uncle": 0.3,
     "cousin": 0.3,
     "feud": 0.05,
+    "parishioner": 0.1,  # C: seen at mass, as an acquaintance
 }
 
 
@@ -2579,7 +2580,15 @@ class ReligionPhenomenon:
         return self.corruption_base_rate * civilian_state["cunning"] * wealth_factor * priest_restraint
 
     def candidate_edges(self, graph, state):
-        # civilian-priest ties; roles never change
+        # civilian-priest ties; roles never change, but parishes do (economy.sync_parishes)
+        if getattr(graph, "parish_version", 0) != getattr(self, "_parish_version", 0):
+            self._parish_version = graph.parish_version
+            self._priest_ties = {}
+            for priest, node in graph.nodes.items():
+                if node.role == "priest" and node.alive:
+                    for civilian in graph.ties_of(priest):
+                        if graph.nodes[civilian].role == "civilian":
+                            self._priest_ties.setdefault(civilian, []).append(priest)
         return [graph._key(civilian, priest) for civilian, priests in self._priest_ties.items() for priest in priests]
 
     def edge_probability(self, edge, state_a, state_b, day: int) -> float:

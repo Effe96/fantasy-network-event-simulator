@@ -452,6 +452,8 @@ RELATIONSHIP_TYPE_BASELINES = {
     "cousin":      {"time": (0.30, 0.20), "intimacy": (0.35, 0.20), "services": (0.30, 0.20), "valence": (0.15, 0.40)},
     # a vendetta between two families who had no tie (2026-10-10, Project_Vision/05 B4)
     "feud":        {"time": (0.10, 0.05), "intimacy": (0.05, 0.05), "services": (0.00, 0.02), "valence": (-0.60, 0.15)},
+    # a head of household and their parish priest (Project_Vision/08 2.7), C: Sunday mass and the sacraments
+    "parishioner": {"time": (0.20, 0.10), "intimacy": (0.20, 0.10), "services": (0.30, 0.15), "valence": (0.20, 0.30)},
 }
 CLOSE_FAMILY = ("spouse", "parent", "sibling")
 WIDER_FAMILY = ("grandparent", "aunt_uncle", "cousin")
@@ -479,6 +481,7 @@ FISKE_TAGS = {
     "aunt_uncle": "Communal Sharing",
     "cousin": "Communal Sharing",
     "feud": "Equality Matching",  # Fiske: revenge is balanced reciprocity
+    "parishioner": "Authority Ranking",
 }
 
 
@@ -1120,13 +1123,13 @@ def _drop_to_acquaintance(edge: "Edge") -> None:
         edge.source_type, edge.fiske_type = "acquaintance", FISKE_TAGS["acquaintance"]
 
 
-WORKPLACE_TIES = ("coworker", "unit_mate", "shopkeeper_customer")
+WORKPLACE_TIES = ("coworker", "unit_mate", "shopkeeper_customer", "parishioner")
 
 
 def tie_place(graph: SocialGraph, edge: "Edge") -> Optional[int]:
     """The building a tie meets at (Project_Vision/08 2.1, user 2026-10-12):
     the workplace for coworkers and guards, the shop for a customer (b is
-    its staff). None for the rest: a household, a street, family, friends
+    its staff), the church for a parishioner (b is the priest). None for the rest: a household, a street, family, friends
     meet at home or anywhere."""
     if edge.source_type in WORKPLACE_TIES:
         return graph.nodes[edge.resident_b].workplace_building_id
