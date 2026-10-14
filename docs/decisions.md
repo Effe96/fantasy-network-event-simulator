@@ -8,6 +8,28 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-14 — Why the 25,000-person town rioted: shop ties
+
+The 25-year run of a 24,545-person town had 35 riots (624 dead), against
+about one in ten years in Riverport. Not hostility: civilians' average
+hostility toward nobles and guards was 0.275 in both towns and flat all
+year, so the daily riot roll fired equally rarely. 34 of the 35 riots
+came from **group violence escalating**: 10 or more people who hate the
+same person and like each other become a riot.
+- Those targets were all shop and tavern workers (some noble), hated
+  mostly by customers. About 2% of customer ties start past the hatred
+  bar in both towns, by chance; what differed is how many customers a
+  worker has: ~4,400 in the big town, ~1,150 in Riverport. At import the
+  big town had 10 people with a band of 10+; Riverport none.
+- **The cause is TownShape's shop_relationships**: a buyer is tied to
+  about a quarter of the town's shops. In Riverport (4 shops, 4 taverns,
+  1 smith) that's all of them; at 25,000 it was 10 shops, 13 taverns and
+  4 smiths per buyer (12 shop ties a resident against 3.7).
+- **Fix, at import** (the sim adapts TownShape's data at the boundary): a
+  buyer keeps their nearest SHOPS_KNOWN of each kind, 4 shops, 4 taverns,
+  1 smith (Riverport's numbers, so Riverport imports unchanged, checked).
+  The big town: no 10+ bands at import, 2.23 million ties -> 1.38 million.
+
 ## 2026-10-14 — Attack rates, the granary after a famine, weapons and seized goods
 
 **Attack rates.** One outbreak, contagion alone on Riverport: dysentery and

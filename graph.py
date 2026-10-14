@@ -832,10 +832,42 @@ def _load_resident_identity(conn: sqlite3.Connection, graph: SocialGraph) -> Non
             node.workplace_building_id, node.birth_date = workplace_building_id, birth_date
 
 
+# A buyer knows at most their nearest this many of each kind (2026-10-14).
+# TownShape ties a buyer to about a quarter of the town's shops: in Riverport
+# (4 shops, 4 taverns, 1 smith) that is all of them, but at 25,000 people it
+# was 10 shops and 13 taverns each, a shop worker knew ~4,400 customers, and
+# the ~2% of them who hate them by chance made bands of 10+ that rioted 14x as
+# often. Riverport's buyers are all within this, so it imports unchanged.
+SHOPS_KNOWN = {"shop": 4, "tavern": 4, "blacksmith": 1}
+
+
+def _nearest_shops(conn: sqlite3.Connection) -> Optional[set]:
+    """(buyer, shop building) pairs within SHOPS_KNOWN; None when the
+    database can't say (no distances or kinds: keep every tie)."""
+    try:
+        rows = conn.execute(
+            """
+            SELECT sr.resident_id, sr.shop_building_id, sr.distance, b.building_type
+            FROM shop_relationships sr JOIN buildings b ON b.id = sr.shop_building_id
+            ORDER BY sr.resident_id, b.building_type, sr.distance, sr.shop_building_id
+            """
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return None
+    kept, seen = set(), defaultdict(int)
+    for buyer, shop, _, kind in rows:
+        if seen[(buyer, kind)] < SHOPS_KNOWN.get(kind, len(rows)):
+            seen[(buyer, kind)] += 1
+            kept.add((buyer, shop))
+    return kept
+
+
 def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng: random.Random) -> None:
+    nearest = _nearest_shops(conn)
     rows = conn.execute(
         """
-        SELECT sr.resident_id, r.id AS staff_id, sr.customer_score, sr.purchase_count, sr.is_primary
+        SELECT sr.resident_id, r.id AS staff_id, sr.customer_score, sr.purchase_count, sr.is_primary,
+               sr.shop_building_id
         FROM shop_relationships sr
         JOIN residents r ON r.workplace_building_id = sr.shop_building_id
         WHERE sr.resident_id != r.id
@@ -843,14 +875,15 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
         """
     ).fetchall()
     # skip dangling edges: either endpoint may be absent (dead, or a data gap)
-    rows = [row for row in rows if row[0] in graph.nodes and row[1] in graph.nodes]
+    rows = [row for row in rows if row[0] in graph.nodes and row[1] in graph.nodes
+            and (nearest is None or (row[0], row[5]) in nearest)]
     if not rows:
         return
 
     max_customer_score = max(row[2] for row in rows) or 1.0
     max_purchase_count = max(row[3] for row in rows) or 1.0
 
-    for customer_id, staff_id, customer_score, purchase_count, is_primary in rows:
+    for customer_id, staff_id, customer_score, purchase_count, is_primary, _ in rows:
         graph.add_edge(shop_edge(graph, customer_id, staff_id, _clamp01(customer_score / max_customer_score),
                                  _clamp01(purchase_count / max_purchase_count), bool(is_primary), rng))
 
