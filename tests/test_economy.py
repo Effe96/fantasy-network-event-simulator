@@ -192,6 +192,27 @@ def test_a_debt_a_year_behind_cools_the_tie_and_costs_property():
     assert 20.0 < graph.debts[0]["amount"] < 50.0  # grew with interest, then 30 seized
 
 
+def test_with_no_land_left_a_creditor_takes_belongings_and_a_survivor_buys_a_weapon():
+    from economy import WEAPON_VALUE, buy_weapon, is_armed
+    from phenomena import _fighter
+    graph, economy, members, needs = _lenders_and_borrower()
+    graph.belongings = {r: {"clothing": 4.0, "shoes": 1.0, "housewares": 10.0, "weapon": 0.0} for r in graph.nodes}
+    graph.debts = [{"debtor": P(3), "creditor": P(1), "debtor_person": 3, "creditor_person": 1, "amount": 12.0,
+                    "rate": 0.0, "kind": "patron", "behind": 0}]
+    graph.get_edge(1, 3).valence_a_to_b = 0.0
+    for month in range(12):
+        economy._repay_debts(graph, needs, members, random.Random(month))
+    assert graph.debts == [] and graph.belongings[3]["housewares"] == 0.0 and graph.belongings[3]["clothing"] == 2.0
+    assert graph.belongings[1]["housewares"] == 20.0  # the goods are the creditor's now, nothing lost
+    graph.nodes[5].occupation = "blacksmith"
+    graph.money[P(4)] = 1.0
+    assert not buy_weapon(graph, 4)  # can't spare it
+    graph.money[P(4)] = 10.0
+    plain = _fighter(graph, graph.nodes[4])
+    assert buy_weapon(graph, 4) and is_armed(graph, 4) and graph.money[P(5)] == WEAPON_VALUE
+    assert _fighter(graph, graph.nodes[4]) > plain
+
+
 def test_a_creditor_who_cares_forgives_a_debt_behind():
     graph, economy, members, needs = _lenders_and_borrower()
     graph.debts = [{"debtor": P(3), "creditor": P(1), "debtor_person": 3, "creditor_person": 1, "amount": 50.0,
@@ -637,6 +658,7 @@ def test_each_head_of_household_knows_the_priest_of_the_nearest_church():
 
 
 def _run_all():
+    test_with_no_land_left_a_creditor_takes_belongings_and_a_survivor_buys_a_weapon()
     test_each_head_of_household_knows_the_priest_of_the_nearest_church()
     test_a_quarantine_border_stops_buying_across_it()
     test_at_import_each_household_s_wealth_is_split_among_its_people_and_none_is_lost()

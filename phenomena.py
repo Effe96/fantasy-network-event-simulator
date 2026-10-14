@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from demography import old_age_death_chance
 from economy import (BASKET_PER_PERSON, BUILDING_GAP, COMMUNE, log_payment, MERCHANT_KEEPS_JOB, MONEY_AGE, PRECARIOUS, form_household, has_purse,
-                     household_key, is_master, job_kind, mark_new_household, new_household_id, person_key, steal, transfer)
+                     household_key, is_armed, buy_weapon, is_master, job_kind, mark_new_household, new_household_id, person_key, steal, transfer)
 from food import sharecropper_for
 from graph import (_was, CLOSE_FAMILY, FAMILY, FISKE_TAGS, can_meet, FRIEND_COOLED, FRIEND_WARMTH, TieFilter, TownParameters, add_wider_family, befriend,
                    edge_from_relationship, household_shop_ties, shop_edge, synthesize_relationship_attributes, tie_place,
@@ -65,9 +65,15 @@ CONTAGION_TYPE_WEIGHTS = {
 # (modelled on, town-average fatality, R0, infectious days). Tier 3 is the
 # default for simulations unless asked otherwise.
 EPIDEMIC_TIERS = {
-    1: ("influenza", 0.015, 2.25, 7),
+    # R0 1.5, the low end of medieval_diseases.md's 1.5-3 (2026-10-14): at 2.25
+    # an outbreak reached ~81% of the town; in 1918 ~29% fell ill and maybe
+    # over half were infected (US house-to-house survey, 146,203 people)
+    1: ("influenza", 0.015, 1.5, 7),
     2: ("measles", 0.05, 15.0, 8),
-    3: ("typhus / epidemic dysentery", 0.12, 2.0, 12),
+    # R0 1.2, not 2.0 (2026-10-14): at 2.0 an outbreak reached ~72% of the
+    # town; Shigella epidemics reach 6-39% (Central African camps 1993-95; St.
+    # Martin Island 1973, 33%), and 1.2 gives ~30%. Typhus: no attack data found.
+    3: ("typhus / epidemic dysentery", 0.12, 1.2, 12),
     4: ("bubonic plague", 0.45, 1.75, 10),
     5: ("pneumonic plague", 0.97, 1.3, 4),
 }
@@ -124,13 +130,15 @@ class ContagionPhenomenon:
             tie_sum[b] += weighted
         mean_tie_sum = sum(tie_sum.values()) / max(1, len(tie_sum))
         mean_vulnerability = sum(disease_fatality_factor(n) for n in graph.nodes.values()) / max(1, len(graph.nodes))
-        by_tier = {t: (r0 / (days * max(mean_tie_sum, 1e-9)), days, fatality / mean_vulnerability)
-                   for t, (_, fatality, r0, days) in EPIDEMIC_TIERS.items()}
-        base_rate, infectious_days, case_fatality_rate = by_tier[tier if tier is not None else DEFAULT_EPIDEMIC_TIER]
+        by_disease = {}
+        for disease, t in EPIDEMIC_DISEASES.items():
+            _, fatality, r0, days = EPIDEMIC_TIERS[t]
+            by_disease[disease] = (r0 / (days * max(mean_tie_sum, 1e-9)), days, fatality / mean_vulnerability)
+        disease = TIER_DISEASE[tier] if tier is not None else "typhus"
+        base_rate, infectious_days, case_fatality_rate = by_disease[disease]
         contagion = cls(base_rate=base_rate, infectious_days=infectious_days, case_fatality_rate=case_fatality_rate,
-                        outbreak_yearly_chance=outbreak_yearly_chance,
-                        disease=TIER_DISEASE[tier] if tier is not None else "typhus", **kwargs)
-        contagion.by_tier, contagion.by_cause = by_tier, tier is None
+                        outbreak_yearly_chance=outbreak_yearly_chance, disease=disease, **kwargs)
+        contagion.by_disease, contagion.by_cause = by_disease, tier is None
         return contagion
 
     def __init__(
@@ -153,7 +161,7 @@ class ContagionPhenomenon:
     ):
         self.base_rate = base_rate
         self.disease = disease  # the outbreak's (or the last one's): the cause of death and of immunity
-        self.by_tier: Dict[int, Tuple[float, int, float]] = {}  # tier -> (base_rate, infectious_days, fatality), from_tier
+        self.by_disease: Dict[str, Tuple[float, int, float]] = {}  # disease -> (base_rate, infectious_days, fatality), from_tier
         self.by_cause = False  # outbreaks by cause (from_tier with no tier), else one disease at the flat chance
         self._arrived: List[int] = []  # newcomers since the last check
         self._crowding = (0, 1.0)  # (day computed, people per place in houses)
@@ -315,8 +323,8 @@ class ContagionPhenomenon:
         2026-10-10: a patient zero who'd had it stopped the outbreak, and
         crowding always picked the same house, so 1 in 12 a year started
         instead of 1 in 4."""
-        if self.by_tier:
-            self.base_rate, self.infectious_days, self.case_fatality_rate = self.by_tier[EPIDEMIC_DISEASES[disease]]
+        if self.by_disease:
+            self.base_rate, self.infectious_days, self.case_fatality_rate = self.by_disease[disease]
         self.disease = disease
         for resident_state in state.values():
             if resident_state["status"] == "deceased":
@@ -380,8 +388,17 @@ def of_fighting_age(node) -> bool:
     return node.age is None or node.age >= FIGHTING_AGE
 
 
+ARMED_EDGE = 1.3  # C: a weapon (Project_Vision/09 §5, step 4), on top of a veteran's training
+
+
 def _veteran(node) -> float:
     return VETERAN_EDGE if node.is_ex_soldier else 1.0
+
+
+def _fighter(graph, node) -> float:
+    """How much likelier this person is to kill when they strike, and the
+    less likely to be killed: a veteran's training and a weapon."""
+    return _veteran(node) * (ARMED_EDGE if is_armed(graph, node.resident_id) else 1.0)
 
 
 OLD_FATALITY = ((70, 4.0), (60, 2.0))  # C: realism audit 5.2, the old die of it more, flu included
@@ -965,13 +982,15 @@ class ViolencePhenomenon:
         attacker_vulnerability = SES_VULNERABILITY.get(graph.nodes[culprit].ses, 1.0)
         striker = graph.nodes[killer if killer is not None else culprit]
         success_chance = min(1.0, self.success_base_rate * victim_vulnerability / attacker_vulnerability
-                             * _veteran(striker) / _veteran(graph.nodes[victim]))
+                             * _fighter(graph, striker) / _fighter(graph, graph.nodes[victim]))
         living_mercenaries = sum(1 for m in state[victim]["mercenaries"] if graph.nodes[m].alive)
         success_chance *= self.mercenary_protection_factor ** living_mercenaries
 
         if rng.random() >= success_chance:
             shock = self.discovery_shock * shock_factor
             edge.set_valence_from(victim, max(-1.0, edge.valence_from(victim) - shock))
+            if of_fighting_age(graph.nodes[victim]) and hasattr(graph, "money"):
+                buy_weapon(graph, victim)  # they won't be caught unarmed again
             kind = "hired_assassin_failed" if hired else "failed_attempt"
             return [
                 Event(day, self.name, kind, culprit, victim,
@@ -1342,7 +1361,7 @@ class ViolencePhenomenon:
         success_chance = min(
             1.0,
             self.success_base_rate * victim_vulnerability / avg_attacker_vulnerability * math.sqrt(len(band))
-            * max(_veteran(graph.nodes[h]) for h in band) / _veteran(graph.nodes[victim]),
+            * max(_fighter(graph, graph.nodes[h]) for h in band) / _fighter(graph, graph.nodes[victim]),
         )
 
         if rng.random() >= success_chance:

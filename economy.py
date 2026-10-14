@@ -456,6 +456,44 @@ LASTS_YEARS = {"clothing": 2, "shoes": 1, "housewares": 10}  # C
 WEAPON_VALUE = 2.0  # C: a sword or a crossbow; doesn't wear out
 
 
+def is_armed(graph, resident_id: int) -> bool:
+    return getattr(graph, "belongings", {}).get(resident_id, {}).get("weapon", 0.0) > 0
+
+
+def buy_weapon(graph, buyer: int) -> bool:
+    """One who survived an attack buys a weapon from the nearest blacksmith
+    (Project_Vision/09 §5, step 4), if they can spare twice its price."""
+    if is_armed(graph, buyer) or buyer not in getattr(graph, "belongings", {}):
+        return False
+    if graph.money.get(person_key(buyer), 0.0) < 2 * WEAPON_VALUE:
+        return False
+    smiths = [n for n in graph.nodes.values() if n.alive and n.occupation == "blacksmith"]
+    if not smiths:
+        return False
+    home = graph.nodes[buyer].home_building_id
+    smith = nearest_first(graph, home, smiths, where=lambda n: n.workplace_building_id)[0]
+    transfer(graph, "weapon bought", buyer, smith.resident_id, WEAPON_VALUE)
+    graph.belongings[buyer]["weapon"] = WEAPON_VALUE
+    return True
+
+
+def seize_belongings(graph, debtor: Optional[int], creditor: Optional[int], amount: float) -> float:
+    """A year behind on a debt with no land to take, the creditor takes the
+    debtor's goods (step 4), housewares first, then clothing, shoes and a
+    weapon, up to what's owed. Returns their value."""
+    goods = getattr(graph, "belongings", {})
+    if debtor not in goods or creditor not in goods:
+        return 0.0
+    taken = 0.0
+    for kind in ("housewares", "clothing", "shoes", "weapon"):
+        part = min(goods[debtor].get(kind, 0.0), amount - taken)
+        if part > 0:
+            goods[debtor][kind] -= part
+            goods[creditor][kind] = goods[creditor].get(kind, 0.0) + part
+            taken += part
+    return taken
+
+
 def belongings_standard(graph, node, household=None) -> Dict[str, float]:
     """What a person of ordinary means owns of each kind: what the basket buys
     in a year times the years it lasts. Housewares are the head's, for their family."""
@@ -1935,6 +1973,12 @@ class EconomyPhenomenon:
                         graph.land[creditor] = graph.land.get(creditor, 0.0) + seized
                         debt["amount"] -= seized
                         self._year["debt: property seized"] += seized
+                    goods = seize_belongings(graph, debt["debtor_person"], debt.get("creditor_person"), debt["amount"])
+                    if goods > 0:
+                        debt["amount"] -= goods
+                        self._year["debt: belongings seized"] += goods
+                        log_payment(graph, "belongings seized", person_key(debt["debtor_person"]),
+                                    person_key(debt["creditor_person"]), goods)
             else:
                 debt["behind"] = 0
             if debt["amount"] > 0.01:

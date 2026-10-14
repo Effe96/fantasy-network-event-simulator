@@ -29,7 +29,10 @@ OUTSIDE_RANGE = (0.8, 0.95)  # C: merchants' cost outside in an ordinary year; w
 # grain sells near the book's 13 soldi (at 0.9-1.1 a normal year cost 12% more: local grain runs out by month 5)
 STORE_CLASSES = ("rich", "very_rich")  # store a year's grain at harvest (user: only the rich)
 GRANARY_MONTHS = 2.0  # C: the commune's granary holds this many months of the town's grain
-GRANARY_BUY_BELOW = 1.0  # C: it buys after harvests priced at most this
+# it refills after any ordinary harvest (2026-10-14): at 1.0, with ordinary
+# prices at 1.04-1.07 as the town grew, it stayed empty 6-7 years after a
+# famine and the next famines met no relief (7 straight years of famine deaths)
+GRANARY_BUY_BELOW = 1.3  # C: ordinary harvests price 0.92-1.09, famines 1.8 and more
 GRANARY_PRICE_SHARE = 0.8  # C: in a famine it sells at this share of the market (1329: set below it)
 HOARD_YEARS = 1.0  # C: a rich household hoards up to this many years of its own grain on top
 HOARD_CASH_SHARE = 0.3  # C: spending at most this share of its cash on a hoard

@@ -8,6 +8,48 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-14 — Attack rates, the granary after a famine, weapons and seized goods
+
+**Attack rates.** One outbreak, contagion alone on Riverport: dysentery and
+typhus reached ~72% of the town (8% died), influenza ~81%. Sources:
+*Shigella dysenteriae* epidemics reached 6-39% (Central African refugee
+camps 1993-95, 13% where the response was quick; St. Martin Island 1973,
+33%), 1.5-9% of cases dying; in 1918 a US survey of 146,203 people found
+29% fell ill and maybe over half infected, about 1% of them dying. No
+typhus attack rates found.
+- **Tier 3 R0 2.0 -> 1.2** (typhus and dysentery). Taking off, an outbreak
+  now reaches 28-34%, 10% of cases dying (3% of the town); 6 in 10 die out
+  after a few cases. Typhus has no data of its own and keeps the tier's.
+- **Influenza R0 2.25 -> 1.5**, the low end of medieval_diseases.md's
+  1.5-3: 49-56% infected, 0.4-1% of the town dying.
+- **Rejected: spreading dysentery and typhus only over close ties**
+  (household, neighbours, coworkers) at the same R0. No effect (70-77%):
+  ~45 neighbour ties a person mesh the whole town, so nothing clusters.
+
+**Long famines.** Seed 1 (quiet) had famine deaths every year 15-21. The
+draws are fair (8 seeds, economy alone: 11 famines in 200 years, spread
+out; runs sharing a seed share their early random stream, which made them
+look late). The cause: the commune's granary refilled only after a harvest
+priced at most 1.0, and as the town grew an ordinary year priced 1.04-1.07,
+so after one famine it stayed empty 6-7 years and every later famine met no
+relief. **GRANARY_BUY_BELOW 1.0 -> 1.3**: it refills after any ordinary
+harvest (0.92-1.09; famines price 1.8 and more).
+
+**Belongings, step 4 (Project_Vision/09 §5, what steps 1-3 left out).**
+- **A weapon makes a fighter deadlier**: ARMED_EDGE 1.3 (mine), on the
+  striker's side and against the victim's, like a veteran's edge, and on
+  top of it.
+- **Who buys one:** someone 16 or older who survives an attack buys a
+  weapon from the nearest blacksmith (WEAPON_VALUE, 2 fl, to the smith),
+  if they have twice that. Mine: the doc said "anyone can buy one" without
+  saying who would want to.
+- **Seized for debt:** a year behind, after the land, the creditor takes
+  the debtor's goods up to what's owed (housewares, clothing, shoes, a
+  weapon), into their own belongings, so nothing is lost. This also stands
+  for pawning: goods taken against a loan.
+- **Not done:** belongings in a dowry (a bride already brings her own
+  things, per person), and pawning as a separate loan.
+
 ## 2026-10-14 — Immunity, age and quarantine (Project_Vision/07 5.1-5.3)
 
 The user's audit feedback was "change this" on all three; the numbers are
