@@ -8,6 +8,30 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-14 — Immunity, age and quarantine (Project_Vision/07 5.1-5.3)
+
+The user's audit feedback was "change this" on all three; the numbers are
+mine (C), from the usual medieval picture:
+- **Immunity is to a disease and mostly temporary** (5.1). IMMUNITY_DAYS:
+  influenza 6 months and dysentery 1 year (user, 2026-10-14, correcting my
+  3 years for influenza); plague and measles for life (user); typhus 10
+  years (mine, unsourced). Pneumonic plague is the same germ as plague, so one protects from
+  the other (IMMUNE_AS). Common flu/diarrhea already had their own short
+  windows and are untouched.
+- **Measles was endemic**: anyone 5 or older at import or on arrival counts
+  as having had it as a child (MEASLES_HAD_BY_AGE), so an outbreak hits the
+  young.
+- Found on the way: a newly infected person's state was replaced, not
+  updated, so catching one disease wiped the record of the others. Fixed.
+- **The old die of it more** (5.2): x2 in their 60s, x4 from 70
+  (OLD_FATALITY), next to the children's x20/x3. Measles is the exception
+  (user): far deadlier caught as an adult, so for measles 15 and over die
+  at x3 a child's rate (MEASLES_ADULT_FATALITY, mine) instead. Epidemics keep their
+  town-wide fatality (from_tier divides by the town's mean vulnerability),
+  so this moves deaths toward the old rather than adding them.
+- **Quarantine is for plague only** (5.3, QUARANTINE_DISEASES), bubonic or
+  pneumonic: typhus, dysentery, measles and influenza never seal a district.
+
 ## 2026-10-13 — Consequences for thieves (Project_Vision/07 4.9)
 
 Found while checking the events save: a rich merchant house was robbed 10

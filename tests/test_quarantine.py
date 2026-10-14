@@ -107,6 +107,7 @@ def test_flu_deaths_never_trigger_a_quarantine():
     quarantine.init_state(graph)
     _kill(graph, [1, 2, 3, 4], day=5, cause="flu")
     _kill(graph, [21], day=5, cause="diarrhea")  # a rich death, but not plague
+    _kill(graph, [5, 6, 7], day=5, cause="typhus")  # nor any other epidemic (audit 5.3)
     quarantine.end_of_day(graph, {}, 5, random.Random(0))
     assert graph.quarantined_districts == {}
 

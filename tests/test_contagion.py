@@ -144,8 +144,34 @@ def test_immunity_is_to_a_disease_and_influenza_s_fades():
     assert state[1]["status"] == "susceptible" and contagion.disease == "plague"  # typhus doesn't protect
     state[2]["status"] = "recovered"
     assert contagion._start(graph, state, "typhus", [1], 300, "famine", random.Random(0)) == []  # 1 had typhus: nothing starts
-    contagion._start(graph, state, "influenza", [3], 100 + 4 * 365, "season", random.Random(0))
-    assert state[1]["status"] == "susceptible"  # influenza immunity is gone after 3 years
+    assert contagion._start(graph, state, "influenza", [1], 250, "season", random.Random(0)) == []  # still immune
+    contagion._start(graph, state, "influenza", [3], 100 + 200, "season", random.Random(0))
+    assert state[1]["status"] == "susceptible"  # influenza immunity is gone after 6 months
+
+
+def test_adults_had_measles_and_catching_one_keeps_the_others():
+    from phenomena import age_fatality_factor
+    graph = _three()
+    graph.add_node(Node(resident_id=4, ses="poor", alive=True, age=2))
+    contagion = ContagionPhenomenon(outbreak_yearly_chance=0.25)
+    state = contagion.init_state(graph)
+    contagion._start(graph, state, "measles", [1, 2, 3, 4], 10, "newcomer", random.Random(0))
+    assert state[4]["status"] == "infected" and state[1]["status"] == "recovered"  # only the child catches it
+    state[2]["immune"]["typhus"] = 5
+    contagion.apply_effect(graph, state, 4, 2, 11, random.Random(0))
+    state[2]["status"] = "susceptible"
+    contagion.end_of_day(graph, state, 11, random.Random(0))
+    assert state[2]["status"] == "infected" and state[2]["immune"]["typhus"] == 5  # history kept
+    contagion._start(graph, state, "plague", [1], 20, "trade", random.Random(0))
+    state[1]["immune"]["plague"] = 20
+    assert contagion._start(graph, state, "pneumonic plague", [1], 30, "trade", random.Random(0)) == []  # same germ
+    assert age_fatality_factor(30) == 1.0 and age_fatality_factor(65) == 2.0 and age_fatality_factor(75) == 4.0
+    from phenomena import disease_fatality_factor
+    adult, child = graph.nodes[1], graph.nodes[4]
+    assert disease_fatality_factor(adult, "measles") == 3 * disease_fatality_factor(child, "measles")  # adults die of it more
+    assert disease_fatality_factor(child, "typhus") > disease_fatality_factor(adult, "typhus")
+    state[1]["immune"]["plague"] = 20
+    assert contagion._start(graph, state, "plague", [1], 20 + 50 * 365, "trade", random.Random(0)) == []  # plague: for life
 
 
 def test_a_cargo_can_bring_an_outbreak_to_its_merchant():
@@ -168,6 +194,7 @@ def _run_all():
     test_edge_probability_matches_worked_example()
     test_immunity_is_to_a_disease_and_influenza_s_fades()
     test_a_cargo_can_bring_an_outbreak_to_its_merchant()
+    test_adults_had_measles_and_catching_one_keeps_the_others()
     test_probability_is_zero_when_neither_endpoint_infected()
     test_infected_recovers_after_infectious_days()
     test_infected_can_die_instead_of_recovering()

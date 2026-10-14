@@ -80,7 +80,12 @@ DEFAULT_OUTBREAK_YEARLY_CHANCE = 0.25
 # brings its own disease, with that disease's tier. Immunity is to a disease.
 EPIDEMIC_DISEASES = {"influenza": 1, "measles": 2, "typhus": 3, "dysentery": 3, "plague": 4, "pneumonic plague": 5}
 TIER_DISEASE = {1: "influenza", 2: "measles", 3: "typhus", 4: "plague", 5: "pneumonic plague"}  # a run forced to one tier
-IMMUNITY_YEARS = {"influenza": 3}  # C: the others, for life
+# realism audit 5.1 (user, 2026-10-14): immunity is to a disease and mostly
+# temporary; measles and smallpox-like childhood diseases for life
+# user, 2026-10-14; typhus C (unsourced); measles and plague for life
+IMMUNITY_DAYS = {"influenza": 182, "dysentery": 365, "typhus": 3650}
+IMMUNE_AS = {"pneumonic plague": "plague"}  # the same germ
+MEASLES_HAD_BY_AGE = 5  # C: endemic in towns, so anyone older had it as a child (5.1)
 # Yearly chances at the reference town (C), adding up to the old flat ~1 in 4;
 # scaled by outbreak_yearly_chance / DEFAULT_OUTBREAK_YEARLY_CHANCE (0: none).
 CARGO_DISEASE_CHANCE = 0.07 / 120  # each import cargo landing (~120 a year, measured): plague comes this way or with newcomers
@@ -184,15 +189,22 @@ class ContagionPhenomenon:
     def init_state(self, graph) -> Dict[int, Any]:
         self._nodes = graph.nodes
         self._sealed = graph.quarantined_districts
-        state = {resident_id: {"status": "susceptible", "days_left": 0} for resident_id in graph.nodes}
+        state = {resident_id: self._fresh(graph.nodes[resident_id]) for resident_id in graph.nodes}
         if self.outbreak_yearly_chance is None or self.patient_zero is not None:
             patient_zero = self.patient_zero if self.patient_zero is not None else min(graph.nodes)
-            state[patient_zero] = {"status": "infected", "days_left": self.infectious_days}
+            state[patient_zero].update(status="infected", days_left=self.infectious_days)
             self._outbreaks += 1
         return state
 
+    @staticmethod
+    def _fresh(node) -> Dict[str, Any]:
+        resident_state = {"status": "susceptible", "days_left": 0}
+        if (node.age or 0) >= MEASLES_HAD_BY_AGE:
+            resident_state["immune"] = {"measles": -10 ** 6}  # long ago, as a child
+        return resident_state
+
     def add_resident(self, graph, state, resident_id: int) -> None:
-        state[resident_id] = {"status": "susceptible", "days_left": 0}
+        state[resident_id] = self._fresh(graph.nodes[resident_id])
         if (graph.nodes[resident_id].age or 0) >= 1:  # came from outside, not born here
             self._arrived.append(resident_id)
 
@@ -226,7 +238,8 @@ class ContagionPhenomenon:
     def end_of_day(self, graph, state, day: int, rng: random.Random) -> List[Event]:
         just_infected = set(self._pending_infections)
         for resident_id in self._pending_infections:
-            state[resident_id] = {"status": "infected", "days_left": self.infectious_days}
+            # update, not replace: the dict also holds what they're immune to
+            state[resident_id].update(status="infected", days_left=self.infectious_days)
         self._pending_infections.clear()
 
         events: List[Event] = []
@@ -243,7 +256,7 @@ class ContagionPhenomenon:
                 continue
             resident_state["days_left"] -= 1
             if resident_state["days_left"] <= 0:
-                fatality_p = self.case_fatality_rate * disease_fatality_factor(graph.nodes[resident_id])
+                fatality_p = self.case_fatality_rate * disease_fatality_factor(graph.nodes[resident_id], self.disease)
                 if graph.nodes[resident_id].district_id in graph.quarantined_districts:
                     fatality_p *= self.quarantined_fatality_multiplier
                 if rng.random() < min(1.0, fatality_p):
@@ -252,7 +265,7 @@ class ContagionPhenomenon:
                     events.append(Event(day, self.name, "died", resident_id, resident_id, "died from infection"))
                 else:
                     resident_state["status"] = "recovered"
-                    resident_state.setdefault("immune", {})[self.disease] = day
+                    resident_state.setdefault("immune", {})[IMMUNE_AS.get(self.disease, self.disease)] = day
                     graph.record_recovery(resident_id, day, self.disease)
                     events.append(Event(day, self.name, "recovered", resident_id, resident_id, "recovered"))
         events.extend(self._maybe_start_outbreak(graph, state, day, rng))
@@ -298,7 +311,7 @@ class ContagionPhenomenon:
     def _start(self, graph, state, disease: str, candidates: List[int], day: int, cause: str,
                rng: random.Random) -> List[Event]:
         """An outbreak of `disease` from one of `candidates` who can catch it:
-        who caught it before is immune (influenza only for IMMUNITY_YEARS).
+        who caught it before is immune (for IMMUNITY_DAYS, measles for life).
         2026-10-10: a patient zero who'd had it stopped the outbreak, and
         crowding always picked the same house, so 1 in 12 a year started
         instead of 1 in 4."""
@@ -308,8 +321,8 @@ class ContagionPhenomenon:
         for resident_state in state.values():
             if resident_state["status"] == "deceased":
                 continue
-            caught = resident_state.get("immune", {}).get(disease)
-            immune = caught is not None and day - caught < IMMUNITY_YEARS.get(disease, 10 ** 6) * 365
+            caught = resident_state.get("immune", {}).get(IMMUNE_AS.get(disease, disease))
+            immune = caught is not None and day - caught < IMMUNITY_DAYS.get(IMMUNE_AS.get(disease, disease), 10 ** 9)
             resident_state["status"] = "recovered" if immune else "susceptible"
         can_catch = [r for r in candidates if state[r]["status"] == "susceptible" and graph.nodes[r].alive]
         if not can_catch:
@@ -371,13 +384,24 @@ def _veteran(node) -> float:
     return VETERAN_EDGE if node.is_ex_soldier else 1.0
 
 
-def child_fatality_factor(age: Optional[int]) -> float:
-    """How much likelier a sick child is to die of it than an adult: infants
-    x20, ages 1-4 x3. With the town's everyday flu/diarrhea, calibrated
+OLD_FATALITY = ((70, 4.0), (60, 2.0))  # C: realism audit 5.2, the old die of it more, flu included
+# measles is far deadlier caught as an adult than as a child (user,
+# 2026-10-14); it replaces the age factor above for measles
+MEASLES_ADULT_FROM, MEASLES_ADULT_FATALITY = 15, 3.0  # C
+
+
+def age_fatality_factor(age: Optional[int]) -> float:
+    """How much likelier a sick child or old person is to die of it than an
+    adult: infants x20, ages 1-4 x3, 60s x2, 70 on x4. With the town's everyday flu/diarrhea, calibrated
     (seed 1) toward ~20-25% dying in their first year and ~a third before 5,
     the medieval norm and the counterweight that keeps births from
     outrunning deaths in quiet years (x8/x2 gave only ~9% infant deaths)."""
-    if age is None or age >= 5:
+    if age is None:
+        return 1.0
+    for from_age, factor in OLD_FATALITY:
+        if age >= from_age:
+            return factor
+    if age >= 5:
         return 1.0
     return 20.0 if age < 1 else 3.0
 
@@ -386,9 +410,13 @@ HUNGRY_FATALITY_AFTER_MONTHS = 3  # C: slice 3 D, death from hardship
 HUNGRY_FATALITY = 1.5  # C: a disease this much deadlier after months of hunger
 
 
-def disease_fatality_factor(node) -> float:
+def disease_fatality_factor(node, disease: Optional[str] = None) -> float:
     hunger = HUNGRY_FATALITY if node.hungry_months >= HUNGRY_FATALITY_AFTER_MONTHS else 1.0
-    return SES_VULNERABILITY.get(node.ses, 1.0) * child_fatality_factor(node.age) * hunger
+    if disease == "measles":
+        age = MEASLES_ADULT_FATALITY if (node.age or 0) >= MEASLES_ADULT_FROM else 1.0
+    else:
+        age = age_fatality_factor(node.age)
+    return SES_VULNERABILITY.get(node.ses, 1.0) * age * hunger
 
 
 class CommonAilmentsPhenomenon:
@@ -2956,6 +2984,9 @@ class ReligionPhenomenon:
         }
 
 
+QUARANTINE_DISEASES = {"plague", "pneumonic plague"}  # realism audit 5.3: plague only
+
+
 class QuarantinePhenomenon:
     """Quarantine (added 2026-09-23), cross-cutting Priests + Nobles: seals
     TownShape home districts during the epidemic. Contagion applies the
@@ -3055,7 +3086,7 @@ class QuarantinePhenomenon:
         last_death_day: Dict[int, int] = {}
         nobles_alarmed = False
         for death in graph.deaths:
-            if death["cause"] not in EPIDEMIC_DISEASES:
+            if death["cause"] not in QUARANTINE_DISEASES:
                 continue
             node = graph.nodes[death["resident_id"]]
             district = node.district_id
