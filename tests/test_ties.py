@@ -59,6 +59,22 @@ def test_the_ties_of_the_dead_move_to_the_archive_after_a_day():
     assert graph.archived_ties_of(3) == [record]
 
 
+def test_a_long_run_s_archive_goes_to_a_file_and_closed_places_are_forgotten():
+    import json, os, tempfile
+    graph = _street()
+    path = os.path.join(tempfile.mkdtemp(), "archive.jsonl")
+    graph.archive_file, graph.open_places = path, [3]
+    graph.record_death(3, day=5, cause="flu")
+    graph.retire_ties_of_dead(before_day=6)
+    graph.flush_archive()
+    with open(path, encoding="utf-8") as f:
+        assert [json.loads(line)["on_death_of"] for line in f] == [3]  # kept, out of memory
+    assert graph.archived_ties == [] and len(graph.archived_ties_of(3)) == 1  # its place is open
+    graph.open_places.remove(3)
+    graph.retire_ties_of_dead(before_day=30)
+    assert graph.archived_ties_of(3) == []
+
+
 def test_an_arrival_takes_over_ties_already_archived():
     graph = _street()
     population = PopulationPhenomenon(arrival_daily_chance=0.0)
@@ -225,6 +241,7 @@ def _run_all():
     test_a_newborn_has_the_mother_s_neighbours()
     test_coming_of_age_brings_the_household_s_shops_not_the_parent_s_customers()
     test_the_ties_of_the_dead_move_to_the_archive_after_a_day()
+    test_a_long_run_s_archive_goes_to_a_file_and_closed_places_are_forgotten()
     test_an_arrival_takes_over_ties_already_archived()
     test_coworkers_are_tied_and_a_left_job_s_ties_become_acquaintances()
     test_moving_brings_the_new_street_and_old_neighbours_become_friends_who_drift_apart()

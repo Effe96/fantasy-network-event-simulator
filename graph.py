@@ -271,7 +271,16 @@ class SocialGraph:
         # day -- and for an arrival taking over a dead person's place.
         # Each record: both ids, type, closeness, both feelings, when retired.
         self.archived_ties: List[Dict[str, Any]] = []
+        # a long run's archive goes to this file (JSON lines) instead of
+        # archived_ties: kept the same, out of memory (2026-10-14: 25 years of
+        # it were ~1 GB in Riverport, set to fill RAM at 25,000 people)
+        self.archive_file: Optional[str] = None
+        self._archive_buffer: List[Dict[str, Any]] = []
+        # a dead person's records, read back by the newcomer who takes their
+        # place; dropped once the place isn't open (open_places, kept by the
+        # population phenomenon), as nothing reads them after
         self._archived_by_dead: Dict[int, List[Dict[str, Any]]] = {}
+        self.open_places: Optional[List[int]] = None
         self._deaths_retired = 0  # cursor into self.deaths
         self._ties_to_retire: List[Tuple[int, int, int, str]] = []  # (a, b, day, reason), see retire_tie
         # residents whose role changed mid-run (an heir ennobled, a veteran made
@@ -374,7 +383,7 @@ class SocialGraph:
             edge = self.edges.pop(key, None)
             if edge is None:
                 continue  # already gone with a death
-            self.archived_ties.append(self._archive_record(edge, day, None, reason))
+            self._archive(self._archive_record(edge, day, None, reason))
             del links[a][b]
             del links[b][a]
             self.last_retired_keys.append(key)
@@ -389,12 +398,32 @@ class SocialGraph:
                 edge = self.edges.pop(key)
                 self.last_retired_keys.append(key)
                 record = self._archive_record(edge, before_day - 1, dead, "death")
-                self.archived_ties.append(record)
+                self._archive(record)
                 records.append(record)
                 del links[other][dead]
                 moved += 1
             links.pop(dead, None)
+        if self.open_places is not None and before_day % 30 == 0:
+            still_open = set(self.open_places)
+            for dead in [d for d in self._archived_by_dead if d not in still_open]:
+                del self._archived_by_dead[dead]
         return moved
+
+    def _archive(self, record: Dict[str, Any]) -> None:
+        if self.archive_file is None:
+            self.archived_ties.append(record)
+            return
+        self._archive_buffer.append(record)
+        if len(self._archive_buffer) >= 20000:
+            self.flush_archive()
+
+    def flush_archive(self) -> None:
+        """Write what's waiting of the archive to archive_file (a long run calls it at the end too)."""
+        if self.archive_file is None or not self._archive_buffer:
+            return
+        with open(self.archive_file, "a", encoding="utf-8") as f:
+            f.writelines(json.dumps(r) + "\n" for r in self._archive_buffer)
+        self._archive_buffer = []
 
     def retire_tie(self, a: int, b: int, day: int, reason: str) -> None:
         """Queue a live tie between two living residents to leave the graph

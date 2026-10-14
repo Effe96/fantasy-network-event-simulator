@@ -3231,6 +3231,7 @@ class PopulationPhenomenon:
     def init_state(self, graph) -> Dict[int, Any]:
         self._start_size = sum(1 for node in graph.nodes.values() if node.alive)
         self._vacancies: List[int] = []  # dead residents whose place is still open, oldest first
+        graph.open_places = self._vacancies  # the graph keeps their archived ties only while open
         self._deaths_seen = len(graph.deaths)
         return {resident_id: {} for resident_id in graph.nodes}
 
