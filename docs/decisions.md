@@ -8,6 +8,26 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-15 — Why the big town doesn't settle
+
+Quiet years of the 25,000-person town hold (24,547 -> 24,375 -> 24,388 ->
+24,406, no riots, classes steady). What moved it in the runs with epidemics:
+- **Plague every 2-3 years.** Disease comes with each cargo and newcomer
+  at a chance measured in Riverport (~120 cargoes a year); a town 13x
+  bigger lands ~13x the cargoes. Historically plague returned every 10-15
+  years, big town or small. **Fix:** the chance per cargo and per newcomer
+  is scaled by REFERENCE_RESIDENTS (1,889) / the town's size at import, so
+  the yearly chance stays Riverport's; smaller towns keep theirs; Riverport
+  is unchanged.
+- **No growth:** 25.6% are day labourers (Riverport 18.4%), so there's
+  never spare day work (-0.24 against +0.29) and no newcomers come for
+  work. TownShape's job mix at this size.
+- **Riots after quarantine** go to the priests who seal districts: 2
+  churches and 6 priests for 24,545 people (Riverport 1 and 3 for 1,889),
+  so one priest had ~3,800 ties and 226 haters by a plague year's end.
+  TownShape doesn't scale churches (or guards: 49, ~400 at Riverport's
+  ratio) with the town. Not fixed: for the user.
+
 ## 2026-10-15 — Nobles don't work; a riot needs real hatred
 
 - **Nobles don't work** (user, 2026-10-14: "NOBLES DO NOT WORK!").

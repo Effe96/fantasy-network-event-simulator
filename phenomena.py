@@ -97,6 +97,11 @@ MEASLES_HAD_BY_AGE = 5  # C: endemic in towns, so anyone older had it as a child
 CARGO_DISEASE_CHANCE = 0.07 / 120  # each import cargo landing (~120 a year, measured): plague comes this way or with newcomers
 CARGO_DISEASES = {"plague": 0.5, "pneumonic plague": 0.05, "typhus": 0.2, "influenza": 0.15, "measles": 0.1}  # C
 ARRIVAL_DISEASE_CHANCE = 0.03 / 20  # each newcomer, ~20 a year
+# Both were measured in Riverport; a bigger town lands more cargoes and draws
+# more newcomers, but the yearly chance of disease arriving stays Riverport's
+# (2026-10-15: at 25,000 people plague came every ~2-3 years; historically it
+# returned every 10-15 years, big town or small). Smaller towns keep theirs.
+REFERENCE_RESIDENTS = 1889
 ARRIVAL_DISEASES = {"measles": 0.3, "typhus": 0.3, "influenza": 0.3, "plague": 0.1}  # C
 FAMINE_TYPHUS_PER_YEAR = 0.5  # C: in the two years after a famine harvest (Great Famine 1315-17, then typhus)
 FAMINE_FEVER_DAYS = 730
@@ -164,6 +169,7 @@ class ContagionPhenomenon:
         self.by_disease: Dict[str, Tuple[float, int, float]] = {}  # disease -> (base_rate, infectious_days, fatality), from_tier
         self.by_cause = False  # outbreaks by cause (from_tier with no tier), else one disease at the flat chance
         self._arrived: List[int] = []  # newcomers since the last check
+        self._start_alive = REFERENCE_RESIDENTS  # set in init_state
         self._crowding = (0, 1.0)  # (day computed, people per place in houses)
         self.outbreaks_by_cause: Dict[str, int] = defaultdict(int)
         self.outbreak_yearly_chance = outbreak_yearly_chance
@@ -197,6 +203,7 @@ class ContagionPhenomenon:
     def init_state(self, graph) -> Dict[int, Any]:
         self._nodes = graph.nodes
         self._sealed = graph.quarantined_districts
+        self._start_alive = sum(1 for n in graph.nodes.values() if n.alive)
         state = {resident_id: self._fresh(graph.nodes[resident_id]) for resident_id in graph.nodes}
         if self.outbreak_yearly_chance is None or self.patient_zero is not None:
             patient_zero = self.patient_zero if self.patient_zero is not None else min(graph.nodes)
@@ -291,14 +298,15 @@ class ContagionPhenomenon:
                 return []
             return self._start(graph, state, self.disease, list(state), day, "flat", rng)
         scale = self.outbreak_yearly_chance / DEFAULT_OUTBREAK_YEARLY_CHANCE
+        brought = scale * min(1.0, REFERENCE_RESIDENTS / max(1, self._start_alive))
         draw = lambda mix: rng.choices(sorted(mix), [mix[d] for d in sorted(mix)])[0]
         for merchant in landed:  # brought in with a cargo: the merchant's household catches it first
-            if rng.random() < CARGO_DISEASE_CHANCE * scale and graph.nodes[merchant].alive:
+            if rng.random() < CARGO_DISEASE_CHANCE * brought and graph.nodes[merchant].alive:
                 home = graph.nodes[merchant].household_id
                 household = [r for r, n in graph.nodes.items() if n.alive and home is not None and n.household_id == home]
                 return self._start(graph, state, draw(CARGO_DISEASES), household or [merchant], day, "trade", rng)
         for newcomer in arrived:
-            if rng.random() < ARRIVAL_DISEASE_CHANCE * scale and graph.nodes[newcomer].alive:
+            if rng.random() < ARRIVAL_DISEASE_CHANCE * brought and graph.nodes[newcomer].alive:
                 return self._start(graph, state, draw(ARRIVAL_DISEASES), [newcomer], day, "newcomer", rng)
         daily = lambda yearly: 1.0 - (1.0 - min(0.99, yearly * scale)) ** (1.0 / 365.0)
         day_of_year = (day - 1) % 365
