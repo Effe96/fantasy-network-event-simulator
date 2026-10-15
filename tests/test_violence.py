@@ -725,6 +725,18 @@ def test_large_enough_band_escalates_into_a_riot_instead_of_a_kill():
     assert phenomenon._group_kills == 0  # handed off to the riot, not killed directly
 
 
+def test_a_band_that_only_hates_moderately_attacks_instead_of_rioting():
+    graph, victim_id = _group_town(num_haters=5)
+    for hater_id in range(1, 6):
+        graph.get_edge(hater_id, victim_id).set_valence_from(hater_id, -0.75)  # past the band's 0.7, short of RIOT_HATRED
+    riot = RiotPhenomenon(min_participants=3)
+    phenomenon = ViolencePhenomenon(success_base_rate=1.0, min_group_size=2, riot_phenomenon=riot, group_action_rate=1.0,
+                                     riot_escalation_min_band=5)
+    state = phenomenon.init_state(graph)
+    phenomenon.end_of_day(graph, state, day=1, rng=random.Random(0))
+    assert riot._riots == 0 and phenomenon._group_kills == 1
+
+
 def test_band_too_small_for_a_riot_still_just_kills_the_victim():
     graph, victim_id = _group_town(num_haters=2)
     riot = RiotPhenomenon(min_participants=3)  # band of 2 stays below this
@@ -914,6 +926,7 @@ def _run_all():
     test_failed_group_attempt_drops_victims_valence_toward_every_band_member()
     test_a_small_band_attacks_its_target_instead_of_rioting()
     test_large_enough_band_escalates_into_a_riot_instead_of_a_kill()
+    test_a_band_that_only_hates_moderately_attacks_instead_of_rioting()
     test_band_too_small_for_a_riot_still_just_kills_the_victim()
     test_large_band_without_a_riot_phenomenon_wired_in_still_just_kills()
     test_group_action_rate_gates_whether_a_qualifying_band_acts_today()

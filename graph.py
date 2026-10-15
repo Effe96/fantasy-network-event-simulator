@@ -707,6 +707,10 @@ def node_from_resident_row(graph: "SocialGraph", row: Dict[str, Any], rng: rando
             name: _clamp01(rng.gauss(means.get(name, DEFAULT_TRAIT_MEAN), 0.2)) for name in FAMILY_CORRELATED_TRAITS
         }
     occupation, is_noble = row.get("occupation"), bool(row.get("is_noble"))
+    if is_noble:
+        # nobles don't work (user, 2026-10-14): TownShape gives them any job,
+        # tavern staff, servants, farmhands, guards; they live on land and rent
+        occupation = "noble"
     is_civilian = not is_noble and occupation not in _NON_CIVILIAN_OCCUPATIONS
     age = _age_from_birth_date(row.get("birth_date"), graph.reference_year)
     # same draws as before ages counted (2026-10-11: a newborn could be an
@@ -717,7 +721,7 @@ def node_from_resident_row(graph: "SocialGraph", row: Dict[str, Any], rng: rando
         age=age,
         occupation=occupation, is_noble=is_noble, is_ex_soldier=is_ex_soldier,
         household_id=row.get("household_id"), home_building_id=row.get("home_building_id"),
-        workplace_building_id=row.get("workplace_building_id"), birth_date=row.get("birth_date"),
+        workplace_building_id=None if is_noble else row.get("workplace_building_id"), birth_date=row.get("birth_date"),
         same_sex_attracted=rng.random() < graph.params.same_sex_share,
         **synthesize_traits(rng, graph.family_baselines[family_root], means),
     )
@@ -829,7 +833,8 @@ def _load_resident_identity(conn: sqlite3.Connection, graph: SocialGraph) -> Non
         node = graph.nodes.get(resident_id)
         if node is not None:
             node.household_id, node.home_building_id = household_id, home_building_id
-            node.workplace_building_id, node.birth_date = workplace_building_id, birth_date
+            node.workplace_building_id = None if node.is_noble else workplace_building_id
+            node.birth_date = birth_date
 
 
 # A buyer knows at most their nearest this many of each kind (2026-10-14).
@@ -870,7 +875,7 @@ def _load_shopkeeper_customer(conn: sqlite3.Connection, graph: SocialGraph, rng:
                sr.shop_building_id
         FROM shop_relationships sr
         JOIN residents r ON r.workplace_building_id = sr.shop_building_id
-        WHERE sr.resident_id != r.id
+        WHERE sr.resident_id != r.id AND NOT COALESCE(r.is_noble, 0)
         ORDER BY sr.resident_id, r.id
         """
     ).fetchall()
@@ -909,7 +914,6 @@ def shop_edge(graph: SocialGraph, customer_id: int, staff_id: int, time: float, 
         valence_a_to_b=valence_a_to_b,
         valence_b_to_a=valence_b_to_a,
     )
-    _apply_noble_poor_skew(graph, edge)
     return edge
 
 

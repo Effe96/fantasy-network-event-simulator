@@ -379,6 +379,9 @@ SES_VULNERABILITY = {"very_poor": 3.0, "poor": 2.0, "middling": 1.0, "rich": 0.5
 # from 16 people fight, riot, plot, hire protection and soldier (user,
 # 2026-10-11: a noble girl of 3 plotted a coup with a baby as her mercenary)
 FIGHTING_AGE = 16
+# a band turns into a riot only with 10+ who hate its target this much (user,
+# 2026-10-14: "hatred should be quite high"); bands form at 0.7
+RIOT_HATRED = 0.85  # C
 # a veteran has the training and the arms (user, 2026-10-11): this many times
 # likelier to kill when they strike, and less likely to be killed
 VETERAN_EDGE = 1.5  # C
@@ -1339,11 +1342,14 @@ class ViolencePhenomenon:
     def _resolve_group_violence(
         self, graph, state, victim: int, band: List[int], day: int, rng: random.Random
     ) -> List[Event]:
+        # only those who hate the target past RIOT_HATRED take it to the streets (user, 2026-10-14)
+        rioters = [h for h in band if -graph.get_edge(h, victim).valence_from(h) >= RIOT_HATRED]
         if (
             self.riot_phenomenon is not None
             and self.riot_phenomenon._active_riot is None
-            and len(band) >= max(self.riot_phenomenon.min_participants, self.riot_escalation_min_band)
+            and len(rioters) >= max(self.riot_phenomenon.min_participants, self.riot_escalation_min_band)
         ):
+            band = rioters
             avg_band_hostility = sum(-graph.get_edge(h, victim).valence_from(h) for h in band) / len(band)
             events = [
                 Event(day, self.name, "group_escalates_to_riot", band[0], victim,

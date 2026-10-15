@@ -49,38 +49,25 @@ def test_time_and_services_scale_with_real_purchase_data():
         assert low_engagement.services < high_engagement.services
 
 
-def test_noble_poor_skew_applies_to_shopkeeper_customer_edges_too():
-    # a poor customer buying from a noble shopkeeper should carry the same
-    # extra resentment shift the relationship-edge path applies -- checked
-    # statistically against an identical purchase from a non-noble
-    # shopkeeper, since the underlying draw still has its own variance
-    noble_valences = []
-    peer_valences = []
-    for seed in range(40):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = str(Path(tmp) / "town.db")
-            make_test_db(
-                db_path,
-                residents=[
-                    (1, "poor", None),
-                    (2, "rich", 100, None, None, None, None, 1),  # 2 is a noble
-                    (3, "rich", 200),  # 3 is an ordinary rich shopkeeper, not a noble
-                ],
-                shop_relationships=[(1, 100, 8.0, 5, 1), (1, 200, 8.0, 5, 1)],
-            )
-            graph = import_snapshot(db_path, seed=seed)
-            noble_valences.append(graph.get_edge(1, 2).valence_from(1))
-            peer_valences.append(graph.get_edge(1, 3).valence_from(1))
-    avg_noble = sum(noble_valences) / len(noble_valences)
-    avg_peer = sum(peer_valences) / len(peer_valences)
-    assert avg_noble < avg_peer
+def test_nobles_do_not_work_so_they_have_no_customers():
+    # TownShape may give a noble a job; in the sim nobles don't work (user, 2026-10-14)
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "town.db")
+        make_test_db(
+            db_path,
+            residents=[(1, "poor", None), (2, "rich", 100, None, None, None, None, 1), (3, "rich", 200)],
+            shop_relationships=[(1, 100, 8.0, 5, 1), (1, 200, 8.0, 5, 1)],
+        )
+        graph = import_snapshot(db_path, seed=1)
+    assert graph.get_edge(1, 2) is None and graph.get_edge(1, 3) is not None
+    assert graph.nodes[2].occupation == "noble" and graph.nodes[2].workplace_building_id is None
 
 
 def _run_all():
     test_shopkeeper_customer_edges_created_for_each_staff_member()
     test_staff_member_buying_from_own_shop_does_not_self_link()
     test_time_and_services_scale_with_real_purchase_data()
-    test_noble_poor_skew_applies_to_shopkeeper_customer_edges_too()
+    test_nobles_do_not_work_so_they_have_no_customers()
     print("OK")
 
 

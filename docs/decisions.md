@@ -8,6 +8,26 @@
 > and what fixed it. Read this before re-litigating a decision or
 > "fixing" something that was already deliberately chosen. Newest first.
 
+## 2026-10-15 — Nobles don't work; a riot needs real hatred
+
+- **Nobles don't work** (user, 2026-10-14: "NOBLES DO NOT WORK!").
+  TownShape gives nobles any job: in the 25,000 town 38 tavern staff, 18
+  shop staff, 17 servants, 15 guards...; in Riverport servants, farmhands,
+  farmers and a barkeep. At import a noble's occupation is "noble" and
+  they have no workplace, so no customers or coworkers from a job; they
+  live on land and rent as before. The jobs they held are open to others.
+  The resentment shift for a poor customer of a noble shopkeeper is gone
+  with the case.
+- **A band riots only with 10+ who hate its target at RIOT_HATRED (0.85,
+  mine)** (user: "hatred should be quite high for this"). Bands still form
+  at 0.7; a band without enough at 0.85 attacks its target instead.
+- Riverport, 3 seeds x 25 years, quiet and with epidemics: population,
+  money and classes within seed noise (quiet: 2,354 against 2,398 at year
+  25); riots 0-2 a run as before.
+- Open (user's note): nobles are famous, known to everyone without a tie.
+  Not modelled yet: anger at nobles (quarantine, riots) still travels along
+  ties.
+
 ## 2026-10-14 — Why the 25,000-person town rioted: shop ties
 
 The 25-year run of a 24,545-person town had 35 riots (624 dead), against
